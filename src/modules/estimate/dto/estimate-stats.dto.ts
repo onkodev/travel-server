@@ -1,0 +1,72 @@
+import { ApiProperty } from '@nestjs/swagger';
+
+export class EstimateStatsDto {
+  @ApiProperty({ description: '전체 견적 수' })
+  total: number;
+
+  @ApiProperty({ description: '수동 견적 수' })
+  manual: number;
+
+  @ApiProperty({ description: 'AI 견적 수' })
+  ai: number;
+}
+
+export class ManualEstimateStatsDto {
+  @ApiProperty({ description: '전체 수동 견적 수' })
+  total: number;
+
+  @ApiProperty({ description: '계획 중' })
+  planning: number;
+
+  @ApiProperty({ description: '진행 중' })
+  inProgress: number;
+
+  @ApiProperty({ description: '완료' })
+  completed: number;
+
+  @ApiProperty({ description: '취소' })
+  cancelled: number;
+
+  @ApiProperty({ description: '보관' })
+  archived: number;
+
+  @ApiProperty({ description: '다가오는 여행' })
+  upcoming: number;
+}
+
+export class AIEstimateStatsDto {
+  @ApiProperty({ description: '전체 AI 견적 수' })
+  total: number;
+
+  @ApiProperty({ description: '초안' })
+  draft: number;
+
+  @ApiProperty({ description: '대기 중' })
+  pending: number;
+
+  @ApiProperty({ description: '발송됨' })
+  sent: number;
+
+  @ApiProperty({ description: '수정됨' })
+  revised: number;
+
+  @ApiProperty({ description: '수락됨' })
+  accepted: number;
+
+  @ApiProperty({ description: '거절됨' })
+  declined: number;
+
+  @ApiProperty({ description: '완료' })
+  completed: number;
+
+  @ApiProperty({ description: '보관' })
+  archived: number;
+}
+
+export class AdjacentIdsDto {
+  @ApiProperty({ description: '이전 견적 ID', nullable: true })
+  prevId: number | null;
+
+  @ApiProperty({ description: '다음 견적 ID', nullable: true })
+  nextId: number | null;
+}
