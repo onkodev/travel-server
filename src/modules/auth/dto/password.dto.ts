@@ -3,13 +3,20 @@ import { IsString, MinLength } from 'class-validator';
 
 export class UpdatePasswordDto {
   @ApiProperty({
+    description: '현재 비밀번호',
+    example: 'currentpassword123',
+  })
+  @IsString()
+  currentPassword: string;
+
+  @ApiProperty({
     description: '새 비밀번호 (6자 이상)',
     example: 'newpassword123',
     minLength: 6,
   })
   @IsString()
   @MinLength(6, { message: '비밀번호는 6자 이상이어야 합니다' })
-  password: string;
+  newPassword: string;
 }
 
 export class ForgotPasswordDto {

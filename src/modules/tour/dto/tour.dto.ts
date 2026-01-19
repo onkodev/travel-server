@@ -144,6 +144,11 @@ export class UpdateTourDto {
   @IsString()
   title?: string;
 
+  @ApiPropertyOptional({ description: '부제목' })
+  @IsOptional()
+  @IsString()
+  subtitle?: string;
+
   @ApiPropertyOptional({ description: '투어 설명' })
   @IsOptional()
   @IsString()
@@ -153,6 +158,11 @@ export class UpdateTourDto {
   @IsOptional()
   @IsString()
   thumbnailUrl?: string;
+
+  @ApiPropertyOptional({ description: '이미지 URL 목록', type: [String] })
+  @IsOptional()
+  @IsArray()
+  imageUrls?: string[];
 
   @ApiPropertyOptional({ description: '소요 시간 (분)' })
   @IsOptional()
@@ -164,6 +174,36 @@ export class UpdateTourDto {
   @IsNumber()
   price?: number;
 
+  @ApiPropertyOptional({ description: '통화' })
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @ApiPropertyOptional({ description: '미팅 포인트' })
+  @IsOptional()
+  @IsString()
+  meetingPoint?: string;
+
+  @ApiPropertyOptional({ description: '위도' })
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @ApiPropertyOptional({ description: '경도' })
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @ApiPropertyOptional({ description: '포함 항목', type: [String] })
+  @IsOptional()
+  @IsArray()
+  includedItems?: string[];
+
+  @ApiPropertyOptional({ description: '불포함 항목', type: [String] })
+  @IsOptional()
+  @IsArray()
+  excludedItems?: string[];
+
   @ApiPropertyOptional({ description: '카테고리' })
   @IsOptional()
   @IsString()
@@ -173,6 +213,41 @@ export class UpdateTourDto {
   @IsOptional()
   @IsArray()
   tags?: string[];
+
+  @ApiPropertyOptional({ description: '참고사항' })
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @ApiPropertyOptional({ description: '일정 목록' })
+  @IsOptional()
+  @IsArray()
+  itinerary?: any[];
+
+  @ApiPropertyOptional({ description: '최소 인원' })
+  @IsOptional()
+  @IsNumber()
+  minParticipants?: number;
+
+  @ApiPropertyOptional({ description: '최대 인원' })
+  @IsOptional()
+  @IsNumber()
+  maxParticipants?: number;
+
+  @ApiPropertyOptional({ description: '예약 마감 시간 (시간 전)' })
+  @IsOptional()
+  @IsNumber()
+  bookingCutoffHours?: number;
+
+  @ApiPropertyOptional({ description: '차단된 날짜 목록', type: [String] })
+  @IsOptional()
+  @IsArray()
+  blockedDates?: string[];
+
+  @ApiPropertyOptional({ description: '차단된 요일 목록', type: [Number] })
+  @IsOptional()
+  @IsArray()
+  blockedWeekdays?: number[];
 
   @ApiPropertyOptional({
     description: '상태',

@@ -98,69 +98,80 @@ export class ReviewService {
     return convertDecimalFields(review);
   }
 
-  // 리뷰 생성
+  // 리뷰 생성 (트랜잭션으로 리뷰 + 통계 업데이트 atomic 처리)
   async createReview(data: Prisma.ReviewCreateInput) {
-    const review = await this.prisma.review.create({ data });
+    return this.prisma.$transaction(async (tx) => {
+      const review = await tx.review.create({ data });
 
-    // 투어의 리뷰 통계 업데이트
-    await this.updateTourReviewStats(review.tourId);
+      // 투어의 리뷰 통계 업데이트
+      await this.updateTourReviewStatsWithTx(tx, review.tourId);
 
-    return review;
+      return review;
+    });
   }
 
-  // 리뷰 업데이트
+  // 리뷰 업데이트 (트랜잭션으로 리뷰 + 통계 업데이트 atomic 처리)
   async updateReview(id: number, data: Prisma.ReviewUpdateInput) {
-    const review = await this.prisma.review.update({
-      where: { id },
-      data,
+    return this.prisma.$transaction(async (tx) => {
+      const review = await tx.review.update({
+        where: { id },
+        data,
+      });
+
+      // 투어의 리뷰 통계 업데이트
+      await this.updateTourReviewStatsWithTx(tx, review.tourId);
+
+      return review;
     });
-
-    // 투어의 리뷰 통계 업데이트
-    await this.updateTourReviewStats(review.tourId);
-
-    return review;
   }
 
-  // 리뷰 삭제
+  // 리뷰 삭제 (트랜잭션으로 리뷰 + 통계 업데이트 atomic 처리)
   async deleteReview(id: number) {
-    const review = await this.prisma.review.delete({
-      where: { id },
+    return this.prisma.$transaction(async (tx) => {
+      const review = await tx.review.delete({
+        where: { id },
+      });
+
+      // 투어의 리뷰 통계 업데이트
+      await this.updateTourReviewStatsWithTx(tx, review.tourId);
+
+      return review;
     });
-
-    // 투어의 리뷰 통계 업데이트
-    await this.updateTourReviewStats(review.tourId);
-
-    return review;
   }
 
-  // 리뷰 표시/숨김 토글
+  // 리뷰 표시/숨김 토글 (트랜잭션으로 리뷰 + 통계 업데이트 atomic 처리)
   async toggleVisibility(id: number) {
-    const review = await this.prisma.review.findUnique({ where: { id } });
+    return this.prisma.$transaction(async (tx) => {
+      const review = await tx.review.findUnique({ where: { id } });
 
-    if (!review) {
-      throw new NotFoundException('리뷰를 찾을 수 없습니다');
-    }
+      if (!review) {
+        throw new NotFoundException('리뷰를 찾을 수 없습니다');
+      }
 
-    const updated = await this.prisma.review.update({
-      where: { id },
-      data: { isVisible: !review.isVisible },
+      const updated = await tx.review.update({
+        where: { id },
+        data: { isVisible: !review.isVisible },
+      });
+
+      // 투어의 리뷰 통계 업데이트
+      await this.updateTourReviewStatsWithTx(tx, review.tourId);
+
+      return updated;
     });
-
-    // 투어의 리뷰 통계 업데이트
-    await this.updateTourReviewStats(review.tourId);
-
-    return updated;
   }
 
-  // 투어 리뷰 통계 업데이트
-  private async updateTourReviewStats(tourId: number) {
-    const stats = await this.prisma.review.aggregate({
+  // 투어 리뷰 통계 업데이트 (트랜잭션 클라이언트 사용)
+  private async updateTourReviewStatsWithTx(
+    tx: Prisma.TransactionClient,
+    tourId: number,
+  ) {
+    const stats = await tx.review.aggregate({
       where: { tourId, isVisible: true },
       _count: true,
       _avg: { rating: true },
     });
 
-    await this.prisma.tour.update({
+    await tx.tour.update({
       where: { id: tourId },
       data: {
         reviewCount: stats._count,

@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { SupabaseService } from '../../supabase/supabase.service';
 
 export interface UserListItem {
@@ -47,7 +52,15 @@ interface SupabaseUserRow {
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(private supabaseService: SupabaseService) {}
+
+  // Supabase 에러를 NestJS 예외로 변환
+  private handleSupabaseError(error: any, context: string): never {
+    this.logger.error(`${context}: ${error.message}`, error.stack);
+    throw new InternalServerErrorException(`${context} 처리 중 오류가 발생했습니다`);
+  }
 
   async getUserList(params: UserListParams) {
     const supabase = this.supabaseService.getAuthClient();
@@ -80,7 +93,7 @@ export class UserService {
     const { data, count, error } = await query;
 
     if (error) {
-      throw error;
+      this.handleSupabaseError(error, '사용자 목록 조회');
     }
 
     // camelCase로 변환
@@ -100,24 +113,17 @@ export class UserService {
   async getUserStats(): Promise<UserStats> {
     const supabase = this.supabaseService.getAuthClient();
 
-    const { count: total } = await supabase
-      .from('users')
-      .select('*', { count: 'exact', head: true });
-
-    const { count: active } = await supabase
-      .from('users')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_active', true);
-
-    const { count: inactive } = await supabase
-      .from('users')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_active', false);
+    // 병렬 쿼리로 성능 개선
+    const [totalResult, activeResult, inactiveResult] = await Promise.all([
+      supabase.from('users').select('*', { count: 'exact', head: true }),
+      supabase.from('users').select('*', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('users').select('*', { count: 'exact', head: true }).eq('is_active', false),
+    ]);
 
     return {
-      total: total || 0,
-      active: active || 0,
-      inactive: inactive || 0,
+      total: totalResult.count || 0,
+      active: activeResult.count || 0,
+      inactive: inactiveResult.count || 0,
     };
   }
 
@@ -146,7 +152,7 @@ export class UserService {
       .eq('id', id);
 
     if (error) {
-      throw error;
+      this.handleSupabaseError(error, '사용자 상태 변경');
     }
 
     return { success: true };
@@ -161,7 +167,7 @@ export class UserService {
       .eq('id', id);
 
     if (error) {
-      throw error;
+      this.handleSupabaseError(error, '사용자 역할 변경');
     }
 
     return { success: true };
@@ -185,71 +191,22 @@ export class UserService {
 
   // 사용자가 구매한 투어 목록 조회
   async getMyTours(userId: string) {
-    const supabase = this.supabaseService.getAuthClient();
-
-    const { data, error } = await supabase
-      .from('user_tours')
-      .select(
-        `
-        *,
-        tours (
-          *,
-          regions (
-            name,
-            nameEn
-          )
-        ),
-        orders (
-          status,
-          amount,
-          createdAt
-        )
-      `,
-      )
-      .eq('userId', userId)
-      .order('createdAt', { ascending: false });
-
-    if (error) {
-      throw error;
-    }
-
-    return data || [];
+    // user_tours 테이블이 아직 구현되지 않음 - 빈 배열 반환
+    this.logger.log(`getMyTours called for userId: ${userId} - feature not yet implemented`);
+    return [];
   }
 
   // 사용자 통계 조회 (여행한 도시 수, 리뷰 평균 점수, 선호 테마)
   async getMyStats(userId: string) {
-    const supabase = this.supabaseService.getAuthClient();
-
-    // 사용자 투어 데이터 조회
-    const { data: userTours, error: toursError } = await supabase
-      .from('user_tours')
-      .select(
-        `
-        tour_id,
-        tours (
-          regionId,
-          tags
-        )
-      `,
-      )
-      .eq('userId', userId);
-
-    if (toursError) {
-      throw toursError;
-    }
-
-    // 사용자 리뷰 데이터 조회
-    const { data: reviews, error: reviewsError } = await supabase
-      .from('reviews')
-      .select('rating')
-      .eq('userId', userId);
-
-    if (reviewsError) {
-      throw reviewsError;
-    }
-
-    // 통계 계산
-    return this.calculateStats(userTours || [], reviews || []);
+    // user_tours 테이블이 아직 구현되지 않음 - 기본값 반환
+    this.logger.log(`getMyStats called for userId: ${userId} - feature not yet implemented`);
+    return {
+      cityCount: 0,
+      averageRating: 0,
+      preferredTheme: '전체',
+      reviewCount: 0,
+      tourCount: 0,
+    };
   }
 
   // 통계 계산 헬퍼

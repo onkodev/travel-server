@@ -7,6 +7,8 @@ import {
   Body,
   Param,
   Query,
+  UseGuards,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,6 +17,8 @@ import {
   ApiBearerAuth,
   ApiParam,
 } from '@nestjs/swagger';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { EstimateService } from './estimate.service';
 import { EstimateSchedulerService } from './estimate-scheduler.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -49,6 +53,8 @@ class EstimateListResponseDto {
 
 @ApiTags('견적')
 @ApiBearerAuth('access-token')
+@UseGuards(RolesGuard)
+@Roles('admin', 'agent')
 @Controller('estimates')
 export class EstimateController {
   constructor(
@@ -74,6 +80,7 @@ export class EstimateController {
       statusManual: query.statusManual,
       statusAi: query.statusAi,
       excludeStatusManual: query.excludeStatusManual,
+      excludeStatusAi: query.excludeStatusAi,
       search: query.search,
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
@@ -198,8 +205,8 @@ export class EstimateController {
     description: '견적 없음',
     type: ErrorResponseDto,
   })
-  async getEstimate(@Param('id') id: string) {
-    return this.estimateService.getEstimate(parseInt(id));
+  async getEstimate(@Param('id', ParseIntPipe) id: number) {
+    return this.estimateService.getEstimate(id);
   }
 
   @Get(':id/adjacent')
@@ -209,8 +216,8 @@ export class EstimateController {
   })
   @ApiParam({ name: 'id', description: '견적 ID' })
   @ApiResponse({ status: 200, description: '조회 성공', type: AdjacentIdsDto })
-  async getAdjacentIds(@Param('id') id: string) {
-    return this.estimateService.getAdjacentIds(parseInt(id));
+  async getAdjacentIds(@Param('id', ParseIntPipe) id: number) {
+    return this.estimateService.getAdjacentIds(id);
   }
 
   @Post()
@@ -240,8 +247,8 @@ export class EstimateController {
     description: '견적 없음',
     type: ErrorResponseDto,
   })
-  async duplicateEstimate(@Param('id') id: string) {
-    return this.estimateService.duplicate(parseInt(id));
+  async duplicateEstimate(@Param('id', ParseIntPipe) id: number) {
+    return this.estimateService.duplicate(id);
   }
 
   @Patch(':id')
@@ -257,10 +264,10 @@ export class EstimateController {
     type: ErrorResponseDto,
   })
   async updateEstimate(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdateEstimateDto,
   ) {
-    return this.estimateService.updateEstimate(parseInt(id), body);
+    return this.estimateService.updateEstimate(id, body);
   }
 
   @Patch(':id/status/manual')
@@ -276,10 +283,10 @@ export class EstimateController {
     type: ErrorResponseDto,
   })
   async updateManualStatus(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdateStatusDto,
   ) {
-    return this.estimateService.updateManualStatus(parseInt(id), body.status);
+    return this.estimateService.updateManualStatus(id, body.status);
   }
 
   @Patch(':id/status/ai')
@@ -294,8 +301,8 @@ export class EstimateController {
     description: '견적 없음',
     type: ErrorResponseDto,
   })
-  async updateAIStatus(@Param('id') id: string, @Body() body: UpdateStatusDto) {
-    return this.estimateService.updateAIStatus(parseInt(id), body.status);
+  async updateAIStatus(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateStatusDto) {
+    return this.estimateService.updateAIStatus(id, body.status);
   }
 
   @Patch(':id/pinned')
@@ -305,8 +312,8 @@ export class EstimateController {
   })
   @ApiParam({ name: 'id', description: '견적 ID' })
   @ApiResponse({ status: 200, description: '변경 성공', type: EstimateDto })
-  async togglePinned(@Param('id') id: string, @Body() body: UpdatePinnedDto) {
-    return this.estimateService.togglePinned(parseInt(id), body.isPinned);
+  async togglePinned(@Param('id', ParseIntPipe) id: number, @Body() body: UpdatePinnedDto) {
+    return this.estimateService.togglePinned(id, body.isPinned);
   }
 
   @Patch(':id/items')
@@ -316,8 +323,8 @@ export class EstimateController {
   })
   @ApiParam({ name: 'id', description: '견적 ID' })
   @ApiResponse({ status: 200, description: '수정 성공', type: EstimateDto })
-  async updateItems(@Param('id') id: string, @Body() body: UpdateItemsDto) {
-    return this.estimateService.updateItems(parseInt(id), body.items);
+  async updateItems(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateItemsDto) {
+    return this.estimateService.updateItems(id, body.items);
   }
 
   @Patch(':id/adjustment')
@@ -328,11 +335,11 @@ export class EstimateController {
   @ApiParam({ name: 'id', description: '견적 ID' })
   @ApiResponse({ status: 200, description: '수정 성공', type: EstimateDto })
   async updateAdjustment(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdateAdjustmentDto,
   ) {
     return this.estimateService.updateAdjustment(
-      parseInt(id),
+      id,
       body.amount,
       body.reason,
     );
@@ -354,8 +361,8 @@ export class EstimateController {
     description: '견적 없음',
     type: ErrorResponseDto,
   })
-  async sendEstimate(@Param('id') id: string) {
-    return this.estimateService.sendEstimate(parseInt(id));
+  async sendEstimate(@Param('id', ParseIntPipe) id: number) {
+    return this.estimateService.sendEstimate(id);
   }
 
   @Delete(':id')
@@ -374,7 +381,7 @@ export class EstimateController {
     description: '견적 없음',
     type: ErrorResponseDto,
   })
-  async deleteEstimate(@Param('id') id: string) {
-    return this.estimateService.deleteEstimate(parseInt(id));
+  async deleteEstimate(@Param('id', ParseIntPipe) id: number) {
+    return this.estimateService.deleteEstimate(id);
   }
 }

@@ -9,12 +9,6 @@ import {
   IsObject,
 } from 'class-validator';
 import { EstimateItemDto } from './estimate.dto';
-import {
-  EstimateItemExtendedDto,
-  DisplayOptionsDto,
-  TimelineEntryDto,
-  RevisionHistoryEntryDto,
-} from './estimate-types.dto';
 
 /**
  * 견적 수정 DTO
@@ -167,10 +161,10 @@ export class UpdateEstimateDto {
   @IsArray()
   regions?: string[];
 
-  @ApiPropertyOptional({ description: '견적 아이템 목록', type: [EstimateItemExtendedDto] })
+  @ApiPropertyOptional({ description: '견적 아이템 목록' })
   @IsOptional()
   @IsArray()
-  items?: EstimateItemExtendedDto[];
+  items?: Record<string, unknown>[];
 
   @ApiPropertyOptional({ description: '소계' })
   @IsOptional()
@@ -197,30 +191,29 @@ export class UpdateEstimateDto {
   @IsString()
   currency?: string;
 
-  @ApiPropertyOptional({ description: '표시 옵션', type: DisplayOptionsDto })
+  @ApiPropertyOptional({ description: '표시 옵션 (place, accommodation, transportation, contents, price)' })
   @IsOptional()
   @IsObject()
-  displayOptions?: DisplayOptionsDto;
+  displayOptions?: Record<string, boolean>;
 
   @ApiPropertyOptional({ description: '코멘트' })
   @IsOptional()
   @IsString()
   comment?: string;
 
-  @ApiPropertyOptional({ description: '타임라인', type: [TimelineEntryDto] })
+  @ApiPropertyOptional({ description: '타임라인 (Record<number, string> 형태)' })
   @IsOptional()
-  @IsArray()
-  timeline?: TimelineEntryDto[];
+  timeline?: Record<number, string>;
 
   @ApiPropertyOptional({ description: '요청 내용' })
   @IsOptional()
   @IsString()
   requestContent?: string;
 
-  @ApiPropertyOptional({ description: '수정 이력', type: [RevisionHistoryEntryDto] })
+  @ApiPropertyOptional({ description: '수정 이력' })
   @IsOptional()
   @IsArray()
-  revisionHistory?: RevisionHistoryEntryDto[];
+  revisionHistory?: Record<string, unknown>[];
 
   @ApiPropertyOptional({ description: '고정 여부' })
   @IsOptional()

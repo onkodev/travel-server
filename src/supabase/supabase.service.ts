@@ -13,11 +13,14 @@ export class SupabaseService {
   private authClient: SupabaseClient;
   private adminClient: SupabaseClient;
 
-  // 토큰 검증 캐시 (5분)
+  // 토큰 검증 캐시
   private tokenCache: Map<string, CacheEntry<User | null>> = new Map();
-  // 프로필 캐시 (5분)
+  // 프로필 캐시
   private profileCache: Map<string, CacheEntry<any>> = new Map();
-  private readonly CACHE_TTL = 5 * 60 * 1000; // 5분
+
+  // 캐시 TTL 설정 (보안을 위해 단축)
+  private readonly TOKEN_CACHE_TTL = 1 * 60 * 1000; // 1분 (토큰 검증은 더 짧게)
+  private readonly PROFILE_CACHE_TTL = 2 * 60 * 1000; // 2분 (프로필은 조금 더 길게)
 
   constructor(private configService: ConfigService) {
     // AUTH Supabase Client (tumakrguide - 인증용)
@@ -59,9 +62,9 @@ export class SupabaseService {
   async getUserFromToken(token: string): Promise<User | null> {
     const now = Date.now();
 
-    // 캐시 확인
+    // 캐시 확인 (1분 TTL)
     const cached = this.tokenCache.get(token);
-    if (cached && now - cached.timestamp < this.CACHE_TTL) {
+    if (cached && now - cached.timestamp < this.TOKEN_CACHE_TTL) {
       return cached.data;
     }
 
@@ -78,7 +81,7 @@ export class SupabaseService {
 
     // 오래된 캐시 정리 (100개 초과 시)
     if (this.tokenCache.size > 100) {
-      this.cleanupCache(this.tokenCache);
+      this.cleanupTokenCache();
     }
 
     return result;
@@ -88,9 +91,9 @@ export class SupabaseService {
   async getUserProfile(userId: string) {
     const now = Date.now();
 
-    // 캐시 확인
+    // 캐시 확인 (2분 TTL)
     const cached = this.profileCache.get(userId);
-    if (cached && now - cached.timestamp < this.CACHE_TTL) {
+    if (cached && now - cached.timestamp < this.PROFILE_CACHE_TTL) {
       return cached.data;
     }
 
@@ -108,7 +111,7 @@ export class SupabaseService {
 
     // 오래된 캐시 정리
     if (this.profileCache.size > 100) {
-      this.cleanupCache(this.profileCache);
+      this.cleanupProfileCache();
     }
 
     return result;
@@ -124,12 +127,22 @@ export class SupabaseService {
     this.tokenCache.delete(token);
   }
 
-  // 오래된 캐시 항목 정리
-  private cleanupCache<T>(cache: Map<string, CacheEntry<T>>) {
+  // 토큰 캐시 정리 (1분 TTL 기준)
+  private cleanupTokenCache() {
     const now = Date.now();
-    for (const [key, entry] of cache.entries()) {
-      if (now - entry.timestamp >= this.CACHE_TTL) {
-        cache.delete(key);
+    for (const [key, entry] of this.tokenCache.entries()) {
+      if (now - entry.timestamp >= this.TOKEN_CACHE_TTL) {
+        this.tokenCache.delete(key);
+      }
+    }
+  }
+
+  // 프로필 캐시 정리 (2분 TTL 기준)
+  private cleanupProfileCache() {
+    const now = Date.now();
+    for (const [key, entry] of this.profileCache.entries()) {
+      if (now - entry.timestamp >= this.PROFILE_CACHE_TTL) {
+        this.profileCache.delete(key);
       }
     }
   }

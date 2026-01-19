@@ -67,9 +67,28 @@ export class AuthService {
 
   // 로그아웃
   async signOut(token: string) {
-    // Supabase에서는 클라이언트 측에서 세션을 삭제하면 됨
-    // 서버에서는 특별한 처리가 필요 없음
-    return { success: true };
+    try {
+      // 1. 토큰에서 사용자 정보 가져오기
+      const user = await this.supabaseService.getUserFromToken(token);
+
+      if (user) {
+        // 2. Supabase Admin API로 사용자의 모든 세션 종료
+        const authClient = this.supabaseService.getAuthClient();
+        await authClient.auth.admin.signOut(user.id, 'global');
+
+        // 3. 프로필 캐시도 무효화
+        this.supabaseService.invalidateProfileCache(user.id);
+      }
+
+      // 4. 서버 캐시에서 토큰 무효화
+      this.supabaseService.invalidateTokenCache(token);
+
+      return { success: true };
+    } catch (error) {
+      // 로그아웃 실패해도 클라이언트 측에서는 토큰 삭제됨
+      console.error('로그아웃 처리 중 오류:', error);
+      return { success: true };
+    }
   }
 
   // 현재 사용자 정보 조회
@@ -237,10 +256,32 @@ export class AuthService {
     return this.getMe(userId);
   }
 
-  // 비밀번호 변경 (로그인된 사용자)
-  async updatePassword(userId: string, newPassword: string) {
+  // 비밀번호 변경 (로그인된 사용자) - 현재 비밀번호 확인 필수
+  async updatePassword(userId: string, currentPassword: string, newPassword: string) {
     const authClient = this.supabaseService.getAuthClient();
 
+    // 1. 사용자 이메일 조회
+    const { data: userData } = await authClient
+      .from('users')
+      .select('email')
+      .eq('id', userId)
+      .single();
+
+    if (!userData?.email) {
+      throw new BadRequestException('사용자 정보를 찾을 수 없습니다');
+    }
+
+    // 2. 현재 비밀번호 확인 (로그인 시도)
+    const { error: verifyError } = await authClient.auth.signInWithPassword({
+      email: userData.email,
+      password: currentPassword,
+    });
+
+    if (verifyError) {
+      throw new BadRequestException('현재 비밀번호가 일치하지 않습니다');
+    }
+
+    // 3. 새 비밀번호로 변경
     const { error } = await authClient.auth.admin.updateUserById(userId, {
       password: newPassword,
     });

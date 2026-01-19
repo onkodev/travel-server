@@ -1,11 +1,24 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { toCamelCase, toSnakeCase } from '../../common/utils/case.util';
 import { CreateTourDto, UpdateTourDto } from './dto';
 
 @Injectable()
 export class TourService {
+  private readonly logger = new Logger(TourService.name);
+
   constructor(private supabaseService: SupabaseService) {}
+
+  // Supabase 에러를 NestJS 예외로 변환
+  private handleSupabaseError(error: any, context: string): never {
+    this.logger.error(`${context}: ${error.message}`, error.stack);
+    throw new InternalServerErrorException(`${context} 처리 중 오류가 발생했습니다`);
+  }
 
   // DB 선택 헬퍼 (auth = tumakrguide, admin = tumakr)
   private getClient(source?: string) {
@@ -71,7 +84,7 @@ export class TourService {
     const { data, count, error } = await query;
 
     if (error) {
-      throw error;
+      this.handleSupabaseError(error, '공개 투어 목록 조회');
     }
 
     return {
@@ -118,7 +131,7 @@ export class TourService {
     const { data, count, error } = await query;
 
     if (error) {
-      throw error;
+      this.handleSupabaseError(error, '관리자 투어 목록 조회');
     }
 
     return {
@@ -149,11 +162,16 @@ export class TourService {
       throw new NotFoundException('투어를 찾을 수 없습니다');
     }
 
-    // 조회수 증가
-    await supabase
+    // 조회수 증가 (비동기로 처리하여 응답 속도 개선)
+    supabase
       .from('tours')
       .update({ view_count: (tour.view_count || 0) + 1 })
-      .eq('id', id);
+      .eq('id', id)
+      .then(({ error: updateError }) => {
+        if (updateError) {
+          this.logger.warn(`조회수 증가 실패: ${updateError.message}`);
+        }
+      });
 
     return toCamelCase(tour);
   }
@@ -170,7 +188,7 @@ export class TourService {
       .single();
 
     if (error) {
-      throw error;
+      this.handleSupabaseError(error, '투어 생성');
     }
 
     return toCamelCase(tour);
@@ -179,17 +197,54 @@ export class TourService {
   // 투어 업데이트 - admin 프로젝트 전용
   async updateTour(id: number, data: UpdateTourDto) {
     const supabase = this.supabaseService.getAdminClient();
+
+    // PostgreSQL array 컬럼 목록 (snake_case)
+    const arrayColumns = new Set([
+      'image_urls', 'included_items', 'excluded_items', 'tags',
+      'itinerary', 'blocked_dates', 'blocked_weekdays', 'highlights',
+      'meeting_point', 'notes', // 혹시 배열일 수 있으므로 추가
+    ]);
+
+    // 먼저 snake_case로 변환
     const snakeCaseData = toSnakeCase<Record<string, unknown>>(data);
+
+    // 빈 문자열/null/undefined를 적절히 변환
+    const sanitizedData: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(snakeCaseData)) {
+      if (value === undefined) continue;
+
+      if (arrayColumns.has(key)) {
+        // 배열 컬럼: 빈 배열/빈 문자열/null → 업데이트 제외
+        if (value === '' || value === null) {
+          continue;
+        } else if (Array.isArray(value)) {
+          if (value.length === 0) {
+            continue; // 빈 배열도 제외
+          }
+          sanitizedData[key] = value;
+        } else {
+          sanitizedData[key] = value;
+        }
+      } else {
+        // 빈 문자열은 null로 변환 (또는 제외)
+        if (value === '') {
+          sanitizedData[key] = null;
+        } else {
+          sanitizedData[key] = value;
+        }
+      }
+    }
+
 
     const { data: tour, error } = await supabase
       .from('tours')
-      .update({ ...snakeCaseData, updated_at: new Date().toISOString() })
+      .update({ ...sanitizedData, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();
 
     if (error) {
-      throw error;
+      this.handleSupabaseError(error, '투어 수정');
     }
 
     return toCamelCase(tour);
@@ -202,7 +257,7 @@ export class TourService {
     const { error } = await supabase.from('tours').delete().eq('id', id);
 
     if (error) {
-      throw error;
+      this.handleSupabaseError(error, '투어 삭제');
     }
 
     return { success: true };
@@ -218,7 +273,7 @@ export class TourService {
       .eq('status', 'published');
 
     if (error) {
-      throw error;
+      this.handleSupabaseError(error, '카테고리 목록 조회');
     }
 
     const categories = [...new Set((data || []).map((t) => t.category))];
@@ -235,7 +290,7 @@ export class TourService {
       .eq('status', 'published');
 
     if (error) {
-      throw error;
+      this.handleSupabaseError(error, '태그 목록 조회');
     }
 
     const allTags = (data || []).flatMap((t) => t.tags || []);

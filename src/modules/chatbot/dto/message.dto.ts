@@ -54,4 +54,13 @@ export class SaveMessageDto {
   options?: MessageOptionDto[];
 }
 
+// 배치 메시지 저장 DTO
+export class SaveMessageBatchDto {
+  @ApiProperty({ description: '메시지 배열', type: [SaveMessageDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SaveMessageDto)
+  messages: SaveMessageDto[];
+}
+
 // UpdateSessionTitleDto는 update-step.dto.ts에서 정의됨

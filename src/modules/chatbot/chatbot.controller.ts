@@ -9,7 +9,6 @@ import {
   Query,
   Req,
   UseGuards,
-  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -22,9 +21,11 @@ import {
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ChatbotService } from './chatbot.service';
+import { AiEstimateService } from './ai-estimate.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/user.decorator';
+import { RequireUserId } from '../../common/decorators/require-user.decorator';
 import { SupabaseService } from '../../supabase/supabase.service';
 import {
   StartFlowDto,
@@ -38,8 +39,12 @@ import {
   UpdateStep7Dto,
   TrackPageDto,
   SaveMessageDto,
+  SaveMessageBatchDto,
   UpdateSessionTitleDto,
   RespondToEstimateDto,
+  ModifyEstimateDto,
+  GenerateEstimateResponseDto,
+  ModifyEstimateResponseDto,
 } from './dto';
 import { StepResponseDto, FlowStartResponseDto } from './dto/step-response.dto';
 import { ChatbotFlowDto } from './dto/chatbot-flow.dto';
@@ -50,12 +55,13 @@ import { ErrorResponseDto } from '../../common/dto';
 export class ChatbotController {
   constructor(
     private chatbotService: ChatbotService,
+    private aiEstimateService: AiEstimateService,
     private supabaseService: SupabaseService,
   ) {}
 
   @Post('start')
   @Public()
-  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 1분에 5회로 제한 (스팸 방지)
+  @SkipThrottle()
   @ApiOperation({
     summary: '챗봇 플로우 시작',
     description: '새로운 챗봇 플로우를 시작하고 세션 ID를 반환합니다.',
@@ -91,12 +97,13 @@ export class ChatbotController {
 
   @Get('categories')
   @Public()
+  @SkipThrottle()
   @ApiOperation({
     summary: '카테고리 목록 조회',
     description: '투어 타입, 관심사, 지역 등 모든 카테고리 목록을 조회합니다.',
   })
   @ApiResponse({ status: 200, description: '조회 성공' })
-  getCategories() {
+  async getCategories() {
     return this.chatbotService.getCategories();
   }
 
@@ -105,22 +112,21 @@ export class ChatbotController {
   @Get('sessions/user')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
+  @SkipThrottle()
   @ApiOperation({
     summary: '사용자 세션 목록 조회',
     description: '로그인한 사용자의 챗봇 세션 목록을 조회합니다.',
   })
   @ApiResponse({ status: 200, description: '조회 성공' })
   @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
-  async getUserSessions(@CurrentUser('id') userId: string) {
-    if (!userId) {
-      throw new ForbiddenException('로그인이 필요합니다.');
-    }
+  async getUserSessions(@RequireUserId() userId: string) {
     return this.chatbotService.getUserSessions(userId);
   }
 
   @Get('admin/flows')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
+  @SkipThrottle()
   @ApiOperation({
     summary: '챗봇 플로우 목록 조회 (관리자)',
     description: '모든 챗봇 플로우 목록을 조회합니다.',
@@ -157,6 +163,7 @@ export class ChatbotController {
   @Get('admin/stats')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
+  @SkipThrottle()
   @ApiOperation({
     summary: '챗봇 플로우 통계 (관리자)',
     description: '플로우 전환율, 투어타입별, UTM 소스별 통계를 조회합니다.',
@@ -166,8 +173,66 @@ export class ChatbotController {
     return this.chatbotService.getFlowStats();
   }
 
+  @Get('admin/funnel')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard)
+  @SkipThrottle()
+  @ApiOperation({
+    summary: '퍼널 분석 (관리자)',
+    description: '단계별 전환율과 이탈률을 분석합니다.',
+  })
+  @ApiQuery({ name: 'days', required: false, description: '조회 기간 (일)' })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getFunnelAnalysis(@Query('days') days?: string) {
+    return this.chatbotService.getFunnelAnalysis(days ? parseInt(days) : 30);
+  }
+
+  @Get('admin/leads')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard)
+  @SkipThrottle()
+  @ApiOperation({
+    summary: '유망 리드 목록 (관리자)',
+    description: '리드 스코어 기반으로 유망 고객을 분석합니다.',
+  })
+  @ApiQuery({ name: 'limit', required: false, description: '조회 개수' })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getLeadScores(@Query('limit') limit?: string) {
+    return this.chatbotService.getLeadScores(limit ? parseInt(limit) : 50);
+  }
+
+  @Get('admin/countries')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard)
+  @SkipThrottle()
+  @ApiOperation({
+    summary: '국가별 통계 (관리자)',
+    description: '국가별 방문 및 전환율을 분석합니다.',
+  })
+  @ApiQuery({ name: 'days', required: false, description: '조회 기간 (일)' })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getCountryStats(@Query('days') days?: string) {
+    return this.chatbotService.getCountryStats(days ? parseInt(days) : 30);
+  }
+
+  @Get('admin/flow/:sessionId')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard)
+  @SkipThrottle()
+  @ApiOperation({
+    summary: '플로우 상세 조회 (관리자)',
+    description: '플로우 상세 정보와 방문자의 사이트 브라우징 기록을 조회합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({ status: 200, description: '조회 성공', type: ChatbotFlowDto })
+  @ApiResponse({ status: 404, description: '플로우 없음', type: ErrorResponseDto })
+  async getFlowAdmin(@Param('sessionId') sessionId: string) {
+    return this.chatbotService.getFlow(sessionId, true);
+  }
+
   @Get('by-estimate/:estimateId')
   @Public()
+  @SkipThrottle()
   @ApiOperation({
     summary: 'estimateId로 플로우 조회',
     description: '견적 ID로 연결된 챗봇 플로우를 조회합니다.',
@@ -184,6 +249,7 @@ export class ChatbotController {
 
   @Get(':sessionId')
   @Public()
+  @SkipThrottle()
   @ApiOperation({
     summary: '플로우 상태 조회',
     description: '현재 플로우의 전체 상태를 조회합니다.',
@@ -197,6 +263,7 @@ export class ChatbotController {
 
   @Get(':sessionId/step/:step')
   @Public()
+  @SkipThrottle()
   @ApiOperation({
     summary: '단계별 질문 조회',
     description: '특정 단계의 질문과 선택지를 조회합니다.',
@@ -219,6 +286,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/1')
   @Public()
+  @SkipThrottle()
   @ApiOperation({ summary: 'Step 1 업데이트', description: '투어 타입 선택' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
@@ -231,6 +299,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/2')
   @Public()
+  @SkipThrottle()
   @ApiOperation({ summary: 'Step 2 업데이트', description: '첫 방문 여부 선택' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
@@ -243,6 +312,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/3/main')
   @Public()
+  @SkipThrottle()
   @ApiOperation({
     summary: 'Step 3 메인 관심사 업데이트',
     description: '메인 관심사 카테고리 선택',
@@ -258,6 +328,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/3/sub')
   @Public()
+  @SkipThrottle()
   @ApiOperation({
     summary: 'Step 3 서브 관심사 업데이트',
     description: '세부 관심사 선택',
@@ -273,6 +344,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/4')
   @Public()
+  @SkipThrottle()
   @ApiOperation({ summary: 'Step 4 업데이트', description: '지역 선택' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
@@ -285,6 +357,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/5')
   @Public()
+  @SkipThrottle()
   @ApiOperation({ summary: 'Step 5 업데이트', description: '명소 선택' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
@@ -297,6 +370,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/6')
   @Public()
+  @SkipThrottle()
   @ApiOperation({ summary: 'Step 6 업데이트', description: '여행 정보 입력' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
@@ -310,6 +384,7 @@ export class ChatbotController {
   @Patch(':sessionId/step/7')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
+  @SkipThrottle()
   @ApiOperation({
     summary: 'Step 7 업데이트 (로그인 필수)',
     description: '연락처 정보 입력 - 로그인이 필요합니다.',
@@ -320,18 +395,14 @@ export class ChatbotController {
   async updateStep7(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateStep7Dto,
-    @CurrentUser('id') userId: string,
+    @RequireUserId() userId: string,
   ) {
-    if (!userId) {
-      throw new ForbiddenException(
-        '로그인이 필요합니다. Please sign in to continue.',
-      );
-    }
     return this.chatbotService.updateStep7(sessionId, dto, userId);
   }
 
   @Post(':sessionId/track')
   @Public()
+  @SkipThrottle()
   @ApiOperation({
     summary: '페이지 방문 기록',
     description: '사용자의 페이지 이동을 기록합니다.',
@@ -360,13 +431,8 @@ export class ChatbotController {
   @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
   async completeFlow(
     @Param('sessionId') sessionId: string,
-    @CurrentUser('id') userId: string,
+    @RequireUserId() userId: string,
   ) {
-    if (!userId) {
-      throw new ForbiddenException(
-        '로그인이 필요합니다. Please sign in to continue.',
-      );
-    }
     return this.chatbotService.completeFlow(sessionId, userId);
   }
 
@@ -385,13 +451,8 @@ export class ChatbotController {
   @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
   async sendToExpert(
     @Param('sessionId') sessionId: string,
-    @CurrentUser('id') userId: string,
+    @RequireUserId() _userId: string, // 인증 확인용
   ) {
-    if (!userId) {
-      throw new ForbiddenException(
-        '로그인이 필요합니다. Please sign in to continue.',
-      );
-    }
     return this.chatbotService.sendToExpert(sessionId);
   }
 
@@ -410,13 +471,8 @@ export class ChatbotController {
   async respondToEstimate(
     @Param('sessionId') sessionId: string,
     @Body() dto: RespondToEstimateDto,
-    @CurrentUser('id') userId: string,
+    @RequireUserId() _userId: string, // 인증 확인용
   ) {
-    if (!userId) {
-      throw new ForbiddenException(
-        '로그인이 필요합니다. Please sign in to continue.',
-      );
-    }
     return this.chatbotService.respondToEstimate(
       sessionId,
       dto.response,
@@ -428,6 +484,7 @@ export class ChatbotController {
 
   @Post(':sessionId/messages')
   @Public()
+  @SkipThrottle()
   @ApiOperation({
     summary: '메시지 저장',
     description: '챗봇 세션에 새 메시지를 저장합니다.',
@@ -442,8 +499,26 @@ export class ChatbotController {
     return this.chatbotService.saveMessage(sessionId, dto);
   }
 
+  @Post(':sessionId/messages/batch')
+  @Public()
+  @SkipThrottle()
+  @ApiOperation({
+    summary: '메시지 배치 저장',
+    description: '여러 메시지를 한 번에 저장합니다. Rate limit 적용 제외.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({ status: 201, description: '메시지 배치 저장 성공' })
+  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  async saveMessagesBatch(
+    @Param('sessionId') sessionId: string,
+    @Body() dto: SaveMessageBatchDto,
+  ) {
+    return this.chatbotService.saveMessagesBatch(sessionId, dto.messages);
+  }
+
   @Get(':sessionId/messages')
   @Public()
+  @SkipThrottle()
   @ApiOperation({
     summary: '메시지 목록 조회',
     description: '챗봇 세션의 모든 메시지를 조회합니다.',
@@ -458,6 +533,7 @@ export class ChatbotController {
   @Patch(':sessionId/title')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
+  @SkipThrottle()
   @ApiOperation({
     summary: '세션 제목 업데이트',
     description: '챗봇 세션의 제목을 변경합니다.',
@@ -477,6 +553,7 @@ export class ChatbotController {
   @Delete(':sessionId')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
+  @SkipThrottle()
   @ApiOperation({
     summary: '세션 삭제',
     description: '챗봇 세션과 관련 메시지를 삭제합니다.',
@@ -490,5 +567,61 @@ export class ChatbotController {
     @CurrentUser('id') userId: string,
   ) {
     return this.chatbotService.deleteSession(sessionId, userId);
+  }
+
+  // ============ AI 견적 API ============
+
+  @Post(':sessionId/estimate/generate')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'AI 견적 생성 (향상된 버전)',
+    description: '설문 완료 후 AI가 템플릿 기반으로 맞춤 견적을 생성합니다. Gemini AI를 활용하여 최적의 템플릿을 선택하고, 사용자가 선택한 명소를 반영합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({
+    status: 201,
+    description: '견적 생성 성공',
+    type: GenerateEstimateResponseDto,
+  })
+  @ApiResponse({ status: 400, description: '설문 미완료', type: ErrorResponseDto })
+  @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
+  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  async generateAiEstimate(
+    @Param('sessionId') sessionId: string,
+    @RequireUserId() _userId: string,
+  ) {
+    return this.aiEstimateService.generateFirstEstimate(sessionId);
+  }
+
+  @Patch('estimate/:estimateId/modify')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'AI 견적 수정',
+    description: '기존 AI 견적의 아이템을 교체/추가/삭제합니다. 관심사와 지역을 고려하여 최적의 대체 장소를 AI가 선택합니다.',
+  })
+  @ApiParam({ name: 'estimateId', description: '견적 ID' })
+  @ApiResponse({
+    status: 200,
+    description: '수정 성공',
+    type: ModifyEstimateResponseDto,
+  })
+  @ApiResponse({ status: 400, description: '잘못된 요청', type: ErrorResponseDto })
+  @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
+  @ApiResponse({ status: 404, description: '견적 없음', type: ErrorResponseDto })
+  async modifyAiEstimate(
+    @Param('estimateId') estimateId: string,
+    @Body() dto: ModifyEstimateDto,
+    @RequireUserId() _userId: string,
+  ) {
+    return this.aiEstimateService.modifyEstimate(parseInt(estimateId, 10), {
+      dayNumber: dto.dayNumber,
+      replaceItemId: dto.replaceItemId,
+      action: dto.action,
+      preference: dto.preference,
+    });
   }
 }

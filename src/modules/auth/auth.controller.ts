@@ -6,6 +6,7 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/user.decorator';
@@ -34,6 +35,7 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Public()
+  @SkipThrottle()
   @Post('signin')
   @ApiOperation({
     summary: '로그인',
@@ -79,6 +81,7 @@ export class AuthController {
   }
 
   @Post('signout')
+  @SkipThrottle()
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '로그아웃',
@@ -94,6 +97,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @SkipThrottle()
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '내 정보 조회',
@@ -110,6 +114,7 @@ export class AuthController {
   }
 
   @Public()
+  @SkipThrottle()
   @Post('refresh')
   @ApiOperation({
     summary: '토큰 갱신',
@@ -243,12 +248,17 @@ export class AuthController {
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '비밀번호 변경',
-    description: '로그인된 사용자의 비밀번호를 변경합니다.',
+    description: '로그인된 사용자의 비밀번호를 변경합니다. 현재 비밀번호 확인이 필요합니다.',
   })
   @ApiResponse({
     status: 200,
     description: '변경 성공',
     type: SuccessMessageResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: '현재 비밀번호 불일치',
+    type: ErrorResponseDto,
   })
   @ApiResponse({
     status: 401,
@@ -259,7 +269,7 @@ export class AuthController {
     @CurrentUser('id') userId: string,
     @Body() body: UpdatePasswordDto,
   ) {
-    return this.authService.updatePassword(userId, body.password);
+    return this.authService.updatePassword(userId, body.currentPassword, body.newPassword);
   }
 
   @Public()

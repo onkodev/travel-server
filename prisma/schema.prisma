@@ -8,8 +8,6 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ChatSession, ChatMessage 모델 삭제됨 - chatbot_flows, chatbot_messages 사용
-
 model Estimate {
   id               Int       @id @default(autoincrement())
   createdAt        DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -61,6 +59,9 @@ model Estimate {
   paidAt           DateTime? @map("paid_at") @db.Timestamptz(6)
   paidAmount       Decimal?  @default(0) @map("paid_amount") @db.Decimal
   revisedAt        DateTime? @map("revised_at") @db.Timestamptz(6)
+  customerResponse String?   @map("customer_response")
+  internalMemo     String?   @map("internal_memo")
+  customerPhone    String?   @map("customer_phone") @db.VarChar(50)
 
   @@index([chatSessionId], map: "idx_estimates_chat_session")
   @@index([createdAt(sort: Desc)], map: "idx_estimates_created_at")
@@ -288,70 +289,52 @@ model Notification {
 }
 
 model ChatbotFlow {
-  id              Int       @id @default(autoincrement())
-  sessionId       String    @unique @default(dbgenerated("uuid_generate_v4()")) @map("session_id") @db.Uuid
-
-  // 세션 제목 (첫 번째 응답으로 자동 설정)
-  title           String?   @default("New conversation")
-
-  // 진행 상태
-  currentStep     Int       @default(1) @map("current_step")
-  isCompleted     Boolean   @default(false) @map("is_completed")
-
-  // Step 1: 투어 타입
-  tourType        String?   @map("tour_type")  // private, car_only, group, multi_day, online
-
-  // Step 2: 한국 첫 방문
-  isFirstVisit    Boolean?  @map("is_first_visit")
-
-  // Step 3: 관심사
-  interestMain    String[]  @default([]) @map("interest_main")
-  interestSub     String[]  @default([]) @map("interest_sub")
-
-  // Step 4: 지역 (선택)
-  region          String?   @default("seoul")
-
-  // Step 5: 인기 명소 (선택)
-  attractions     String[]  @default([])
-
-  // Step 6: 여행 정보
-  travelDate      DateTime? @map("travel_date") @db.Date
+  id              Int              @id @default(autoincrement())
+  sessionId       String           @unique @default(dbgenerated("uuid_generate_v4()")) @map("session_id") @db.Uuid
+  currentStep     Int              @default(1) @map("current_step")
+  isCompleted     Boolean          @default(false) @map("is_completed")
+  tourType        String?          @map("tour_type")
+  isFirstVisit    Boolean?         @map("is_first_visit")
+  interestMain    String[]         @default([]) @map("interest_main")
+  interestSub     String[]         @default([]) @map("interest_sub")
+  region          String?          @default("seoul")
+  attractions     String[]         @default([])
+  travelDate      DateTime?        @map("travel_date") @db.Date
   duration        Int?
-  adultsCount     Int?      @default(1) @map("adults_count")
-  childrenCount   Int?      @default(0) @map("children_count")
-  infantsCount    Int?      @default(0) @map("infants_count")
-  seniorsCount    Int?      @default(0) @map("seniors_count")
-  budgetRange     String?   @map("budget_range")
-  needsPickup     Boolean?  @map("needs_pickup")
-
-  // Step 7: 연락처 (로그인 필요)
-  userId          String?   @map("user_id") @db.Uuid
-  customerName    String?   @map("customer_name")
-  customerEmail   String?   @map("customer_email")
-  customerPhone   String?   @map("customer_phone")
+  adultsCount     Int?             @default(1) @map("adults_count")
+  childrenCount   Int?             @default(0) @map("children_count")
+  infantsCount    Int?             @default(0) @map("infants_count")
+  seniorsCount    Int?             @default(0) @map("seniors_count")
+  budgetRange     String?          @map("budget_range")
+  needsPickup     Boolean?         @map("needs_pickup")
+  userId          String?          @map("user_id") @db.Uuid
+  customerName    String?          @map("customer_name")
+  customerEmail   String?          @map("customer_email")
+  customerPhone   String?          @map("customer_phone")
   nationality     String?
-  referralSource  String?   @map("referral_source")
-  additionalNotes String?   @map("additional_notes")
-
-  // 견적 연결
-  estimateId      Int?      @map("estimate_id")
-
-  // 메타 & 추적
-  ipAddress       String?   @map("ip_address")
-  userAgent       String?   @map("user_agent")
-  referrerUrl     String?   @map("referrer_url")
-  landingPage     String?   @map("landing_page")
-  utmSource       String?   @map("utm_source")
-  utmMedium       String?   @map("utm_medium")
-  utmCampaign     String?   @map("utm_campaign")
-  utmTerm         String?   @map("utm_term")
-  utmContent      String?   @map("utm_content")
-  pageVisits      Json?     @map("page_visits")
-
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  // 메시지 관계
+  referralSource  String?          @map("referral_source")
+  additionalNotes String?          @map("additional_notes")
+  estimateId      Int?             @map("estimate_id")
+  ipAddress       String?          @map("ip_address")
+  userAgent       String?          @map("user_agent")
+  referrerUrl     String?          @map("referrer_url")
+  landingPage     String?          @map("landing_page")
+  utmSource       String?          @map("utm_source")
+  utmMedium       String?          @map("utm_medium")
+  utmCampaign     String?          @map("utm_campaign")
+  utmTerm         String?          @map("utm_term")
+  utmContent      String?          @map("utm_content")
+  pageVisits      Json?            @map("page_visits")
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  title           String?          @default("New conversation")
+  city            String?
+  country         String?
+  countryName     String?          @map("country_name")
+  timezone        String?
+  visitorId       String?          @map("visitor_id") @db.Uuid
+  ageRange        String?          @map("age_range")
+  visitor         VisitorSession?  @relation(fields: [visitorId], references: [id])
   messages        ChatbotMessage[]
 
   @@index([sessionId], map: "idx_chatbot_flows_session_id")
@@ -361,23 +344,82 @@ model ChatbotFlow {
   @@index([currentStep], map: "idx_chatbot_flows_current_step")
   @@index([createdAt(sort: Desc)], map: "idx_chatbot_flows_created_at")
   @@index([utmSource], map: "idx_chatbot_flows_utm_source")
+  @@index([visitorId], map: "idx_chatbot_flows_visitor_id")
+  @@index([country], map: "idx_chatbot_flows_country")
   @@map("chatbot_flows")
 }
 
-// 챗봇 메시지
 model ChatbotMessage {
-  id            Int           @id @default(autoincrement())
-  sessionId     String        @map("session_id") @db.Uuid
-  role          String        // 'bot' | 'user'
-  content       String        @db.Text
-  messageType   String?       @map("message_type") // 'text' | 'options' | 'form'
-  options       Json?         // 선택지 정보 [{value, label, sub}]
-  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  // 플로우 관계
-  flow          ChatbotFlow   @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+  id          Int         @id @default(autoincrement())
+  sessionId   String      @map("session_id") @db.Uuid
+  role        String
+  content     String
+  messageType String?     @map("message_type")
+  options     Json?
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  flow        ChatbotFlow @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
 
   @@index([sessionId], map: "idx_chatbot_messages_session_id")
   @@index([createdAt], map: "idx_chatbot_messages_created_at")
   @@map("chatbot_messages")
+}
+
+model VisitorSession {
+  id             String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  fingerprint    String?
+  ipAddress      String?       @map("ip_address")
+  country        String?
+  countryName    String?       @map("country_name")
+  city           String?
+  region         String?
+  timezone       String?
+  isp            String?
+  userAgent      String?       @map("user_agent")
+  deviceType     String?       @map("device_type")
+  browser        String?
+  browserVersion String?       @map("browser_version")
+  os             String?
+  osVersion      String?       @map("os_version")
+  utmSource      String?       @map("utm_source")
+  utmMedium      String?       @map("utm_medium")
+  utmCampaign    String?       @map("utm_campaign")
+  utmTerm        String?       @map("utm_term")
+  utmContent     String?       @map("utm_content")
+  referrerUrl    String?       @map("referrer_url")
+  referrerDomain String?       @map("referrer_domain")
+  landingPage    String?       @map("landing_page")
+  totalPageViews Int           @default(0) @map("total_page_views")
+  totalDuration  Int           @default(0) @map("total_duration")
+  lastActivityAt DateTime      @default(now()) @map("last_activity_at") @db.Timestamptz(6)
+  hasChatbot     Boolean       @default(false) @map("has_chatbot")
+  hasEstimate    Boolean       @default(false) @map("has_estimate")
+  hasBooking     Boolean       @default(false) @map("has_booking")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  chatbotFlows   ChatbotFlow[]
+  pageViews      PageView[]
+
+  @@index([fingerprint], map: "idx_visitor_sessions_fingerprint")
+  @@index([ipAddress], map: "idx_visitor_sessions_ip")
+  @@index([country], map: "idx_visitor_sessions_country")
+  @@index([createdAt(sort: Desc)], map: "idx_visitor_sessions_created_at")
+  @@map("visitor_sessions")
+}
+
+model PageView {
+  id           Int            @id @default(autoincrement())
+  visitorId    String         @map("visitor_id") @db.Uuid
+  path         String
+  title        String?
+  queryParams  Json?          @map("query_params")
+  referrerPath String?        @map("referrer_path")
+  duration     Int?
+  scrollDepth  Int?           @map("scroll_depth")
+  clickCount   Int            @default(0) @map("click_count")
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  visitor      VisitorSession @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+
+  @@index([visitorId], map: "idx_page_views_visitor_id")
+  @@index([path], map: "idx_page_views_path")
+  @@index([createdAt(sort: Desc)], map: "idx_page_views_created_at")
+  @@map("page_views")
 }

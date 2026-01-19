@@ -20,6 +20,7 @@ export class EstimateService {
     statusManual?: string;
     statusAi?: string;
     excludeStatusManual?: string;
+    excludeStatusAi?: string;
     search?: string;
     dateFrom?: string;
     dateTo?: string;
@@ -33,6 +34,7 @@ export class EstimateService {
       statusManual,
       statusAi,
       excludeStatusManual,
+      excludeStatusAi,
       search,
       dateFrom,
       dateTo,
@@ -74,6 +76,11 @@ export class EstimateService {
       if (excludeStatusManual) {
         where.statusManual = { not: excludeStatusManual };
       }
+
+      // AI 상태 제외
+      if (excludeStatusAi) {
+        where.statusAi = { not: excludeStatusAi };
+      }
     }
 
     // 검색
@@ -109,6 +116,32 @@ export class EstimateService {
         orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
         skip,
         take: limit,
+        // 목록 조회 시 큰 필드 제외 (items, requestContent, revisionHistory)
+        select: {
+          id: true,
+          shareHash: true,
+          title: true,
+          source: true,
+          statusManual: true,
+          statusAi: true,
+          customerName: true,
+          customerEmail: true,
+          regions: true,
+          travelDays: true,
+          startDate: true,
+          endDate: true,
+          adultsCount: true,
+          childrenCount: true,
+          infantsCount: true,
+          totalTravelers: true,
+          subtotal: true,
+          totalAmount: true,
+          currency: true,
+          isPinned: true,
+          chatSessionId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       }),
       this.prisma.estimate.count({ where }),
     ]);
@@ -151,11 +184,11 @@ export class EstimateService {
 
     if (itemsToEnrich.length === 0) return estimate;
 
-    // 해당 아이템들의 정보 조회 (itemId가 있는 것만)
+    // 해당 아이템들의 정보 조회 (itemId가 있는 것만, null과 undefined 제외)
     const itemIds = [...new Set(
       itemsToEnrich
         .map((item) => item.itemId)
-        .filter((id): id is number => id !== undefined)
+        .filter((id): id is number => id != null)
     )];
     if (itemIds.length === 0) return estimate;
 
@@ -250,8 +283,8 @@ export class EstimateService {
 
   // 견적 업데이트
   async updateEstimate(id: number, data: UpdateEstimateDto) {
-    // 클라이언트에서 보낸 불필요한 필드 제거
-    const { id: _id, createdAt, updatedAt, shareHash, items, displayOptions, timeline, revisionHistory, ...cleanData } = data;
+    // 클라이언트에서 보낸 불필요한 필드 제거 (totalTravelers는 DB에서 자동 계산되는 generated column)
+    const { id: _id, createdAt, updatedAt, shareHash, items, displayOptions, timeline, revisionHistory, totalTravelers, ...cleanData } = data;
 
     const estimate = await this.prisma.estimate.update({
       where: { id },
@@ -434,11 +467,25 @@ export class EstimateService {
 
   // 조정 금액 업데이트
   async updateAdjustment(id: number, amount: number, reason?: string) {
-    const estimate = await this.prisma.estimate.findUnique({ where: { id } });
-    const totalAmount = Number(estimate?.subtotal || 0) + amount;
-    return this.prisma.estimate.update({
-      where: { id },
-      data: { manualAdjustment: amount, adjustmentReason: reason, totalAmount },
+    // 트랜잭션으로 read-modify-write를 atomic하게 처리 (race condition 방지)
+    return this.prisma.$transaction(async (tx) => {
+      const estimate = await tx.estimate.findUnique({
+        where: { id },
+        select: { subtotal: true },
+      });
+
+      if (!estimate) {
+        throw new NotFoundException('견적을 찾을 수 없습니다');
+      }
+
+      const totalAmount = Number(estimate.subtotal || 0) + amount;
+
+      const updated = await tx.estimate.update({
+        where: { id },
+        data: { manualAdjustment: amount, adjustmentReason: reason, totalAmount },
+      });
+
+      return convertDecimalFields(updated);
     });
   }
 

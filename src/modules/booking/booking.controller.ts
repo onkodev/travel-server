@@ -7,6 +7,8 @@ import {
   Body,
   Param,
   Query,
+  UseGuards,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,6 +17,8 @@ import {
   ApiBearerAuth,
   ApiParam,
 } from '@nestjs/swagger';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { BookingService } from './booking.service';
 import { Public } from '../../common/decorators/public.decorator';
 import {
@@ -38,6 +42,8 @@ class BookingListResponseDto {
 
 @ApiTags('예약')
 @ApiBearerAuth('access-token')
+@UseGuards(RolesGuard)
+@Roles('admin', 'agent')
 @Controller('bookings')
 export class BookingController {
   constructor(private bookingService: BookingService) {}
@@ -104,8 +110,8 @@ export class BookingController {
     description: '예약 없음',
     type: ErrorResponseDto,
   })
-  async getBooking(@Param('id') id: string) {
-    return this.bookingService.getBooking(parseInt(id));
+  async getBooking(@Param('id', ParseIntPipe) id: number) {
+    return this.bookingService.getBooking(id);
   }
 
   @Post()
@@ -150,12 +156,12 @@ export class BookingController {
     description: '예약 없음',
     type: ErrorResponseDto,
   })
-  async updateBooking(@Param('id') id: string, @Body() body: UpdateBookingDto) {
+  async updateBooking(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateBookingDto) {
     const updateData: any = { ...body };
     if (body.bookingDate) {
       updateData.bookingDate = new Date(body.bookingDate);
     }
-    return this.bookingService.updateBooking(parseInt(id), updateData);
+    return this.bookingService.updateBooking(id, updateData);
   }
 
   @Patch(':id/status')
@@ -171,11 +177,11 @@ export class BookingController {
     type: ErrorResponseDto,
   })
   async updateBookingStatus(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdateBookingStatusDto,
   ) {
     return this.bookingService.updateBookingStatus(
-      parseInt(id),
+      id,
       body.status,
       body.reason,
     );
@@ -197,7 +203,7 @@ export class BookingController {
     description: '예약 없음',
     type: ErrorResponseDto,
   })
-  async deleteBooking(@Param('id') id: string) {
-    return this.bookingService.deleteBooking(parseInt(id));
+  async deleteBooking(@Param('id', ParseIntPipe) id: number) {
+    return this.bookingService.deleteBooking(id);
   }
 }

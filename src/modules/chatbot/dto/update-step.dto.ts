@@ -14,7 +14,6 @@ import {
   ArrayMaxSize,
   MaxLength,
   MinLength,
-  Matches,
 } from 'class-validator';
 import {
   TOUR_TYPES,
@@ -23,226 +22,267 @@ import {
   REGIONS,
   ATTRACTIONS,
   BUDGET_RANGES,
+  AGE_RANGES,
   REFERRAL_SOURCES,
 } from '../constants/categories';
 
-// 유효한 값 배열 추출
+// Valid value arrays
 const VALID_TOUR_TYPES = Object.keys(TOUR_TYPES);
 const VALID_INTEREST_MAIN = Object.keys(INTEREST_MAIN);
 const VALID_INTEREST_SUB = Object.keys(INTEREST_SUB);
 const VALID_REGIONS = Object.keys(REGIONS);
 const VALID_ATTRACTIONS = Object.keys(ATTRACTIONS);
 const VALID_BUDGET_RANGES = Object.keys(BUDGET_RANGES);
+const VALID_AGE_RANGES = Object.keys(AGE_RANGES);
 const VALID_REFERRAL_SOURCES = Object.keys(REFERRAL_SOURCES);
 
-// Step 1: 투어 타입
+// Step 1: Tour Type
 export class UpdateStep1Dto {
   @ApiProperty({
-    description: '투어 타입',
+    description: 'Tour type',
     enum: VALID_TOUR_TYPES,
   })
   @IsString()
-  @IsIn(VALID_TOUR_TYPES, { message: '유효하지 않은 투어 타입입니다.' })
+  @IsIn(VALID_TOUR_TYPES, { message: 'Invalid tour type.' })
   tourType: string;
 }
 
-// Step 2: 한국 첫 방문
+// Step 2: First Visit
 export class UpdateStep2Dto {
-  @ApiProperty({ description: '한국 첫 방문 여부' })
+  @ApiProperty({ description: 'First time visiting Korea' })
   @IsBoolean()
   isFirstVisit: boolean;
 }
 
-// Step 3: 관심사 (메인)
+// Step 3: Interests (Main)
 export class UpdateStep3MainDto {
   @ApiProperty({
-    description: '메인 관심사 배열',
+    description: 'Main interests array',
     example: ['culture', 'food'],
     enum: VALID_INTEREST_MAIN,
     isArray: true,
   })
   @IsArray()
-  @ArrayMinSize(1, { message: '최소 1개 이상의 관심사를 선택해주세요.' })
-  @ArrayMaxSize(4, { message: '최대 4개까지 선택 가능합니다.' })
+  @ArrayMinSize(1, { message: 'Please select at least 1 interest.' })
+  @ArrayMaxSize(4, { message: 'You can select up to 4 interests.' })
   @IsString({ each: true })
-  @IsIn(VALID_INTEREST_MAIN, { each: true, message: '유효하지 않은 관심사입니다.' })
+  @IsIn(VALID_INTEREST_MAIN, { each: true, message: 'Invalid interest.' })
   interestMain: string[];
 }
 
-// Step 3: 관심사 (서브)
+// Step 3: Interests (Sub)
 export class UpdateStep3SubDto {
   @ApiProperty({
-    description: '서브 관심사 배열',
+    description: 'Sub interests array',
     example: ['historical', 'local_food'],
     enum: VALID_INTEREST_SUB,
     isArray: true,
   })
   @IsArray()
-  @ArrayMinSize(1, { message: '최소 1개 이상의 세부 관심사를 선택해주세요.' })
-  @ArrayMaxSize(16, { message: '최대 16개까지 선택 가능합니다.' })
+  @ArrayMinSize(1, { message: 'Please select at least 1 specific interest.' })
+  @ArrayMaxSize(16, { message: 'You can select up to 16 interests.' })
   @IsString({ each: true })
-  @IsIn(VALID_INTEREST_SUB, { each: true, message: '유효하지 않은 세부 관심사입니다.' })
+  @IsIn(VALID_INTEREST_SUB, { each: true, message: 'Invalid interest.' })
   interestSub: string[];
 }
 
-// Step 4: 지역
+// Step 4: Region
 export class UpdateStep4Dto {
   @ApiPropertyOptional({
-    description: '지역',
+    description: 'Region',
     example: 'seoul',
     enum: VALID_REGIONS,
   })
   @IsOptional()
   @IsString()
-  @IsIn(VALID_REGIONS, { message: '유효하지 않은 지역입니다.' })
+  @IsIn(VALID_REGIONS, { message: 'Invalid region.' })
   region?: string;
 }
 
-// Step 5: 명소
+// Step 5: Attractions
 export class UpdateStep5Dto {
   @ApiPropertyOptional({
-    description: '명소 배열',
+    description: 'Attractions array',
     example: ['gyeongbokgung', 'bukchon'],
     enum: VALID_ATTRACTIONS,
     isArray: true,
   })
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(10, { message: '최대 10개까지 선택 가능합니다.' })
+  @ArrayMaxSize(10, { message: 'You can select up to 10 attractions.' })
   @IsString({ each: true })
-  @IsIn(VALID_ATTRACTIONS, { each: true, message: '유효하지 않은 명소입니다.' })
+  @IsIn(VALID_ATTRACTIONS, { each: true, message: 'Invalid attraction.' })
   attractions?: string[];
 }
 
-// Step 6: 여행 정보
+// Step 6: Personal Info + Travel Info (Combined)
 export class UpdateStep6Dto {
-  @ApiProperty({ description: '여행 시작일', example: '2024-06-15' })
-  @IsDateString({}, { message: '유효한 날짜 형식이 아닙니다. (YYYY-MM-DD)' })
+  // Personal Info
+  @ApiProperty({ description: 'Customer name', minLength: 2, maxLength: 100 })
+  @IsString()
+  @MinLength(2, { message: 'Name must be at least 2 characters.' })
+  @MaxLength(100, { message: 'Name cannot exceed 100 characters.' })
+  customerName: string;
+
+  @ApiProperty({ description: 'Customer email' })
+  @IsEmail({}, { message: 'Please enter a valid email address.' })
+  @MaxLength(255, { message: 'Email cannot exceed 255 characters.' })
+  customerEmail: string;
+
+  @ApiPropertyOptional({ description: 'Customer phone' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(30, { message: 'Phone number cannot exceed 30 characters.' })
+  customerPhone?: string;
+
+  @ApiPropertyOptional({ description: 'Nationality', maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100, { message: 'Nationality cannot exceed 100 characters.' })
+  nationality?: string;
+
+  // Travel Info
+  @ApiProperty({ description: 'Travel start date', example: '2024-06-15' })
+  @IsDateString({}, { message: 'Please enter a valid date (YYYY-MM-DD).' })
   travelDate: string;
 
-  @ApiProperty({ description: '여행 일수', example: 3, minimum: 1, maximum: 30 })
+  @ApiProperty({ description: 'Duration in days', example: 3, minimum: 1, maximum: 30 })
   @IsNumber()
-  @Min(1, { message: '여행 일수는 최소 1일 이상이어야 합니다.' })
-  @Max(30, { message: '여행 일수는 최대 30일까지입니다.' })
+  @Min(1, { message: 'Duration must be at least 1 day.' })
+  @Max(30, { message: 'Duration cannot exceed 30 days.' })
   duration: number;
 
-  @ApiPropertyOptional({ description: '성인 수', default: 1, minimum: 1, maximum: 50 })
+  // Group Info
+  @ApiPropertyOptional({ description: 'Adults count (13-64)', default: 1, minimum: 1, maximum: 50 })
   @IsOptional()
   @IsNumber()
-  @Min(1, { message: '성인은 최소 1명 이상이어야 합니다.' })
-  @Max(50, { message: '인원은 최대 50명까지입니다.' })
+  @Min(1, { message: 'At least 1 adult is required.' })
+  @Max(50, { message: 'Group size cannot exceed 50 people.' })
   adultsCount?: number;
 
-  @ApiPropertyOptional({ description: '어린이 수 (3-12세)', default: 0, minimum: 0, maximum: 50 })
+  @ApiPropertyOptional({ description: 'Children count (3-12)', default: 0, minimum: 0, maximum: 50 })
   @IsOptional()
   @IsNumber()
   @Min(0)
-  @Max(50, { message: '인원은 최대 50명까지입니다.' })
+  @Max(50, { message: 'Group size cannot exceed 50 people.' })
   childrenCount?: number;
 
-  @ApiPropertyOptional({ description: '유아 수 (0-2세)', default: 0, minimum: 0, maximum: 50 })
+  @ApiPropertyOptional({ description: 'Infants count (0-2)', default: 0, minimum: 0, maximum: 50 })
   @IsOptional()
   @IsNumber()
   @Min(0)
-  @Max(50, { message: '인원은 최대 50명까지입니다.' })
+  @Max(50, { message: 'Group size cannot exceed 50 people.' })
   infantsCount?: number;
 
-  @ApiPropertyOptional({ description: '시니어 수 (65세+)', default: 0, minimum: 0, maximum: 50 })
+  @ApiPropertyOptional({ description: 'Seniors count (65+)', default: 0, minimum: 0, maximum: 50 })
   @IsOptional()
   @IsNumber()
   @Min(0)
-  @Max(50, { message: '인원은 최대 50명까지입니다.' })
+  @Max(50, { message: 'Group size cannot exceed 50 people.' })
   seniorsCount?: number;
 
   @ApiPropertyOptional({
-    description: '예산 범위',
-    enum: VALID_BUDGET_RANGES,
+    description: 'Primary age range',
+    example: '20s-40s',
   })
   @IsOptional()
   @IsString()
-  @IsIn(VALID_BUDGET_RANGES, { message: '유효하지 않은 예산 범위입니다.' })
+  @MaxLength(50, { message: 'Age range cannot exceed 50 characters.' })
+  ageRange?: string;
+
+  // Budget & Other
+  @ApiPropertyOptional({
+    description: 'Budget range',
+    example: '100-200',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50, { message: 'Budget range cannot exceed 50 characters.' })
   budgetRange?: string;
 
-  @ApiPropertyOptional({ description: '공항 픽업 필요 여부' })
+  @ApiPropertyOptional({ description: 'Airport pickup needed' })
   @IsOptional()
   @IsBoolean()
   needsPickup?: boolean;
+
+  @ApiPropertyOptional({ description: 'Additional notes', maxLength: 2000 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000, { message: 'Additional notes cannot exceed 2000 characters.' })
+  additionalNotes?: string;
 }
 
-// Step 7: 연락처 (로그인 필수)
+// Step 7: Contact Info (Login required)
 export class UpdateStep7Dto {
-  @ApiProperty({ description: '고객 이름', minLength: 2, maxLength: 100 })
+  @ApiProperty({ description: 'Customer name', minLength: 2, maxLength: 100 })
   @IsString()
-  @MinLength(2, { message: '이름은 최소 2자 이상이어야 합니다.' })
-  @MaxLength(100, { message: '이름은 최대 100자까지입니다.' })
+  @MinLength(2, { message: 'Name must be at least 2 characters.' })
+  @MaxLength(100, { message: 'Name cannot exceed 100 characters.' })
   customerName: string;
 
-  @ApiProperty({ description: '고객 이메일' })
-  @IsEmail({}, { message: '유효한 이메일 형식이 아닙니다.' })
-  @MaxLength(255, { message: '이메일은 최대 255자까지입니다.' })
+  @ApiProperty({ description: 'Customer email' })
+  @IsEmail({}, { message: 'Please enter a valid email address.' })
+  @MaxLength(255, { message: 'Email cannot exceed 255 characters.' })
   customerEmail: string;
 
-  @ApiPropertyOptional({ description: '고객 전화번호' })
+  @ApiPropertyOptional({ description: 'Customer phone' })
   @IsOptional()
   @IsString()
-  @Matches(/^[\+]?[(]?[0-9]{1,3}[)]?[-\s\.]?[0-9]{1,4}[-\s\.]?[0-9]{1,4}[-\s\.]?[0-9]{1,9}$/, {
-    message: '유효한 전화번호 형식이 아닙니다.',
-  })
-  @MaxLength(30, { message: '전화번호는 최대 30자까지입니다.' })
+  @MaxLength(30, { message: 'Phone number cannot exceed 30 characters.' })
   customerPhone?: string;
 
-  @ApiPropertyOptional({ description: '국적', maxLength: 100 })
+  @ApiPropertyOptional({ description: 'Nationality', maxLength: 100 })
   @IsOptional()
   @IsString()
-  @MaxLength(100, { message: '국적은 최대 100자까지입니다.' })
+  @MaxLength(100, { message: 'Nationality cannot exceed 100 characters.' })
   nationality?: string;
 
   @ApiPropertyOptional({
-    description: '유입 경로',
+    description: 'Referral source',
     enum: VALID_REFERRAL_SOURCES,
   })
   @IsOptional()
   @IsString()
-  @IsIn(VALID_REFERRAL_SOURCES, { message: '유효하지 않은 유입 경로입니다.' })
+  @IsIn(VALID_REFERRAL_SOURCES, { message: 'Invalid referral source.' })
   referralSource?: string;
 
-  @ApiPropertyOptional({ description: '추가 요청사항', maxLength: 2000 })
+  @ApiPropertyOptional({ description: 'Additional notes', maxLength: 2000 })
   @IsOptional()
   @IsString()
-  @MaxLength(2000, { message: '추가 요청사항은 최대 2000자까지입니다.' })
+  @MaxLength(2000, { message: 'Additional notes cannot exceed 2000 characters.' })
   additionalNotes?: string;
 }
 
-// 고객 응답 DTO
+// Customer Response DTO
 export class RespondToEstimateDto {
   @ApiProperty({
-    description: '고객 응답',
+    description: 'Customer response',
     enum: ['accepted', 'declined'],
   })
   @IsString()
-  @IsIn(['accepted', 'declined'], { message: '유효하지 않은 응답입니다.' })
+  @IsIn(['accepted', 'declined'], { message: 'Invalid response.' })
   response: 'accepted' | 'declined';
 
-  @ApiPropertyOptional({ description: '수정 요청사항', maxLength: 2000 })
+  @ApiPropertyOptional({ description: 'Modification request', maxLength: 2000 })
   @IsOptional()
   @IsString()
-  @MaxLength(2000, { message: '수정 요청사항은 최대 2000자까지입니다.' })
+  @MaxLength(2000, { message: 'Modification request cannot exceed 2000 characters.' })
   modificationRequest?: string;
 }
 
-// 페이지 방문 기록
+// Page Visit Tracking
 export class TrackPageDto {
-  @ApiProperty({ description: '페이지 경로', maxLength: 500 })
+  @ApiProperty({ description: 'Page path', maxLength: 500 })
   @IsString()
-  @MaxLength(500, { message: '경로는 최대 500자까지입니다.' })
+  @MaxLength(500, { message: 'Path cannot exceed 500 characters.' })
   path: string;
 }
 
-// 세션 제목 업데이트
+// Session Title Update
 export class UpdateSessionTitleDto {
-  @ApiProperty({ description: '세션 제목', minLength: 1, maxLength: 200 })
+  @ApiProperty({ description: 'Session title', minLength: 1, maxLength: 200 })
   @IsString()
-  @MinLength(1, { message: '제목을 입력해주세요.' })
-  @MaxLength(200, { message: '제목은 최대 200자까지입니다.' })
+  @MinLength(1, { message: 'Please enter a title.' })
+  @MaxLength(200, { message: 'Title cannot exceed 200 characters.' })
   title: string;
 }

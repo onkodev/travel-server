@@ -1,8 +1,20 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString, IsIn } from 'class-validator';
+import { TOUR_TYPES } from '../constants/categories';
+
+const VALID_TOUR_TYPES = Object.keys(TOUR_TYPES);
 
 export class StartFlowDto {
-  @ApiPropertyOptional({ description: '랜딩 페이지 경로' })
+  @ApiPropertyOptional({
+    description: 'Tour type (Step 1 response)',
+    enum: VALID_TOUR_TYPES,
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(VALID_TOUR_TYPES, { message: 'Invalid tour type.' })
+  tourType?: string;
+
+  @ApiPropertyOptional({ description: 'Landing page path' })
   @IsOptional()
   @IsString()
   landingPage?: string;
@@ -31,4 +43,9 @@ export class StartFlowDto {
   @IsOptional()
   @IsString()
   utmContent?: string;
+
+  @ApiPropertyOptional({ description: 'Visitor session ID (for site-wide tracking)' })
+  @IsOptional()
+  @IsString()
+  visitorId?: string;
 }

@@ -38,6 +38,14 @@ export class EstimateListQueryDto extends PaginationQueryDto {
   excludeStatusManual?: string;
 
   @ApiPropertyOptional({
+    description: '제외할 AI 견적 상태',
+    example: 'archived',
+  })
+  @IsOptional()
+  @IsString()
+  excludeStatusAi?: string;
+
+  @ApiPropertyOptional({
     description: '검색어 (제목, 고객명)',
     example: '홍길동',
   })

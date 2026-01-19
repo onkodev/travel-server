@@ -4,9 +4,13 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EstimateService } from '../estimate/estimate.service';
+import { GeoIpService } from '../visitor/geoip.service';
+import { AiEstimateService } from './ai-estimate.service';
 import {
   TOUR_TYPES,
   INTEREST_MAIN,
@@ -14,6 +18,7 @@ import {
   REGIONS,
   ATTRACTIONS,
   BUDGET_RANGES,
+  AGE_RANGES,
   REFERRAL_SOURCES,
 } from './constants/categories';
 import { StepResponseDto } from './dto/step-response.dto';
@@ -36,6 +41,10 @@ export class ChatbotService {
   constructor(
     private prisma: PrismaService,
     private estimateService: EstimateService,
+    @Inject(forwardRef(() => GeoIpService))
+    private geoIpService: GeoIpService,
+    @Inject(forwardRef(() => AiEstimateService))
+    private aiEstimateService: AiEstimateService,
   ) {}
 
   // 새 플로우 시작
@@ -46,6 +55,25 @@ export class ChatbotService {
     referer?: string,
     userId?: string,
   ) {
+    // tourType이 제공되면 Step 1 완료 상태로 생성 (currentStep = 2)
+    const hasTourType = !!dto.tourType;
+
+    // IP 기반 지리 정보 조회
+    let geoData: { country: string | null; countryName: string | null; city: string | null; timezone: string | null } = {
+      country: null,
+      countryName: null,
+      city: null,
+      timezone: null,
+    };
+
+    if (ipAddress) {
+      try {
+        geoData = await this.geoIpService.lookup(ipAddress);
+      } catch (error) {
+        this.logger.warn(`GeoIP lookup failed for ${ipAddress}: ${error.message}`);
+      }
+    }
+
     const flow = await this.prisma.chatbotFlow.create({
       data: {
         ipAddress,
@@ -61,6 +89,17 @@ export class ChatbotService {
           ? [{ path: dto.landingPage, timestamp: new Date() }]
           : [],
         userId, // 로그인한 사용자면 연결
+        // IP 지리 정보
+        country: geoData.country,
+        countryName: geoData.countryName,
+        city: geoData.city,
+        timezone: geoData.timezone,
+        // visitorId 연결 (클라이언트에서 제공하는 경우)
+        visitorId: dto.visitorId,
+        ...(hasTourType && {
+          tourType: dto.tourType,
+          currentStep: 2,
+        }),
       },
     });
 
@@ -71,16 +110,82 @@ export class ChatbotService {
   }
 
   // 플로우 조회
-  async getFlow(sessionId: string) {
+  async getFlow(sessionId: string, includeVisitorHistory = false) {
     const flow = await this.prisma.chatbotFlow.findUnique({
       where: { sessionId },
     });
 
     if (!flow) {
-      throw new NotFoundException('플로우를 찾을 수 없습니다.');
+      throw new NotFoundException('Flow not found.');
     }
 
-    return flow;
+    // estimateId가 있으면 shareHash 조회
+    let shareHash: string | null = null;
+    if (flow.estimateId) {
+      const estimate = await this.prisma.estimate.findUnique({
+        where: { id: flow.estimateId },
+        select: { shareHash: true },
+      });
+      shareHash = estimate?.shareHash || null;
+    }
+
+    // 방문자 브라우징 기록 포함 옵션
+    if (includeVisitorHistory && flow.visitorId) {
+      const visitorSession = await this.prisma.visitorSession.findUnique({
+        where: { id: flow.visitorId },
+        include: {
+          pageViews: {
+            orderBy: { createdAt: 'asc' },
+            select: {
+              id: true,
+              path: true,
+              title: true,
+              duration: true,
+              scrollDepth: true,
+              createdAt: true,
+            },
+          },
+        },
+      });
+
+      return {
+        ...flow,
+        shareHash,
+        visitorBrowsingHistory: visitorSession?.pageViews || [],
+      };
+    }
+
+    return {
+      ...flow,
+      shareHash,
+    };
+  }
+
+  // 세션 존재 확인만 (데이터 반환 X)
+  private async validateSessionExists(sessionId: string): Promise<void> {
+    const exists = await this.prisma.chatbotFlow.findUnique({
+      where: { sessionId },
+      select: { sessionId: true },
+    });
+    if (!exists) {
+      throw new NotFoundException('Flow not found.');
+    }
+  }
+
+  // Step 업데이트 공통 헬퍼
+  private async updateFlowStep(
+    sessionId: string,
+    nextStep: number,
+    data: Record<string, unknown>,
+  ) {
+    const flow = await this.getFlow(sessionId);
+    return this.prisma.chatbotFlow.update({
+      where: { sessionId },
+      data: {
+        ...data,
+        currentStep: Math.max(flow.currentStep, nextStep),
+      },
+    });
   }
 
   // estimateId로 플로우 조회
@@ -116,13 +221,13 @@ export class ChatbotService {
       case 4:
         return this.getStep4(flow);
       case 5:
-        return this.getStep5(flow);
+        return this.getStep5(flow); // flow에 region 포함
       case 6:
-        return this.getStep6(flow);
+        return this.getStep6(flow); // 인적사항 + 여행정보 통합
       case 7:
-        return this.getStep7(flow);
+        return this.getStep7(flow); // 레거시 지원 (필요시)
       default:
-        throw new NotFoundException('유효하지 않은 단계입니다.');
+        throw new NotFoundException('Invalid step.');
     }
   }
 
@@ -138,6 +243,10 @@ export class ChatbotService {
         value,
         label: data.label,
         labelKo: data.labelKo,
+        description: data.description,
+        descriptionKo: data.descriptionKo,
+        status: data.status, // 'available' | 'coming_soon'
+        redirectUrl: data.redirectUrl, // 외부 링크 or null (챗봇 계속)
       })),
       currentValue: flow.tourType,
     };
@@ -212,57 +321,114 @@ export class ChatbotService {
       title: 'Which region would you like to visit?',
       titleKo: '어느 지역을 방문하고 싶으신가요?',
       type: 'single_select',
-      required: false,
+      required: true,
       options: Object.entries(REGIONS).map(([value, data]) => ({
         value,
         label: data.label,
         labelKo: data.labelKo,
+        status: data.status, // 'available' | 'coming_soon'
       })),
       currentValue: flow.region,
     };
   }
 
-  // Step 5: 명소
-  private getStep5(flow: { attractions: string[] }): StepResponseDto {
+  // Step 5: Attractions (filtered by selected region)
+  private getStep5(flow: { region: string | null; attractions: string[] }): StepResponseDto {
+    const selectedRegion = flow.region;
+    const filteredAttractions = Object.entries(ATTRACTIONS).filter(([, data]) => {
+      // No region selected: show all attractions
+      if (!selectedRegion) {
+        return true;
+      }
+      // Seoul: include Seoul + day trip destinations (Gyeonggi, Gangwon)
+      if (selectedRegion === 'seoul') {
+        return data.region === 'seoul' || data.category === 'day_trip';
+      }
+      return data.region === selectedRegion;
+    });
+
     return {
       step: 5,
       title: 'Any specific places you want to visit?',
       titleKo: '방문하고 싶은 특정 장소가 있으신가요?',
       type: 'multi_select',
       required: false,
-      options: Object.entries(ATTRACTIONS).map(([value, data]) => ({
+      options: filteredAttractions.map(([value, data]) => ({
         value,
         label: data.label,
         labelKo: data.labelKo,
+        category: data.category, // palace, traditional, landmark, shopping, trendy, day_trip, market, nature
+        region: data.region,
       })),
       currentValue: flow.attractions,
     };
   }
 
-  // Step 6: 여행 정보
+  // Step 6: 인적사항 + 여행 정보 (통합)
   private getStep6(flow: {
+    // 인적사항
+    customerName: string | null;
+    customerEmail: string | null;
+    customerPhone: string | null;
+    nationality: string | null;
+    // 여행 정보
     travelDate: Date | null;
     duration: number | null;
     adultsCount: number | null;
     childrenCount: number | null;
     infantsCount: number | null;
     seniorsCount: number | null;
+    ageRange: string | null;
     budgetRange: string | null;
     needsPickup: boolean | null;
+    additionalNotes: string | null;
   }): StepResponseDto {
     return {
       step: 6,
-      title: 'Tell us about your trip',
-      titleKo: '여행 정보를 알려주세요',
+      title: 'Tell us about yourself and your trip',
+      titleKo: '고객님과 여행 정보를 알려주세요',
       type: 'form',
       required: true,
       fields: [
+        // 인적사항 섹션
+        {
+          name: 'customerName',
+          type: 'text',
+          label: 'Your Name',
+          labelKo: '이름',
+          required: true,
+          section: 'personal',
+        },
+        {
+          name: 'customerEmail',
+          type: 'email',
+          label: 'Email',
+          labelKo: '이메일',
+          required: true,
+          section: 'personal',
+        },
+        {
+          name: 'customerPhone',
+          type: 'tel',
+          label: 'Phone',
+          labelKo: '전화번호',
+          section: 'personal',
+        },
+        {
+          name: 'nationality',
+          type: 'text',
+          label: 'Nationality',
+          labelKo: '국적',
+          section: 'personal',
+        },
+        // 여행 정보 섹션
         {
           name: 'travelDate',
           type: 'date',
           label: 'Travel Date',
           labelKo: '여행 시작일',
           required: true,
+          section: 'travel',
         },
         {
           name: 'duration',
@@ -270,13 +436,16 @@ export class ChatbotService {
           label: 'Duration (days)',
           labelKo: '여행 일수',
           required: true,
+          section: 'travel',
         },
+        // 인원 정보 섹션
         {
           name: 'adultsCount',
           type: 'number',
-          label: 'Adults (13+)',
-          labelKo: '성인 (13세 이상)',
+          label: 'Adults (13-64)',
+          labelKo: '성인 (13-64세)',
           default: 1,
+          section: 'group',
         },
         {
           name: 'childrenCount',
@@ -284,6 +453,7 @@ export class ChatbotService {
           label: 'Children (3-12)',
           labelKo: '어린이 (3-12세)',
           default: 0,
+          section: 'group',
         },
         {
           name: 'infantsCount',
@@ -291,6 +461,7 @@ export class ChatbotService {
           label: 'Infants (0-2)',
           labelKo: '유아 (0-2세)',
           default: 0,
+          section: 'group',
         },
         {
           name: 'seniorsCount',
@@ -298,15 +469,31 @@ export class ChatbotService {
           label: 'Seniors (65+)',
           labelKo: '시니어 (65세 이상)',
           default: 0,
+          section: 'group',
         },
+        {
+          name: 'ageRange',
+          type: 'select',
+          label: 'Primary Age Group',
+          labelKo: '주요 연령대',
+          section: 'group',
+          options: Object.entries(AGE_RANGES).map(([value, data]) => ({
+            value,
+            label: data.label,
+            labelKo: data.labelKo,
+          })),
+        },
+        // 예산 및 기타 섹션
         {
           name: 'budgetRange',
           type: 'select',
           label: 'Budget per person',
           labelKo: '1인당 예산',
+          section: 'budget',
           options: Object.entries(BUDGET_RANGES).map(([value, data]) => ({
             value,
             label: data.label,
+            labelKo: data.labelKo,
           })),
         },
         {
@@ -314,17 +501,32 @@ export class ChatbotService {
           type: 'boolean',
           label: 'Airport pickup needed?',
           labelKo: '공항 픽업 필요?',
+          section: 'budget',
+        },
+        // 추가 요청사항
+        {
+          name: 'additionalNotes',
+          type: 'textarea',
+          label: 'Any special requests? (e.g., wheelchair, allergies)',
+          labelKo: '추가 요청사항 (예: 휠체어, 알레르기)',
+          section: 'notes',
         },
       ],
       currentValue: {
+        customerName: flow.customerName,
+        customerEmail: flow.customerEmail,
+        customerPhone: flow.customerPhone,
+        nationality: flow.nationality,
         travelDate: flow.travelDate,
         duration: flow.duration,
         adultsCount: flow.adultsCount,
         childrenCount: flow.childrenCount,
         infantsCount: flow.infantsCount,
         seniorsCount: flow.seniorsCount,
+        ageRange: flow.ageRange,
         budgetRange: flow.budgetRange,
         needsPickup: flow.needsPickup,
+        additionalNotes: flow.additionalNotes,
       },
     };
   }
@@ -402,15 +604,7 @@ export class ChatbotService {
 
   // Step 1 업데이트
   async updateStep1(sessionId: string, dto: UpdateStep1Dto) {
-    const flow = await this.getFlow(sessionId);
-
-    return this.prisma.chatbotFlow.update({
-      where: { sessionId },
-      data: {
-        tourType: dto.tourType,
-        currentStep: Math.max(flow.currentStep, 2),
-      },
-    });
+    return this.updateFlowStep(sessionId, 2, { tourType: dto.tourType });
   }
 
   // Step 2 업데이트
@@ -434,14 +628,13 @@ export class ChatbotService {
 
   // Step 3 메인 업데이트
   async updateStep3Main(sessionId: string, dto: UpdateStep3MainDto) {
-    await this.getFlow(sessionId);
-
+    const flow = await this.getFlow(sessionId);
     return this.prisma.chatbotFlow.update({
       where: { sessionId },
       data: {
         interestMain: dto.interestMain,
-        // 메인이 변경되면 서브도 초기화
-        interestSub: [],
+        interestSub: [], // 메인이 변경되면 서브도 초기화
+        currentStep: Math.max(flow.currentStep, 3),
       },
     });
   }
@@ -450,72 +643,88 @@ export class ChatbotService {
   async updateStep3Sub(sessionId: string, dto: UpdateStep3SubDto) {
     const flow = await this.getFlow(sessionId);
 
-    return this.prisma.chatbotFlow.update({
-      where: { sessionId },
-      data: {
-        interestSub: dto.interestSub,
-        currentStep: Math.max(flow.currentStep, 4),
-      },
+    // 서브 관심사가 선택된 메인 관심사에 속하는지 검증
+    const selectedMains = flow.interestMain || [];
+    const invalidSubs = dto.interestSub.filter((sub) => {
+      const subData = INTEREST_SUB[sub as keyof typeof INTEREST_SUB];
+      return !subData || !selectedMains.includes(subData.main);
     });
+
+    if (invalidSubs.length > 0) {
+      throw new BadRequestException(
+        `Invalid sub-interests for selected main categories: ${invalidSubs.join(', ')}`,
+      );
+    }
+
+    return this.updateFlowStep(sessionId, 4, { interestSub: dto.interestSub });
   }
 
   // Step 4 업데이트
   async updateStep4(sessionId: string, dto: UpdateStep4Dto) {
-    const flow = await this.getFlow(sessionId);
-
-    return this.prisma.chatbotFlow.update({
-      where: { sessionId },
-      data: {
-        region: dto.region || 'seoul',
-        currentStep: Math.max(flow.currentStep, 5),
-      },
-    });
+    return this.updateFlowStep(sessionId, 5, { region: dto.region });
   }
 
   // Step 5 업데이트
   async updateStep5(sessionId: string, dto: UpdateStep5Dto) {
     const flow = await this.getFlow(sessionId);
 
-    // 기존 명소와 병합 (첫 방문 시 추가된 경복궁 유지)
-    const existingAttractions = flow.attractions || [];
-    const newAttractions = dto.attractions || [];
-    const mergedAttractions = [
-      ...new Set([...existingAttractions, ...newAttractions]),
-    ];
+    // 사용자가 선택한 명소로 덮어쓰기 (선택 취소 가능)
+    const attractions = dto.attractions || [];
 
     return this.prisma.chatbotFlow.update({
       where: { sessionId },
       data: {
-        attractions: mergedAttractions,
+        attractions,
         currentStep: Math.max(flow.currentStep, 6),
       },
     });
   }
 
-  // Step 6 업데이트
-  async updateStep6(sessionId: string, dto: UpdateStep6Dto) {
-    const flow = await this.getFlow(sessionId);
+  // Step 6 업데이트 (인적사항 + 여행정보 통합)
+  async updateStep6(sessionId: string, dto: UpdateStep6Dto, userId?: string) {
+    await this.validateSessionExists(sessionId);
+
+    // 여행 날짜가 오늘 이후인지 검증
+    const travelDate = new Date(dto.travelDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (travelDate < today) {
+      throw new BadRequestException('Travel date must be today or in the future.');
+    }
 
     return this.prisma.chatbotFlow.update({
       where: { sessionId },
       data: {
-        travelDate: new Date(dto.travelDate),
+        // 인적사항
+        customerName: dto.customerName,
+        customerEmail: dto.customerEmail,
+        customerPhone: dto.customerPhone,
+        nationality: dto.nationality,
+        // 여행 정보
+        travelDate,
         duration: dto.duration,
+        // 인원 정보
         adultsCount: dto.adultsCount ?? 1,
         childrenCount: dto.childrenCount ?? 0,
         infantsCount: dto.infantsCount ?? 0,
         seniorsCount: dto.seniorsCount ?? 0,
+        ageRange: dto.ageRange,
+        // 예산 및 기타
         budgetRange: dto.budgetRange,
         needsPickup: dto.needsPickup,
-        currentStep: Math.max(flow.currentStep, 7),
+        // 추가 요청사항
+        additionalNotes: dto.additionalNotes,
+        // 유저 연결 (로그인 시)
+        ...(userId && { userId }),
+        // Step 6이 마지막 설문이므로 7로 설정 (견적 생성 준비)
+        currentStep: 7,
       },
     });
   }
 
   // Step 7 업데이트 (로그인 필수)
   async updateStep7(sessionId: string, dto: UpdateStep7Dto, userId: string) {
-    await this.getFlow(sessionId);
-
+    await this.validateSessionExists(sessionId);
     return this.prisma.chatbotFlow.update({
       where: { sessionId },
       data: {
@@ -544,15 +753,78 @@ export class ChatbotService {
   }
 
   // 카테고리 목록 조회
-  getCategories() {
+  async getCategories() {
+    // 기존 ATTRACTIONS의 장소 이름들로 DB에서 검색
+    const attractionNames = Object.values(ATTRACTIONS).map((a) => a.label);
+
+    const placeItems = await this.prisma.item.findMany({
+      where: {
+        type: 'place',
+        nameEng: { in: attractionNames },
+      },
+      select: {
+        id: true,
+        nameKor: true,
+        nameEng: true,
+        descriptionEng: true,
+        images: true,
+        region: true,
+        categories: true,
+      },
+    });
+
+    // nameEng으로 빠른 조회를 위한 맵 생성
+    const itemMap = new Map(placeItems.map((item) => [item.nameEng, item]));
+
+    // ATTRACTIONS 순서 유지하면서 DB 정보로 보강
+    const attractionsWithDbInfo = Object.entries(ATTRACTIONS).map(
+      ([key, attr]) => {
+        const dbItem = itemMap.get(attr.label);
+        const images = dbItem?.images as
+          | Array<string | { url: string; type?: string }>
+          | null;
+
+        // images 배열에서 첫 번째 이미지 URL 추출
+        let firstImageUrl: string | null = null;
+        if (images && images.length > 0) {
+          const firstImage = images[0];
+          if (typeof firstImage === 'string') {
+            firstImageUrl = firstImage;
+          } else if (firstImage && typeof firstImage === 'object' && 'url' in firstImage) {
+            firstImageUrl = firstImage.url;
+          }
+        }
+
+        return {
+          value: key, // 기존 키 유지 (gyeongbokgung 등)
+          label: attr.label,
+          labelKo: attr.labelKo,
+          region: attr.region,
+          category: attr.category,
+          description: dbItem?.descriptionEng || attr.description || '',
+          imageUrl: firstImageUrl || attr.imageUrl || null, // DB 우선, 없으면 하드코딩 fallback
+        };
+      },
+    );
+
+    // 객체를 배열로 변환하는 헬퍼
+    const toArray = <T extends Record<string, unknown>>(
+      obj: T,
+    ): Array<{ value: string } & T[keyof T]> =>
+      Object.entries(obj).map(([key, val]) => ({
+        value: key,
+        ...(val as object),
+      })) as Array<{ value: string } & T[keyof T]>;
+
     return {
-      tourTypes: TOUR_TYPES,
-      interestMain: INTEREST_MAIN,
-      interestSub: INTEREST_SUB,
-      regions: REGIONS,
-      attractions: ATTRACTIONS,
-      budgetRanges: BUDGET_RANGES,
-      referralSources: REFERRAL_SOURCES,
+      tourTypes: toArray(TOUR_TYPES),
+      interestMain: toArray(INTEREST_MAIN),
+      interestSub: toArray(INTEREST_SUB),
+      regions: toArray(REGIONS),
+      attractions: attractionsWithDbInfo,
+      budgetRanges: toArray(BUDGET_RANGES),
+      ageRanges: toArray(AGE_RANGES),
+      referralSources: toArray(REFERRAL_SOURCES),
     };
   }
 
@@ -697,7 +969,116 @@ export class ChatbotService {
     return items;
   }
 
-  // 플로우 완료 및 견적 생성
+  // 챗봇 설문 응답 요약 생성
+  private buildSurveySummary(flow: {
+    tourType: string | null;
+    isFirstVisit: boolean | null;
+    interestMain: string[];
+    interestSub: string[];
+    region: string | null;
+    attractions: string[];
+    travelDate: Date | null;
+    duration: number | null;
+    adultsCount: number | null;
+    childrenCount: number | null;
+    infantsCount: number | null;
+    seniorsCount: number | null;
+    budgetRange: string | null;
+    needsPickup: boolean | null;
+    nationality: string | null;
+    additionalNotes: string | null;
+  }): string {
+    const lines: string[] = ['[Chatbot Survey Summary]', ''];
+
+    // Tour Type
+    if (flow.tourType) {
+      const tourTypeLabel = TOUR_TYPES[flow.tourType as keyof typeof TOUR_TYPES]?.label || flow.tourType;
+      lines.push(`• Tour Type: ${tourTypeLabel}`);
+    }
+
+    // First Visit
+    if (flow.isFirstVisit !== null) {
+      lines.push(`• First Visit to Korea: ${flow.isFirstVisit ? 'Yes' : 'No'}`);
+    }
+
+    // Interests
+    if (flow.interestMain.length > 0) {
+      const mainLabels = flow.interestMain.map(
+        (val) => INTEREST_MAIN[val as keyof typeof INTEREST_MAIN]?.label || val,
+      );
+      lines.push(`• Main Interests: ${mainLabels.join(', ')}`);
+    }
+
+    if (flow.interestSub.length > 0) {
+      const subLabels = flow.interestSub.map(
+        (val) => INTEREST_SUB[val as keyof typeof INTEREST_SUB]?.label || val,
+      );
+      lines.push(`• Specific Interests: ${subLabels.join(', ')}`);
+    }
+
+    // Region
+    if (flow.region) {
+      const regionLabel = REGIONS[flow.region as keyof typeof REGIONS]?.label || flow.region;
+      lines.push(`• Region: ${regionLabel}`);
+    }
+
+    // Attractions
+    if (flow.attractions.length > 0) {
+      const attractionLabels = flow.attractions.map(
+        (val) => ATTRACTIONS[val as keyof typeof ATTRACTIONS]?.label || val,
+      );
+      lines.push(`• Must-see Places: ${attractionLabels.join(', ')}`);
+    }
+
+    // Travel Details
+    lines.push('');
+    lines.push('[Travel Details]');
+
+    if (flow.travelDate) {
+      lines.push(`• Travel Date: ${flow.travelDate.toISOString().split('T')[0]}`);
+    }
+
+    if (flow.duration) {
+      lines.push(`• Duration: ${flow.duration} day(s)`);
+    }
+
+    // Group Size
+    const travelers: string[] = [];
+    if (flow.adultsCount) travelers.push(`${flow.adultsCount} Adult(s)`);
+    if (flow.childrenCount) travelers.push(`${flow.childrenCount} Child(ren)`);
+    if (flow.infantsCount) travelers.push(`${flow.infantsCount} Infant(s)`);
+    if (flow.seniorsCount) travelers.push(`${flow.seniorsCount} Senior(s)`);
+    if (travelers.length > 0) {
+      lines.push(`• Group: ${travelers.join(', ')}`);
+    }
+
+    // Budget
+    if (flow.budgetRange) {
+      const budgetLabel = BUDGET_RANGES[flow.budgetRange as keyof typeof BUDGET_RANGES]?.label || flow.budgetRange;
+      lines.push(`• Budget: ${budgetLabel}`);
+    }
+
+    // Pickup
+    if (flow.needsPickup !== null) {
+      lines.push(`• Airport Pickup: ${flow.needsPickup ? 'Yes' : 'No'}`);
+    }
+
+    // Nationality
+    if (flow.nationality) {
+      lines.push(`• Nationality: ${flow.nationality}`);
+    }
+
+    // Additional Notes
+    if (flow.additionalNotes) {
+      lines.push('');
+      lines.push('[Additional Notes]');
+      lines.push(flow.additionalNotes);
+    }
+
+    return lines.join('\n');
+  }
+
+  // 플로우 완료 및 견적 생성 (AI 기반)
   async completeFlow(sessionId: string, userId: string) {
     this.logger.log(`Completing flow: sessionId=${sessionId}, userId=${userId}`);
 
@@ -707,100 +1088,49 @@ export class ChatbotService {
     if (flow.isCompleted && flow.estimateId) {
       this.logger.log(`Flow already completed: sessionId=${sessionId}, estimateId=${flow.estimateId}`);
       const estimate = await this.estimateService.getEstimate(flow.estimateId);
-      return { flow, estimate };
+      const items = Array.isArray(estimate.items) ? estimate.items : [];
+      return {
+        flow,
+        estimate,
+        templateUsed: null,
+        hasTbdDays: items.some((item: any) => item.isTbd),
+      };
     }
 
     // 필수 정보 검증
     if (!flow.customerName || !flow.customerEmail) {
       this.logger.warn(`Missing customer info: sessionId=${sessionId}`);
       throw new BadRequestException(
-        'Step 7을 먼저 완료해주세요. 고객 정보가 필요합니다.',
+        'Please complete Step 6 first. Customer information is required.',
       );
     }
 
-    // 견본 견적 찾기
-    const { template } = await this.findTemplateEstimate({
-      region: flow.region,
-      interests: flow.interestSub || [],
-      duration: flow.duration,
-    });
-
-    // 아이템 준비 (템플릿 복제 + TBD 처리)
-    const requestedDays = flow.duration || 1;
-    const templateItems = (template?.items as any[]) || [];
-    const templateDays = template?.travelDays || 1;
-    const items = this.prepareItemsFromTemplate(
-      templateItems,
-      requestedDays,
-      templateDays,
-    );
-
-    // 여행 종료일 계산
-    const endDate =
-      flow.travelDate && flow.duration
-        ? new Date(
-            flow.travelDate.getTime() + (flow.duration - 1) * 24 * 60 * 60 * 1000,
-          )
-        : null;
-
-    // 견적 제목 생성
-    const tourTypeLabel = flow.tourType
-      ? TOUR_TYPES[flow.tourType as keyof typeof TOUR_TYPES]?.label || 'Tour'
-      : 'Tour';
-    const title = `${flow.customerName}'s ${flow.region || 'Korea'} ${tourTypeLabel}`;
-
-    // 초기 견적 생성 (견본에서 복제)
-    // undefined 값은 제외하고 정의된 값만 포함
-    const estimateData: Record<string, unknown> = {
-      title,
-      source: 'ai',
-      statusAi: 'draft',
-      customerName: flow.customerName || '',
-      customerEmail: flow.customerEmail || '',
-      travelDays: flow.duration || 1,
-      adultsCount: flow.adultsCount || 1,
-      childrenCount: flow.childrenCount || 0,
-      infantsCount: flow.infantsCount || 0,
-      interests: flow.interestSub || [],
-      regions: flow.region ? [flow.region] : ['seoul'],
-      userId,
-      items,
-    };
-
-    // 선택적 필드는 값이 있을 때만 추가
-    if (flow.nationality) estimateData.nationality = flow.nationality;
-    if (flow.travelDate) estimateData.startDate = flow.travelDate; // Date 객체 직접 전달
-    if (endDate) estimateData.endDate = endDate; // Date 객체 직접 전달
-    if (flow.tourType) estimateData.tourType = flow.tourType;
-    if (flow.budgetRange) estimateData.priceRange = flow.budgetRange;
-    if (flow.additionalNotes) estimateData.requestContent = flow.additionalNotes;
-
-    // 견적 유효기간 설정 (30일)
-    const validDate = new Date();
-    validDate.setDate(validDate.getDate() + 30);
-    estimateData.validDate = validDate;
-
-    // 트랜잭션으로 견적 생성 + 플로우 업데이트 처리
     try {
-      const estimate = await this.estimateService.createEstimate(estimateData as any);
+      // AiEstimateService를 사용하여 AI 기반 견적 생성
+      const { estimateId } = await this.aiEstimateService.generateFirstEstimate(sessionId);
 
-      // Flow 업데이트
-      const updatedFlow = await this.prisma.chatbotFlow.update({
-        where: { sessionId },
-        data: {
-          isCompleted: true,
-          estimateId: estimate.id,
-          userId,
-        },
-      });
+      // 업데이트된 플로우 조회
+      const updatedFlow = await this.getFlow(sessionId);
 
-      this.logger.log(`Flow completed successfully: sessionId=${sessionId}, estimateId=${estimate.id}`);
+      // Flow에 userId 연결 (아직 없는 경우)
+      if (!updatedFlow.userId) {
+        await this.prisma.chatbotFlow.update({
+          where: { sessionId },
+          data: { userId },
+        });
+      }
+
+      // 견적 아이템 정보 보강
+      const enrichedEstimate = await this.estimateService.getEstimate(estimateId);
+      const items = Array.isArray(enrichedEstimate.items) ? enrichedEstimate.items : [];
+
+      this.logger.log(`Flow completed successfully: sessionId=${sessionId}, estimateId=${estimateId}`);
 
       return {
         flow: updatedFlow,
-        estimate,
-        templateUsed: template?.title || null,
-        hasTbdDays: items.some((item) => item.isTbd),
+        estimate: enrichedEstimate,
+        templateUsed: null,
+        hasTbdDays: items.some((item: any) => item.isTbd),
       };
     } catch (error) {
       this.logger.error(`Failed to complete flow: sessionId=${sessionId}`, error.stack);
@@ -814,7 +1144,7 @@ export class ChatbotService {
 
     if (!flow.estimateId) {
       throw new BadRequestException(
-        '먼저 견적을 생성해주세요. (completeFlow 호출 필요)',
+        'Please generate an estimate first.',
       );
     }
 
@@ -826,7 +1156,7 @@ export class ChatbotService {
 
     return {
       success: true,
-      message: '전문가에게 전달되었습니다.',
+      message: 'Sent to expert for review.',
       estimateId: flow.estimateId,
       status: estimate.statusAi,
     };
@@ -841,7 +1171,7 @@ export class ChatbotService {
     const flow = await this.getFlow(sessionId);
 
     if (!flow.estimateId) {
-      throw new BadRequestException('견적이 없습니다.');
+      throw new BadRequestException('Estimate not found.');
     }
 
     // 견적 상태 업데이트
@@ -850,12 +1180,21 @@ export class ChatbotService {
       response,
     );
 
-    // 수정 요청이 있으면 견적의 requestContent에 추가
+    // 수정 요청이 있으면 견적의 requestContent에 추가 (기존 내용 유지)
     if (modificationRequest) {
+      const currentEstimate = await this.prisma.estimate.findUnique({
+        where: { id: flow.estimateId },
+        select: { requestContent: true },
+      });
+      const existingContent = currentEstimate?.requestContent || '';
+      const updatedContent = existingContent
+        ? `${existingContent}\n\n--- Modification Request ---\n${modificationRequest}`
+        : modificationRequest;
+
       await this.prisma.estimate.update({
         where: { id: flow.estimateId },
         data: {
-          requestContent: modificationRequest,
+          requestContent: updatedContent,
           // 수정 요청이 있으면 다시 검토 대기로
           statusAi: 'pending',
         },
@@ -866,10 +1205,10 @@ export class ChatbotService {
       success: true,
       message:
         response === 'accepted'
-          ? '견적이 승인되었습니다. 곧 연락드리겠습니다.'
+          ? 'Estimate approved. We will contact you soon.'
           : modificationRequest
-          ? '수정 요청이 전달되었습니다. 전문가가 검토 후 연락드리겠습니다.'
-          : '견적이 거절되었습니다.',
+          ? 'Modification request submitted. Our expert will review and contact you.'
+          : 'Estimate declined.',
       status: modificationRequest ? 'pending' : estimate.statusAi,
     };
   }
@@ -925,6 +1264,30 @@ export class ChatbotService {
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
+        // 목록 조회 시 큰 필드 제외 (pageVisits, userAgent)
+        select: {
+          id: true,
+          sessionId: true,
+          userId: true,
+          currentStep: true,
+          tourType: true,
+          region: true,
+          travelDate: true,
+          customerName: true,
+          customerEmail: true,
+          ipAddress: true,
+          // IP 지리 정보
+          country: true,
+          countryName: true,
+          city: true,
+          // 추적 정보
+          utmSource: true,
+          referrerUrl: true,
+          landingPage: true,
+          isCompleted: true,
+          estimateId: true,
+          createdAt: true,
+        },
       }),
       this.prisma.chatbotFlow.count({ where }),
     ]);
@@ -988,6 +1351,258 @@ export class ChatbotService {
     };
   }
 
+  // 관리자용: 퍼널 분석
+  async getFunnelAnalysis(days = 30) {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    // 각 단계별 도달 수 (해당 단계 이상까지 진행한 사용자 수)
+    const [
+      step1, // 시작 (모든 플로우)
+      step2, // 투어 타입 선택 완료
+      step3, // 첫 방문 여부 응답
+      step4, // 관심사 선택 완료
+      step5, // 지역 선택 완료
+      step6, // 명소 선택 완료
+      step7, // 여행 정보 입력 완료
+      completed, // 견적 생성 완료
+      estimateSent, // 전문가에게 발송
+      estimateAccepted, // 고객 수락
+    ] = await Promise.all([
+      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate } } }),
+      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 2 } } }),
+      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 3 } } }),
+      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 4 } } }),
+      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 5 } } }),
+      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 6 } } }),
+      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 7 } } }),
+      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, isCompleted: true } }),
+      this.prisma.estimate.count({
+        where: {
+          createdAt: { gte: startDate },
+          statusAi: { in: ['sent', 'accepted', 'declined'] }
+        }
+      }),
+      this.prisma.estimate.count({
+        where: {
+          createdAt: { gte: startDate },
+          statusAi: 'accepted'
+        }
+      }),
+    ]);
+
+    const funnel = [
+      { step: 1, name: '챗봇 시작', count: step1, rate: 100 },
+      { step: 2, name: '투어 타입 선택', count: step2, rate: step1 > 0 ? Math.round((step2 / step1) * 100) : 0 },
+      { step: 3, name: '첫 방문 여부', count: step3, rate: step1 > 0 ? Math.round((step3 / step1) * 100) : 0 },
+      { step: 4, name: '관심사 선택', count: step4, rate: step1 > 0 ? Math.round((step4 / step1) * 100) : 0 },
+      { step: 5, name: '지역 선택', count: step5, rate: step1 > 0 ? Math.round((step5 / step1) * 100) : 0 },
+      { step: 6, name: '명소 선택', count: step6, rate: step1 > 0 ? Math.round((step6 / step1) * 100) : 0 },
+      { step: 7, name: '여행 정보 입력', count: step7, rate: step1 > 0 ? Math.round((step7 / step1) * 100) : 0 },
+      { step: 8, name: '견적 생성', count: completed, rate: step1 > 0 ? Math.round((completed / step1) * 100) : 0 },
+      { step: 9, name: '전문가 발송', count: estimateSent, rate: step1 > 0 ? Math.round((estimateSent / step1) * 100) : 0 },
+      { step: 10, name: '고객 수락', count: estimateAccepted, rate: step1 > 0 ? Math.round((estimateAccepted / step1) * 100) : 0 },
+    ];
+
+    // 이탈률 계산 (다음 단계로 넘어가지 않은 비율)
+    const dropoff = funnel.slice(0, -1).map((item, idx) => {
+      const nextCount = funnel[idx + 1].count;
+      const dropoffCount = item.count - nextCount;
+      const dropoffRate = item.count > 0 ? Math.round((dropoffCount / item.count) * 100) : 0;
+      return {
+        step: item.step,
+        name: item.name,
+        dropoffCount,
+        dropoffRate,
+      };
+    });
+
+    // 가장 이탈이 많은 단계 (상위 3개)
+    const worstDropoff = [...dropoff]
+      .sort((a, b) => b.dropoffRate - a.dropoffRate)
+      .slice(0, 3);
+
+    return {
+      period: `${days}일`,
+      funnel,
+      dropoff,
+      worstDropoff,
+      summary: {
+        totalStarted: step1,
+        totalCompleted: completed,
+        overallConversion: step1 > 0 ? `${Math.round((completed / step1) * 100)}%` : '0%',
+        acceptanceRate: estimateSent > 0 ? `${Math.round((estimateAccepted / estimateSent) * 100)}%` : '0%',
+      },
+    };
+  }
+
+  // 관리자용: 리드 스코어 계산
+  async getLeadScores(limit = 50) {
+    // 최근 미완료 플로우 중 가장 유망한 리드
+    const flows = await this.prisma.chatbotFlow.findMany({
+      where: {
+        isCompleted: false,
+        currentStep: { gte: 3 }, // 최소 3단계 이상 진행
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: limit * 2, // 필터링 후 limit 적용
+      select: {
+        id: true,
+        sessionId: true,
+        currentStep: true,
+        tourType: true,
+        travelDate: true,
+        adultsCount: true,
+        childrenCount: true,
+        budgetRange: true,
+        customerName: true,
+        customerEmail: true,
+        country: true,
+        countryName: true,
+        city: true,
+        utmSource: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    // 리드 스코어 계산
+    const scoredLeads = flows.map(flow => {
+      let score = 0;
+      const factors: string[] = [];
+
+      // 진행 단계 점수 (최대 35점)
+      score += flow.currentStep * 5;
+      factors.push(`진행도: Step ${flow.currentStep} (+${flow.currentStep * 5})`);
+
+      // 여행 날짜가 가까우면 가산점 (최대 20점)
+      if (flow.travelDate) {
+        const daysUntilTravel = Math.ceil(
+          (new Date(flow.travelDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+        );
+        if (daysUntilTravel > 0 && daysUntilTravel <= 30) {
+          const dateScore = Math.max(0, 20 - Math.floor(daysUntilTravel / 2));
+          score += dateScore;
+          factors.push(`여행일 임박 (${daysUntilTravel}일 후): +${dateScore}`);
+        } else if (daysUntilTravel > 30 && daysUntilTravel <= 90) {
+          score += 10;
+          factors.push(`여행일 설정됨: +10`);
+        }
+      }
+
+      // 인원수 점수 (최대 15점)
+      const totalPeople = (flow.adultsCount || 0) + (flow.childrenCount || 0);
+      if (totalPeople >= 4) {
+        score += 15;
+        factors.push(`단체 여행 (${totalPeople}명): +15`);
+      } else if (totalPeople >= 2) {
+        score += 10;
+        factors.push(`${totalPeople}인 여행: +10`);
+      }
+
+      // 예산 범위 점수 (최대 15점)
+      if (flow.budgetRange) {
+        const budgetMap: Record<string, number> = {
+          '50-100': 5,
+          '100-200': 10,
+          '200-300': 12,
+          '300+': 15,
+        };
+        const budgetScore = budgetMap[flow.budgetRange] || 5;
+        score += budgetScore;
+        factors.push(`예산 ${flow.budgetRange}: +${budgetScore}`);
+      }
+
+      // 연락처 제공 여부 (최대 15점)
+      if (flow.customerEmail) {
+        score += 10;
+        factors.push(`이메일 제공: +10`);
+      }
+      if (flow.customerName) {
+        score += 5;
+        factors.push(`이름 제공: +5`);
+      }
+
+      // 최근 활동 보너스 (최대 10점)
+      const hoursSinceUpdate = (Date.now() - new Date(flow.updatedAt).getTime()) / (1000 * 60 * 60);
+      if (hoursSinceUpdate < 1) {
+        score += 10;
+        factors.push(`방금 활동: +10`);
+      } else if (hoursSinceUpdate < 24) {
+        score += 5;
+        factors.push(`24시간 내 활동: +5`);
+      }
+
+      return {
+        ...flow,
+        score,
+        factors,
+        grade: score >= 70 ? 'HOT' : score >= 50 ? 'WARM' : 'COLD',
+      };
+    });
+
+    // 점수순 정렬 후 limit 적용
+    const topLeads = scoredLeads
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    const summary = {
+      hot: topLeads.filter(l => l.grade === 'HOT').length,
+      warm: topLeads.filter(l => l.grade === 'WARM').length,
+      cold: topLeads.filter(l => l.grade === 'COLD').length,
+    };
+
+    return {
+      leads: topLeads,
+      summary,
+    };
+  }
+
+  // 관리자용: 국가별 통계
+  async getCountryStats(days = 30) {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const byCountry = await this.prisma.chatbotFlow.groupBy({
+      by: ['country', 'countryName'],
+      _count: true,
+      where: {
+        createdAt: { gte: startDate },
+        country: { not: null },
+      },
+      orderBy: { _count: { country: 'desc' } },
+      take: 20,
+    });
+
+    // 국가별 전환율 계산
+    const countryStats = await Promise.all(
+      byCountry.map(async (item) => {
+        const completed = await this.prisma.chatbotFlow.count({
+          where: {
+            createdAt: { gte: startDate },
+            country: item.country,
+            isCompleted: true,
+          },
+        });
+
+        return {
+          country: item.country,
+          countryName: item.countryName,
+          count: item._count,
+          completed,
+          conversionRate: item._count > 0
+            ? `${Math.round((completed / item._count) * 100)}%`
+            : '0%',
+        };
+      })
+    );
+
+    return {
+      period: `${days}일`,
+      data: countryStats,
+    };
+  }
+
   // ============ 메시지 관련 API ============
 
   // 메시지 저장
@@ -1032,6 +1647,62 @@ export class ChatbotService {
     return message;
   }
 
+  // 메시지 배치 저장
+  async saveMessagesBatch(
+    sessionId: string,
+    messages: Array<{
+      role: 'bot' | 'user';
+      content: string;
+      messageType?: 'text' | 'options' | 'form';
+      options?: Array<{ value: string; label: string; sub?: string }>;
+    }>,
+  ) {
+    // 세션 존재 확인
+    await this.getFlow(sessionId);
+
+    if (!messages || messages.length === 0) {
+      return { count: 0, messages: [] };
+    }
+
+    // 배치 삽입
+    const createdMessages = await this.prisma.$transaction(
+      messages.map((msg) =>
+        this.prisma.chatbotMessage.create({
+          data: {
+            sessionId,
+            role: msg.role,
+            content: msg.content,
+            messageType: msg.messageType || 'text',
+            options: msg.options || undefined,
+          },
+        }),
+      ),
+    );
+
+    // 첫 번째 사용자 메시지로 세션 제목 자동 설정
+    const firstUserMsg = messages.find((m) => m.role === 'user');
+    if (firstUserMsg) {
+      const existingUserMsgCount = await this.prisma.chatbotMessage.count({
+        where: { sessionId, role: 'user' },
+      });
+
+      // 방금 추가한 메시지 수를 고려
+      const userMsgsInBatch = messages.filter((m) => m.role === 'user').length;
+      if (existingUserMsgCount === userMsgsInBatch) {
+        // 이번 배치가 첫 사용자 메시지를 포함
+        const title =
+          firstUserMsg.content.slice(0, 50) +
+          (firstUserMsg.content.length > 50 ? '...' : '');
+        await this.prisma.chatbotFlow.update({
+          where: { sessionId },
+          data: { title },
+        });
+      }
+    }
+
+    return { count: createdMessages.length, messages: createdMessages };
+  }
+
   // 메시지 목록 조회
   async getMessages(sessionId: string) {
     // 세션 존재 확인
@@ -1059,7 +1730,7 @@ export class ChatbotService {
       },
     });
 
-    // 견적 ID가 있는 세션들의 견적 상태 조회
+    // 견적 ID가 있는 세션들의 견적 정보 조회 (상태 + shareHash)
     const estimateIds = flows
       .filter((f) => f.estimateId)
       .map((f) => f.estimateId as number);
@@ -1068,25 +1739,28 @@ export class ChatbotService {
       estimateIds.length > 0
         ? await this.prisma.estimate.findMany({
             where: { id: { in: estimateIds } },
-            select: { id: true, statusAi: true },
+            select: { id: true, statusAi: true, shareHash: true },
           })
         : [];
 
-    const estimateStatusMap = new Map(
-      estimates.map((e) => [e.id, e.statusAi]),
+    const estimateMap = new Map(
+      estimates.map((e) => [e.id, { statusAi: e.statusAi, shareHash: e.shareHash }]),
     );
 
-    const sessions = flows.map((flow) => ({
-      sessionId: flow.sessionId,
-      title: flow.title,
-      currentStep: flow.currentStep,
-      isCompleted: flow.isCompleted,
-      estimateStatus: flow.estimateId
-        ? estimateStatusMap.get(flow.estimateId) || null
-        : null,
-      createdAt: flow.createdAt,
-      updatedAt: flow.updatedAt,
-    }));
+    const sessions = flows.map((flow) => {
+      const estimateInfo = flow.estimateId ? estimateMap.get(flow.estimateId) : null;
+      return {
+        sessionId: flow.sessionId,
+        title: flow.title,
+        currentStep: flow.currentStep,
+        isCompleted: flow.isCompleted,
+        estimateId: flow.estimateId,
+        estimateStatus: estimateInfo?.statusAi || null,
+        estimateShareHash: estimateInfo?.shareHash || null,
+        createdAt: flow.createdAt,
+        updatedAt: flow.updatedAt,
+      };
+    });
 
     return { sessions };
   }
@@ -1097,7 +1771,7 @@ export class ChatbotService {
 
     // 사용자 권한 확인 (userId가 제공된 경우)
     if (userId && flow.userId && flow.userId !== userId) {
-      throw new ForbiddenException('이 세션을 수정할 권한이 없습니다.');
+      throw new ForbiddenException('You do not have permission to modify this session.');
     }
 
     return this.prisma.chatbotFlow.update({
@@ -1112,7 +1786,7 @@ export class ChatbotService {
 
     // 사용자 권한 확인 (userId가 제공된 경우)
     if (userId && flow.userId && flow.userId !== userId) {
-      throw new ForbiddenException('이 세션을 삭제할 권한이 없습니다.');
+      throw new ForbiddenException('You do not have permission to delete this session.');
     }
 
     // ChatbotMessage는 onDelete: Cascade로 자동 삭제됨

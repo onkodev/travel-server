@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
@@ -21,6 +21,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { UserModule } from './modules/user/user.module';
 import { FileUploadModule } from './modules/file-upload/file-upload.module';
 import { ChatbotModule } from './modules/chatbot/chatbot.module';
+import { VisitorModule } from './modules/visitor/visitor.module';
 
 @Module({
   imports: [
@@ -28,19 +29,26 @@ import { ChatbotModule } from './modules/chatbot/chatbot.module';
       isGlobal: true,
     }),
     ScheduleModule.forRoot(),
-    // Rate Limiting: 기본 60초에 100회 요청 허용
-    ThrottlerModule.forRoot([
-      {
-        name: 'default',
-        ttl: 60000, // 60초
-        limit: 100, // 100회
+    // Rate Limiting: 환경에 따라 다르게 설정
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const isProduction = configService.get('NODE_ENV') === 'production';
+        return [
+          {
+            name: 'default',
+            ttl: 60000, // 60초
+            limit: isProduction ? 100 : 500, // 프로덕션: 100회, 개발: 500회
+          },
+          {
+            name: 'strict',
+            ttl: 60000, // 60초
+            limit: isProduction ? 10 : 30, // 프로덕션: 10회, 개발: 30회 (로그인 등)
+          },
+        ];
       },
-      {
-        name: 'strict',
-        ttl: 60000, // 60초
-        limit: 10, // 10회 (민감한 엔드포인트용)
-      },
-    ]),
+    }),
     PrismaModule,
     SupabaseModule,
     AuthModule,
@@ -56,6 +64,7 @@ import { ChatbotModule } from './modules/chatbot/chatbot.module';
     UserModule,
     FileUploadModule,
     ChatbotModule,
+    VisitorModule,
   ],
   providers: [
     {

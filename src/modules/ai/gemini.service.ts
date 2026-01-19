@@ -111,31 +111,6 @@ export class GeminiService {
     return defaultValue;
   }
 
-  // AI 채팅
-  async chat(sessionId: number, message: string, context?: object) {
-    const previousMessages = await this.prisma.chatMessage.findMany({
-      where: { sessionId },
-      orderBy: { createdAt: 'asc' },
-      take: 20,
-    });
-
-    const history = previousMessages.map((msg) => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: msg.content }],
-    }));
-
-    const systemPrompt = this.buildSystemPrompt(context);
-
-    const response = await this.callGemini(message, {
-      history,
-      systemPrompt,
-      temperature: 0.7,
-      maxOutputTokens: 2048,
-    });
-
-    return { response };
-  }
-
   // 견적 요청 분석
   async analyzeEstimateRequest(content: string) {
     const prompt = `
@@ -421,28 +396,5 @@ Generate the timeline:`;
     }
 
     return { success: false, timeline: '' };
-  }
-
-  // 시스템 프롬프트 빌드
-  private buildSystemPrompt(context?: object): string {
-    return `
-당신은 한국 여행 전문 AI 어시스턴트입니다.
-사용자의 여행 계획을 도와주세요.
-
-역할:
-- 한국 여행지 추천
-- 여행 일정 계획
-- 견적 요청 수집
-- 맛집, 숙소, 교통 정보 제공
-
-대화 컨텍스트:
-${context ? JSON.stringify(context, null, 2) : '없음'}
-
-응답 지침:
-- 친절하고 전문적인 톤 유지
-- 구체적인 정보 제공
-- 필요시 추가 질문으로 정보 수집
-- 한국어와 영어 모두 지원
-`;
   }
 }

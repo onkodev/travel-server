@@ -6,8 +6,10 @@ import {
   UseInterceptors,
   UploadedFile,
   Body,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import {
   ApiTags,
   ApiOperation,
@@ -30,10 +32,33 @@ export class FileUploadController {
   ) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB
+      },
+      fileFilter: (req, file, cb) => {
+        const allowedMimes = [
+          'image/jpeg',
+          'image/png',
+          'image/gif',
+          'image/webp',
+          'image/svg+xml',
+        ];
+        if (!allowedMimes.includes(file.mimetype)) {
+          return cb(
+            new BadRequestException('이미지 파일만 업로드 가능합니다 (JPEG, PNG, GIF, WebP, SVG)'),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
   @ApiOperation({
     summary: 'S3 파일 업로드',
-    description: '이미지 파일을 AWS S3에 업로드합니다.',
+    description: '이미지 파일을 AWS S3에 업로드합니다. (최대 10MB, JPEG/PNG/GIF/WebP/SVG)',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -46,12 +71,13 @@ export class FileUploadController {
     },
   })
   @ApiResponse({ status: 200, description: '업로드 성공' })
+  @ApiResponse({ status: 400, description: '잘못된 파일 형식' })
   async uploadFile(
     @UploadedFile() file: Express.Multer.File,
     @Body('folder') folder?: string,
   ) {
     if (!file) {
-      return { success: false, error: 'No file provided' };
+      throw new BadRequestException('파일이 제공되지 않았습니다');
     }
     return this.fileUploadService.uploadFile(file, folder || 'items');
   }

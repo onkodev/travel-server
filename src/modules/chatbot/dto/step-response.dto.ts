@@ -15,6 +15,21 @@ class OptionDto {
 
   @ApiPropertyOptional()
   description?: string;
+
+  @ApiPropertyOptional()
+  descriptionKo?: string;
+
+  @ApiPropertyOptional({ description: '상태 (available, coming_soon)' })
+  status?: string;
+
+  @ApiPropertyOptional({ description: '외부 리다이렉트 URL' })
+  redirectUrl?: string | null;
+
+  @ApiPropertyOptional({ description: '카테고리 (어트랙션용)' })
+  category?: string;
+
+  @ApiPropertyOptional({ description: '지역 (어트랙션용)' })
+  region?: string;
 }
 
 class FieldDto {
@@ -38,6 +53,9 @@ class FieldDto {
 
   @ApiPropertyOptional({ type: [OptionDto] })
   options?: OptionDto[];
+
+  @ApiPropertyOptional({ description: '폼 섹션 (personal, travel, group, budget)' })
+  section?: string;
 }
 
 export class StepResponseDto {
