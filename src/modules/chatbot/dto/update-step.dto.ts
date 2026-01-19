@@ -99,6 +99,23 @@ export class UpdateStep4Dto {
   region?: string;
 }
 
+// Plan (계획유무 - 클라이언트 Step 3)
+export class UpdatePlanDto {
+  @ApiProperty({ description: 'Has specific plan/itinerary' })
+  @IsBoolean()
+  hasPlan: boolean;
+
+  @ApiPropertyOptional({ description: 'Plan details (if hasPlan is true)', maxLength: 2000 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000, { message: 'Plan details cannot exceed 2000 characters.' })
+  planDetails?: string;
+
+  @ApiProperty({ description: 'Flexible to modify plan' })
+  @IsBoolean()
+  isFlexible: boolean;
+}
+
 // Step 5: Attractions
 export class UpdateStep5Dto {
   @ApiPropertyOptional({

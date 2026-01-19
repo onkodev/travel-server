@@ -75,6 +75,11 @@ async function bootstrap() {
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: false, // analytics 등 유연한 데이터 수신 허용
+      exceptionFactory: (errors) => {
+        console.log('Validation errors:', JSON.stringify(errors, null, 2));
+        const { BadRequestException } = require('@nestjs/common');
+        return new BadRequestException(errors);
+      },
     }),
   );
 

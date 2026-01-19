@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma, Estimate } from '@prisma/client';
 import { randomBytes } from 'crypto';
-import { convertDecimalFields } from '../../common/utils/decimal.util';
+import { convertDecimalFields, toDateTime, omit } from '../../common/utils';
 import { CreateEstimateDto } from './dto/estimate-create.dto';
 import { UpdateEstimateDto } from './dto/estimate-update.dto';
 import { EstimateItemDto } from './dto/estimate.dto';
@@ -177,9 +177,9 @@ export class EstimateService {
     const items = estimate.items as unknown as EstimateItemExtendedDto[];
     if (!items || items.length === 0) return estimate;
 
-    // itemInfo가 없는 아이템들의 itemId 수집
+    // itemInfo가 없거나 lat/lng가 없는 아이템들의 itemId 수집
     const itemsToEnrich = items.filter(
-      (item) => !item.itemInfo || !item.itemInfo.images || item.itemInfo.images.length === 0
+      (item) => !item.itemInfo || !item.itemInfo.images || item.itemInfo.images.length === 0 || item.itemInfo.lat == null || item.itemInfo.lng == null
     );
 
     if (itemsToEnrich.length === 0) return estimate;
@@ -215,18 +215,19 @@ export class EstimateService {
       const itemRecord = itemMap.get(item.itemId);
       if (!itemRecord) return item;
 
-      // itemInfo가 없거나 images가 없는 경우 보강
-      if (!item.itemInfo || !item.itemInfo.images || item.itemInfo.images.length === 0) {
+      // itemInfo가 없거나 images/lat/lng가 없는 경우 보강
+      if (!item.itemInfo || !item.itemInfo.images || item.itemInfo.images.length === 0 || item.itemInfo.lat == null || item.itemInfo.lng == null) {
         return {
           ...item,
           itemInfo: {
-            nameKor: itemRecord.nameKor,
-            nameEng: itemRecord.nameEng,
-            descriptionEng: itemRecord.descriptionEng,
-            images: itemRecord.images || [],
-            lat: itemRecord.lat,
-            lng: itemRecord.lng,
-            addressEnglish: itemRecord.addressEnglish,
+            ...(item.itemInfo || {}),
+            nameKor: item.itemInfo?.nameKor || itemRecord.nameKor,
+            nameEng: item.itemInfo?.nameEng || itemRecord.nameEng,
+            descriptionEng: item.itemInfo?.descriptionEng || itemRecord.descriptionEng,
+            images: (item.itemInfo?.images?.length ? item.itemInfo.images : itemRecord.images) || [],
+            lat: item.itemInfo?.lat ?? itemRecord.lat,
+            lng: item.itemInfo?.lng ?? itemRecord.lng,
+            addressEnglish: item.itemInfo?.addressEnglish || itemRecord.addressEnglish,
           },
         };
       }
@@ -283,18 +284,30 @@ export class EstimateService {
 
   // 견적 업데이트
   async updateEstimate(id: number, data: UpdateEstimateDto) {
-    // 클라이언트에서 보낸 불필요한 필드 제거 (totalTravelers는 DB에서 자동 계산되는 generated column)
-    const { id: _id, createdAt, updatedAt, shareHash, items, displayOptions, timeline, revisionHistory, totalTravelers, ...cleanData } = data;
+    // 제외할 필드 목록
+    const EXCLUDE_FIELDS = [
+      'id', 'createdAt', 'updatedAt', 'shareHash',  // 읽기 전용
+      'totalTravelers', 'seniorsCount',              // DB에 없는 필드
+      'chatSessionId', 'userId',                     // 관계 필드
+      'items', 'displayOptions', 'timeline', 'revisionHistory',  // JSON 필드 (별도 처리)
+      'validDate', 'startDate', 'endDate',           // 날짜 필드 (별도 처리)
+    ] as const;
+
+    const cleanData = omit(data as Record<string, unknown>, [...EXCLUDE_FIELDS]);
 
     const estimate = await this.prisma.estimate.update({
       where: { id },
       data: {
         ...cleanData,
-        // JSON 필드들이 있는 경우에만 업데이트
-        ...(items !== undefined && { items: items as unknown as Prisma.InputJsonValue }),
-        ...(displayOptions !== undefined && { displayOptions: displayOptions as unknown as Prisma.InputJsonValue }),
-        ...(timeline !== undefined && { timeline: timeline as unknown as Prisma.InputJsonValue }),
-        ...(revisionHistory !== undefined && { revisionHistory: revisionHistory as unknown as Prisma.InputJsonValue }),
+        // 날짜 필드 변환
+        ...(data.validDate !== undefined && { validDate: toDateTime(data.validDate) }),
+        ...(data.startDate !== undefined && { startDate: toDateTime(data.startDate) }),
+        ...(data.endDate !== undefined && { endDate: toDateTime(data.endDate) }),
+        // JSON 필드
+        ...(data.items !== undefined && { items: data.items as unknown as Prisma.InputJsonValue }),
+        ...(data.displayOptions !== undefined && { displayOptions: data.displayOptions as unknown as Prisma.InputJsonValue }),
+        ...(data.timeline !== undefined && { timeline: data.timeline as unknown as Prisma.InputJsonValue }),
+        ...(data.revisionHistory !== undefined && { revisionHistory: data.revisionHistory as unknown as Prisma.InputJsonValue }),
       },
     });
 
@@ -310,13 +323,62 @@ export class EstimateService {
 
   // 견적 발송 처리
   async sendEstimate(id: number) {
-    return this.prisma.estimate.update({
+    // 견적 전체 조회 (chatSessionId, items 포함)
+    const estimate = await this.prisma.estimate.findUnique({
+      where: { id },
+    });
+
+    if (!estimate) {
+      throw new NotFoundException(`견적 ID ${id}를 찾을 수 없습니다.`);
+    }
+
+    // 상태 업데이트
+    const updatedEstimate = await this.prisma.estimate.update({
       where: { id },
       data: {
         statusAi: 'sent',
         sentAt: new Date(),
       },
     });
+
+    // chatSessionId가 있으면 해당 채팅 세션에 견적 메시지 추가/업데이트
+    if (estimate.chatSessionId) {
+      try {
+        // 기존 견적 메시지 삭제 (재발송 시 최신 데이터로 교체)
+        await this.prisma.chatbotMessage.deleteMany({
+          where: {
+            sessionId: estimate.chatSessionId,
+            messageType: 'estimate',
+          },
+        });
+
+        // 견적 카드를 표시하기 위한 메시지 (messageType: 'estimate')
+        await this.prisma.chatbotMessage.create({
+          data: {
+            sessionId: estimate.chatSessionId,
+            role: 'bot',
+            content: 'Your personalized quotation is ready! Please review the details below.',
+            messageType: 'estimate',
+            // options 필드에 견적 데이터 저장 (JSON)
+            options: {
+              estimateId: estimate.id,
+              shareHash: estimate.shareHash,
+              title: estimate.title,
+              items: estimate.items,
+              totalAmount: estimate.totalAmount,
+              currency: estimate.currency,
+              travelDays: estimate.travelDays,
+              startDate: estimate.startDate,
+            },
+          },
+        });
+      } catch (error) {
+        // 메시지 생성 실패해도 발송 처리는 계속 진행
+        console.error('Failed to create chat message for estimate:', error);
+      }
+    }
+
+    return convertDecimalFields(updatedEstimate);
   }
 
   // 견적 통계
@@ -418,9 +480,7 @@ export class EstimateService {
       draft: 0,
       pending: 0,
       sent: 0,
-      revised: 0,
       accepted: 0,
-      declined: 0,
       completed: 0,
       archived: 0,
     };
@@ -445,8 +505,7 @@ export class EstimateService {
   async updateAIStatus(id: number, status: string) {
     const updates: any = { statusAi: status };
     if (status === 'sent') updates.sentAt = new Date();
-    if (status === 'accepted' || status === 'declined')
-      updates.respondedAt = new Date();
+    if (status === 'accepted') updates.respondedAt = new Date();
     if (status === 'completed') updates.completedAt = new Date();
     return this.prisma.estimate.update({ where: { id }, data: updates });
   }

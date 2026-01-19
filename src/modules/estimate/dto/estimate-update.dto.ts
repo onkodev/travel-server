@@ -7,7 +7,9 @@ import {
   IsBoolean,
   IsIn,
   IsObject,
+  Allow,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { EstimateItemDto } from './estimate.dto';
 
 /**
@@ -18,7 +20,7 @@ export class UpdateEstimateDto {
   // 읽기 전용 필드들 (서버에서 무시됨)
   @ApiPropertyOptional({ description: 'ID (서버에서 무시)' })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
   id?: number;
 
   @ApiPropertyOptional({ description: '생성일 (서버에서 무시)' })
@@ -68,7 +70,7 @@ export class UpdateEstimateDto {
 
   @ApiPropertyOptional({ description: '총 여행자 수 (서버에서 무시)' })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
   totalTravelers?: number;
 
   @ApiPropertyOptional({ description: '제목' })
@@ -86,6 +88,11 @@ export class UpdateEstimateDto {
   @IsString()
   customerEmail?: string;
 
+  @ApiPropertyOptional({ description: '고객 전화번호' })
+  @IsOptional()
+  @IsString()
+  customerPhone?: string;
+
   @ApiPropertyOptional({ description: '국적' })
   @IsOptional()
   @IsString()
@@ -93,7 +100,7 @@ export class UpdateEstimateDto {
 
   @ApiPropertyOptional({ description: '소스', enum: ['manual', 'ai'] })
   @IsOptional()
-  @IsIn(['manual', 'ai'])
+  @IsString()
   source?: string;
 
   @ApiPropertyOptional({ description: '수동 견적 상태' })
@@ -118,23 +125,28 @@ export class UpdateEstimateDto {
 
   @ApiPropertyOptional({ description: '여행 일수' })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
   travelDays?: number;
 
   @ApiPropertyOptional({ description: '성인 수' })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
   adultsCount?: number;
 
   @ApiPropertyOptional({ description: '어린이 수' })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
   childrenCount?: number;
 
   @ApiPropertyOptional({ description: '유아 수' })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
   infantsCount?: number;
+
+  @ApiPropertyOptional({ description: '시니어 수' })
+  @IsOptional()
+  @Type(() => Number)
+  seniorsCount?: number;
 
   @ApiPropertyOptional({ description: '투어 타입' })
   @IsOptional()
@@ -168,12 +180,12 @@ export class UpdateEstimateDto {
 
   @ApiPropertyOptional({ description: '소계' })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
   subtotal?: number;
 
   @ApiPropertyOptional({ description: '수동 조정 금액' })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
   manualAdjustment?: number;
 
   @ApiPropertyOptional({ description: '조정 사유' })
@@ -183,7 +195,7 @@ export class UpdateEstimateDto {
 
   @ApiPropertyOptional({ description: '총 금액' })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
   totalAmount?: number;
 
   @ApiPropertyOptional({ description: '통화' })
@@ -252,8 +264,28 @@ export class UpdateEstimateDto {
 
   @ApiPropertyOptional({ description: '결제 금액' })
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
   paidAmount?: number;
+
+  @ApiPropertyOptional({ description: '고객 응답' })
+  @IsOptional()
+  @IsString()
+  customerResponse?: string;
+
+  @ApiPropertyOptional({ description: '내부 메모' })
+  @IsOptional()
+  @IsString()
+  internalMemo?: string;
+
+  @ApiPropertyOptional({ description: '채팅 세션 ID (서버에서 무시)' })
+  @IsOptional()
+  @IsString()
+  chatSessionId?: string;
+
+  @ApiPropertyOptional({ description: '사용자 ID (서버에서 무시)' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
 
 export class UpdateStatusDto {

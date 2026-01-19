@@ -47,14 +47,8 @@ export class AIEstimateStatsDto {
   @ApiProperty({ description: '발송됨' })
   sent: number;
 
-  @ApiProperty({ description: '수정됨' })
-  revised: number;
-
   @ApiProperty({ description: '수락됨' })
   accepted: number;
-
-  @ApiProperty({ description: '거절됨' })
-  declined: number;
 
   @ApiProperty({ description: '완료' })
   completed: number;

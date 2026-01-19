@@ -29,6 +29,7 @@ import {
   UpdateStep3MainDto,
   UpdateStep3SubDto,
   UpdateStep4Dto,
+  UpdatePlanDto,
   UpdateStep5Dto,
   UpdateStep6Dto,
   UpdateStep7Dto,
@@ -119,14 +120,16 @@ export class ChatbotService {
       throw new NotFoundException('Flow not found.');
     }
 
-    // estimateId가 있으면 shareHash 조회
+    // estimateId가 있으면 견적 정보 조회
     let shareHash: string | null = null;
+    let estimateStatus: string | null = null;
     if (flow.estimateId) {
       const estimate = await this.prisma.estimate.findUnique({
         where: { id: flow.estimateId },
-        select: { shareHash: true },
+        select: { shareHash: true, statusAi: true },
       });
       shareHash = estimate?.shareHash || null;
+      estimateStatus = estimate?.statusAi || null;
     }
 
     // 방문자 브라우징 기록 포함 옵션
@@ -151,6 +154,7 @@ export class ChatbotService {
       return {
         ...flow,
         shareHash,
+        estimateStatus,
         visitorBrowsingHistory: visitorSession?.pageViews || [],
       };
     }
@@ -158,6 +162,7 @@ export class ChatbotService {
     return {
       ...flow,
       shareHash,
+      estimateStatus,
     };
   }
 
@@ -664,6 +669,20 @@ export class ChatbotService {
     return this.updateFlowStep(sessionId, 5, { region: dto.region });
   }
 
+  // Plan 업데이트 (계획유무 - 클라이언트 Step 3)
+  async updatePlan(sessionId: string, dto: UpdatePlanDto) {
+    await this.validateSessionExists(sessionId);
+    return this.prisma.chatbotFlow.update({
+      where: { sessionId },
+      data: {
+        hasPlan: dto.hasPlan,
+        planDetails: dto.planDetails || null,
+        isFlexible: dto.isFlexible,
+        // currentStep은 변경하지 않음 - 클라이언트가 flow 데이터로 step 계산
+      },
+    });
+  }
+
   // Step 5 업데이트
   async updateStep5(sessionId: string, dto: UpdateStep5Dto) {
     const flow = await this.getFlow(sessionId);
@@ -1138,34 +1157,43 @@ export class ChatbotService {
     }
   }
 
-  // 전문가에게 보내기
+  // 전문가에게 보내기 (견적 없이도 상담 요청 전송 가능)
   async sendToExpert(sessionId: string) {
     const flow = await this.getFlow(sessionId);
 
-    if (!flow.estimateId) {
-      throw new BadRequestException(
-        'Please generate an estimate first.',
+    // 플로우를 완료 상태로 변경 (견적 유무와 관계없이)
+    await this.prisma.chatbotFlow.update({
+      where: { sessionId },
+      data: { isCompleted: true },
+    });
+
+    // 견적이 있으면 상태 업데이트
+    if (flow.estimateId) {
+      const estimate = await this.estimateService.updateAIStatus(
+        flow.estimateId,
+        'pending',
       );
+      return {
+        success: true,
+        message: 'Sent to expert for review.',
+        estimateId: flow.estimateId,
+        status: estimate.statusAi,
+      };
     }
 
-    // 견적 상태를 검토 대기로 변경
-    const estimate = await this.estimateService.updateAIStatus(
-      flow.estimateId,
-      'pending',
-    );
-
+    // 견적 없이 상담 요청만 전송
     return {
       success: true,
-      message: 'Sent to expert for review.',
-      estimateId: flow.estimateId,
-      status: estimate.statusAi,
+      message: 'Inquiry submitted. Our expert will contact you soon.',
+      estimateId: null,
+      status: 'pending',
     };
   }
 
-  // 고객 응답 (승인/거절)
+  // 고객 응답 (승인/수정요청)
   async respondToEstimate(
     sessionId: string,
-    response: 'accepted' | 'declined',
+    response: 'accepted' | 'declined', // 클라이언트 호환성을 위해 유지
     modificationRequest?: string,
   ) {
     const flow = await this.getFlow(sessionId);
@@ -1174,13 +1202,7 @@ export class ChatbotService {
       throw new BadRequestException('Estimate not found.');
     }
 
-    // 견적 상태 업데이트
-    const estimate = await this.estimateService.updateAIStatus(
-      flow.estimateId,
-      response,
-    );
-
-    // 수정 요청이 있으면 견적의 requestContent에 추가 (기존 내용 유지)
+    // 수정 요청이 있으면 다시 pending으로
     if (modificationRequest) {
       const currentEstimate = await this.prisma.estimate.findUnique({
         where: { id: flow.estimateId },
@@ -1195,21 +1217,27 @@ export class ChatbotService {
         where: { id: flow.estimateId },
         data: {
           requestContent: updatedContent,
-          // 수정 요청이 있으면 다시 검토 대기로
-          statusAi: 'pending',
+          statusAi: 'pending', // 수정 요청 → 다시 대기
         },
       });
+
+      return {
+        success: true,
+        message: 'Modification request submitted. Our expert will review and contact you.',
+        status: 'pending',
+      };
     }
+
+    // 승인인 경우 accepted로
+    const estimate = await this.estimateService.updateAIStatus(
+      flow.estimateId,
+      'accepted',
+    );
 
     return {
       success: true,
-      message:
-        response === 'accepted'
-          ? 'Estimate approved. We will contact you soon.'
-          : modificationRequest
-          ? 'Modification request submitted. Our expert will review and contact you.'
-          : 'Estimate declined.',
-      status: modificationRequest ? 'pending' : estimate.statusAi,
+      message: 'Estimate accepted. We will contact you soon.',
+      status: estimate.statusAi,
     };
   }
 
@@ -1292,8 +1320,33 @@ export class ChatbotService {
       this.prisma.chatbotFlow.count({ where }),
     ]);
 
+    // estimateId가 있는 플로우들의 견적 상태 조회
+    const estimateIds = flows
+      .filter((f) => f.estimateId)
+      .map((f) => f.estimateId!);
+
+    const estimates =
+      estimateIds.length > 0
+        ? await this.prisma.estimate.findMany({
+            where: { id: { in: estimateIds } },
+            select: { id: true, statusAi: true },
+          })
+        : [];
+
+    const estimateStatusMap = new Map(
+      estimates.map((e) => [e.id, e.statusAi]),
+    );
+
+    // 플로우에 estimateStatus 추가
+    const flowsWithStatus = flows.map((flow) => ({
+      ...flow,
+      estimateStatus: flow.estimateId
+        ? estimateStatusMap.get(flow.estimateId) || null
+        : null,
+    }));
+
     return {
-      data: flows,
+      data: flowsWithStatus,
       meta: {
         total,
         page,
@@ -1380,7 +1433,7 @@ export class ChatbotService {
       this.prisma.estimate.count({
         where: {
           createdAt: { gte: startDate },
-          statusAi: { in: ['sent', 'accepted', 'declined'] }
+          statusAi: { in: ['sent', 'accepted'] }
         }
       }),
       this.prisma.estimate.count({
@@ -1795,5 +1848,139 @@ export class ChatbotService {
     });
 
     return { success: true };
+  }
+
+  // ============ 관리자용: 견적 생성 ============
+
+  // 챗봇 플로우에서 견적 생성 (관리자)
+  async createEstimateFromFlow(sessionId: string, title?: string) {
+    const flow = await this.getFlow(sessionId);
+
+    // 이미 견적이 연결되어 있으면 에러
+    if (flow.estimateId) {
+      throw new BadRequestException('이 세션에는 이미 견적이 연결되어 있습니다.');
+    }
+
+    // 견적 제목 생성
+    const estimateTitle = title || (flow.customerName ? `${flow.customerName}님 견적` : `상담 #${flow.id} 견적`);
+
+    // 여행 날짜 계산
+    let startDate: Date | null = null;
+    let endDate: Date | null = null;
+    if (flow.travelDate) {
+      startDate = new Date(flow.travelDate);
+      if (flow.duration && flow.duration > 1) {
+        endDate = new Date(flow.travelDate);
+        endDate.setDate(endDate.getDate() + flow.duration - 1);
+      } else {
+        endDate = startDate;
+      }
+    }
+
+    // 관심사 배열 병합
+    const interests = [...(flow.interestMain || []), ...(flow.interestSub || [])];
+
+    // 질문 응답 내역 전체를 requestContent로 구성
+    const requestContentParts: string[] = [];
+
+    // Step 1: 투어 타입
+    if (flow.tourType) {
+      const tourTypeLabels: Record<string, string> = {
+        private: '프라이빗 투어',
+        car_only: '차량만',
+        group: '그룹 투어',
+        custom: '커스텀 투어',
+      };
+      requestContentParts.push(`[투어 타입] ${tourTypeLabels[flow.tourType] || flow.tourType}`);
+    }
+
+    // Step 2: 첫 방문 여부
+    if (flow.isFirstVisit !== null) {
+      requestContentParts.push(`[한국 첫 방문] ${flow.isFirstVisit ? '예' : '아니오'}`);
+    }
+
+    // Step 3: 계획 유무
+    if (flow.hasPlan !== null) {
+      requestContentParts.push(`[계획 유무] ${flow.hasPlan ? '계획 있음' : '계획 없음'}`);
+      if (flow.hasPlan && flow.isFlexible !== null) {
+        requestContentParts.push(`[계획 수정 가능] ${flow.isFlexible ? '수정 가능' : '수정 불가'}`);
+      }
+      if (flow.hasPlan && flow.planDetails) {
+        requestContentParts.push(`[계획 상세]\n${flow.planDetails}`);
+      }
+    }
+
+    // Step 4: 관심사
+    if (flow.interestMain?.length || flow.interestSub?.length) {
+      const allInterests = [...(flow.interestMain || []), ...(flow.interestSub || [])];
+      requestContentParts.push(`[관심사] ${allInterests.join(', ')}`);
+    }
+
+    // Step 5: 지역
+    if (flow.region) {
+      requestContentParts.push(`[지역] ${flow.region}`);
+    }
+
+    // Step 6: 폼 입력 정보
+    requestContentParts.push(`\n--- 여행 정보 ---`);
+    if (flow.travelDate) {
+      requestContentParts.push(`[여행일] ${new Date(flow.travelDate).toLocaleDateString('ko-KR')}`);
+    }
+    if (flow.duration) {
+      requestContentParts.push(`[기간] ${flow.duration}일`);
+    }
+
+    const totalPax = (flow.adultsCount || 0) + (flow.childrenCount || 0) + (flow.infantsCount || 0) + (flow.seniorsCount || 0);
+    requestContentParts.push(`[인원] 총 ${totalPax}명 (성인 ${flow.adultsCount || 0}, 아동 ${flow.childrenCount || 0}, 유아 ${flow.infantsCount || 0}, 시니어 ${flow.seniorsCount || 0})`);
+
+    if (flow.budgetRange) {
+      requestContentParts.push(`[예산] ${flow.budgetRange}`);
+    }
+    if (flow.needsPickup !== null) {
+      requestContentParts.push(`[공항 픽업] ${flow.needsPickup ? '필요' : '불필요'}`);
+    }
+
+    // 추가 요청사항
+    if (flow.additionalNotes) {
+      requestContentParts.push(`\n[추가 요청사항]\n${flow.additionalNotes}`);
+    }
+
+    const requestContent = requestContentParts.join('\n');
+
+    // 견적 생성
+    const estimate = await this.estimateService.createEstimate({
+      title: estimateTitle,
+      source: 'ai',
+      statusAi: 'draft',
+      customerName: flow.customerName ?? undefined,
+      customerEmail: flow.customerEmail ?? undefined,
+      customerPhone: flow.customerPhone ?? undefined,
+      nationality: flow.nationality ?? undefined,
+      startDate: startDate?.toISOString() ?? undefined,
+      endDate: endDate?.toISOString() ?? undefined,
+      travelDays: flow.duration || 1,
+      adultsCount: flow.adultsCount || 1,
+      childrenCount: flow.childrenCount || 0,
+      infantsCount: flow.infantsCount || 0,
+      regions: flow.region ? [flow.region] : [],
+      interests,
+      items: [],
+      subtotal: 0,
+      totalAmount: 0,
+      currency: 'USD',
+      chatSessionId: sessionId,
+      requestContent,
+    });
+
+    // 챗봇 플로우에 견적 ID 연결
+    await this.prisma.chatbotFlow.update({
+      where: { sessionId },
+      data: { estimateId: estimate.id },
+    });
+
+    return {
+      estimateId: estimate.id,
+      shareHash: estimate.shareHash,
+    };
   }
 }

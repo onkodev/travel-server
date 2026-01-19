@@ -91,6 +91,11 @@ export class CreateEstimateDto {
   @IsString()
   customerEmail?: string;
 
+  @ApiPropertyOptional({ description: '고객 전화번호' })
+  @IsOptional()
+  @IsString()
+  customerPhone?: string;
+
   @ApiPropertyOptional({ description: '국적' })
   @IsOptional()
   @IsString()

@@ -74,10 +74,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     }
 
     if (exception instanceof Prisma.PrismaClientValidationError) {
+      // 디버깅용 로그
+      this.logger.error(`Prisma Validation Error: ${exception.message}`);
       return {
         statusCode: HttpStatus.BAD_REQUEST,
         message: '데이터 유효성 검사 실패',
         error: 'Validation Error',
+        details: [exception.message],
         timestamp,
         path,
       };

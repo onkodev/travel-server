@@ -34,6 +34,7 @@ import {
   UpdateStep3MainDto,
   UpdateStep3SubDto,
   UpdateStep4Dto,
+  UpdatePlanDto,
   UpdateStep5Dto,
   UpdateStep6Dto,
   UpdateStep7Dto,
@@ -230,6 +231,27 @@ export class ChatbotController {
     return this.chatbotService.getFlow(sessionId, true);
   }
 
+  @Post(':sessionId/create-estimate')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard)
+  @SkipThrottle()
+  @ApiOperation({
+    summary: '챗봇에서 견적 생성 (관리자)',
+    description: '챗봇 상담 데이터를 기반으로 새 견적을 생성하고 세션에 연결합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({ status: 201, description: '견적 생성 성공' })
+  @ApiResponse({ status: 400, description: '이미 견적이 연결됨', type: ErrorResponseDto })
+  @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
+  @ApiResponse({ status: 404, description: '플로우 없음', type: ErrorResponseDto })
+  async createEstimateFromChatbot(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { title?: string },
+    @RequireUserId() _userId: string, // 인증 확인용
+  ) {
+    return this.chatbotService.createEstimateFromFlow(sessionId, body.title);
+  }
+
   @Get('by-estimate/:estimateId')
   @Public()
   @SkipThrottle()
@@ -355,6 +377,19 @@ export class ChatbotController {
     return this.chatbotService.updateStep4(sessionId, dto);
   }
 
+  @Patch(':sessionId/plan')
+  @Public()
+  @SkipThrottle()
+  @ApiOperation({ summary: '계획유무 업데이트', description: '여행 계획 유무 및 상세 정보 저장' })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
+  async updatePlan(
+    @Param('sessionId') sessionId: string,
+    @Body() dto: UpdatePlanDto,
+  ) {
+    return this.chatbotService.updatePlan(sessionId, dto);
+  }
+
   @Patch(':sessionId/step/5')
   @Public()
   @SkipThrottle()
@@ -443,11 +478,10 @@ export class ChatbotController {
   @ApiOperation({
     summary: '전문가에게 보내기 (로그인 필수)',
     description:
-      'AI 견적을 전문가 검토 대기 상태로 변경합니다. 견적이 먼저 생성되어 있어야 합니다.',
+      '상담 요청을 전문가에게 전송합니다. 견적이 있으면 검토 대기 상태로 변경하고, 없으면 상담 요청만 전송합니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '전문가에게 전달 성공' })
-  @ApiResponse({ status: 400, description: '견적 미생성', type: ErrorResponseDto })
   @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
   async sendToExpert(
     @Param('sessionId') sessionId: string,
