@@ -32,4 +32,12 @@ export class SignUpDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @ApiPropertyOptional({
+    description: '이메일 인증 후 리다이렉트 URL',
+    example: 'https://tumakr.com/auth/callback',
+  })
+  @IsOptional()
+  @IsString()
+  redirectTo?: string;
 }

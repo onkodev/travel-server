@@ -33,13 +33,16 @@ export class AuthService {
   }
 
   // 회원가입
-  async signUp(email: string, password: string, username: string) {
+  async signUp(email: string, password: string, username: string, redirectTo?: string) {
+    // Anon Client 사용 (이메일 발송 O)
+    const anonClient = this.supabaseService.getAuthAnonClient();
     const authClient = this.supabaseService.getAuthClient();
 
-    // 1. Supabase Auth로 계정 생성
-    const { data: authData, error: authError } = await authClient.auth.signUp({
+    // 1. Supabase Auth로 계정 생성 (Anon Key로 호출해야 이메일 발송됨)
+    const { data: authData, error: authError } = await anonClient.auth.signUp({
       email,
       password,
+      options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
     });
 
     if (authError) {
@@ -50,7 +53,7 @@ export class AuthService {
     if (authData.user) {
       const { error: profileError } = await authClient.from('users').insert({
         id: authData.user.id,
-        username,
+        email: authData.user.email,
         name: username,
       });
 
@@ -91,9 +94,28 @@ export class AuthService {
     }
   }
 
-  // 현재 사용자 정보 조회
-  async getMe(userId: string) {
-    const profile = await this.supabaseService.getUserProfile(userId);
+  // 현재 사용자 정보 조회 (프로필 없으면 자동 생성)
+  async getMe(userId: string, authUser?: { email?: string; user_metadata?: { full_name?: string; avatar_url?: string } }) {
+    let profile = await this.supabaseService.getUserProfile(userId);
+
+    // 프로필이 없으면 자동 생성 (OAuth 로그인 시 발생 가능)
+    if (!profile && authUser) {
+      const authClient = this.supabaseService.getAuthClient();
+
+      const { error: insertError } = await authClient.from('users').insert({
+        id: userId,
+        email: authUser.email,
+        name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0],
+        avatar_url: authUser.user_metadata?.avatar_url,
+      });
+
+      if (!insertError) {
+        // 캐시 무효화 후 새로 생성된 프로필 조회
+        this.supabaseService.invalidateProfileCache(userId);
+        profile = await this.supabaseService.getUserProfile(userId);
+      }
+    }
+
     return profile;
   }
 
@@ -134,9 +156,10 @@ export class AuthService {
 
   // Google OAuth URL 생성
   async getGoogleOAuthUrl(redirectTo: string) {
-    const authClient = this.supabaseService.getAuthClient();
+    // Anon Client 사용 (OAuth는 Anon Key로 호출해야 함)
+    const anonClient = this.supabaseService.getAuthAnonClient();
 
-    const { data, error } = await authClient.auth.signInWithOAuth({
+    const { data, error } = await anonClient.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo,
@@ -155,9 +178,11 @@ export class AuthService {
 
   // Google OAuth 콜백 처리 (code로 세션 교환)
   async handleGoogleCallback(code: string) {
+    // Anon Client로 code 교환 (OAuth 흐름)
+    const anonClient = this.supabaseService.getAuthAnonClient();
     const authClient = this.supabaseService.getAuthClient();
 
-    const { data, error } = await authClient.auth.exchangeCodeForSession(code);
+    const { data, error } = await anonClient.auth.exchangeCodeForSession(code);
 
     if (error) {
       throw new UnauthorizedException(error.message);
@@ -179,7 +204,6 @@ export class AuthService {
             data.user.user_metadata?.full_name ||
             data.user.email?.split('@')[0],
           avatar_url: data.user.user_metadata?.avatar_url,
-          provider: 'google',
         });
       }
     }
@@ -192,9 +216,10 @@ export class AuthService {
 
   // 비밀번호 재설정 이메일 발송
   async forgotPassword(email: string, redirectTo: string) {
-    const authClient = this.supabaseService.getAuthClient();
+    // Anon Client 사용 (이메일 발송 필요)
+    const anonClient = this.supabaseService.getAuthAnonClient();
 
-    const { error } = await authClient.auth.resetPasswordForEmail(email, {
+    const { error } = await anonClient.auth.resetPasswordForEmail(email, {
       redirectTo,
     });
 
@@ -237,7 +262,7 @@ export class AuthService {
   }
 
   // 프로필 업데이트
-  async updateProfile(userId: string, data: { name?: string; phone?: string }) {
+  async updateProfile(userId: string, data: { name?: string; phone?: string; avatar_url?: string }) {
     const authClient = this.supabaseService.getAuthClient();
 
     const { error } = await authClient
@@ -252,7 +277,8 @@ export class AuthService {
       throw new BadRequestException(error.message);
     }
 
-    // 업데이트된 프로필 반환
+    // 캐시 무효화 후 업데이트된 프로필 반환
+    this.supabaseService.invalidateProfileCache(userId);
     return this.getMe(userId);
   }
 
@@ -298,9 +324,10 @@ export class AuthService {
 
   // 이메일 재발송
   async resendVerificationEmail(email: string, redirectTo: string) {
-    const authClient = this.supabaseService.getAuthClient();
+    // Anon Client 사용 (이메일 발송 필요)
+    const anonClient = this.supabaseService.getAuthAnonClient();
 
-    const { error } = await authClient.auth.resend({
+    const { error } = await anonClient.auth.resend({
       type: 'signup',
       email,
       options: {

@@ -7,6 +7,12 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+
+// UUID 형식 검증 헬퍼
+const isValidUUID = (str: string): boolean => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+};
 import { PrismaService } from '../../prisma/prisma.service';
 import { EstimateService } from '../estimate/estimate.service';
 import { GeoIpService } from '../visitor/geoip.service';
@@ -112,6 +118,11 @@ export class ChatbotService {
 
   // 플로우 조회
   async getFlow(sessionId: string, includeVisitorHistory = false) {
+    // UUID 형식 검증 (local- 등 임시 ID 거부)
+    if (!isValidUUID(sessionId)) {
+      throw new NotFoundException('Flow not found.');
+    }
+
     const flow = await this.prisma.chatbotFlow.findUnique({
       where: { sessionId },
     });
@@ -168,6 +179,11 @@ export class ChatbotService {
 
   // 세션 존재 확인만 (데이터 반환 X)
   private async validateSessionExists(sessionId: string): Promise<void> {
+    // UUID 형식 검증
+    if (!isValidUUID(sessionId)) {
+      throw new NotFoundException('Flow not found.');
+    }
+
     const exists = await this.prisma.chatbotFlow.findUnique({
       where: { sessionId },
       select: { sessionId: true },

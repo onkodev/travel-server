@@ -77,7 +77,7 @@ export class AuthController {
     type: ErrorResponseDto,
   })
   async signUp(@Body() body: SignUpDto) {
-    return this.authService.signUp(body.email, body.password, body.name);
+    return this.authService.signUp(body.email, body.password, body.name, body.redirectTo);
   }
 
   @Post('signout')
@@ -109,8 +109,8 @@ export class AuthController {
     description: '인증 필요',
     type: ErrorResponseDto,
   })
-  async getMe(@CurrentUser('id') userId: string) {
-    return this.authService.getMe(userId);
+  async getMe(@CurrentUser() user: any) {
+    return this.authService.getMe(user.id, user);
   }
 
   @Public()

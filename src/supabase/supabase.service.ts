@@ -11,6 +11,7 @@ interface CacheEntry<T> {
 @Injectable()
 export class SupabaseService {
   private authClient: SupabaseClient;
+  private authAnonClient: SupabaseClient; // signUp용 (이메일 발송 O)
   private adminClient: SupabaseClient;
 
   // 토큰 검증 캐시
@@ -23,10 +24,22 @@ export class SupabaseService {
   private readonly PROFILE_CACHE_TTL = 2 * 60 * 1000; // 2분 (프로필은 조금 더 길게)
 
   constructor(private configService: ConfigService) {
-    // AUTH Supabase Client (tumakrguide - 인증용)
+    // AUTH Supabase Client (tumakrguide - 인증용, Service Key)
     this.authClient = createClient(
       this.configService.get<string>('SUPABASE_AUTH_URL') || '',
       this.configService.get<string>('SUPABASE_AUTH_SERVICE_KEY') || '',
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      },
+    );
+
+    // AUTH Anon Client (signUp용 - 이메일 발송 O)
+    this.authAnonClient = createClient(
+      this.configService.get<string>('SUPABASE_AUTH_URL') || '',
+      this.configService.get<string>('SUPABASE_AUTH_ANON_KEY') || '',
       {
         auth: {
           autoRefreshToken: false,
@@ -48,9 +61,14 @@ export class SupabaseService {
     );
   }
 
-  // AUTH 클라이언트 (인증 관련)
+  // AUTH 클라이언트 (인증 관련 - Service Key)
   getAuthClient(): SupabaseClient {
     return this.authClient;
+  }
+
+  // AUTH Anon 클라이언트 (signUp용 - 이메일 발송)
+  getAuthAnonClient(): SupabaseClient {
+    return this.authAnonClient;
   }
 
   // ADMIN 클라이언트 (데이터 관련)

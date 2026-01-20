@@ -17,4 +17,12 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @ApiPropertyOptional({
+    description: '프로필 이미지 URL',
+    example: 'https://example.com/avatar.jpg',
+  })
+  @IsOptional()
+  @IsString()
+  avatar_url?: string;
 }
