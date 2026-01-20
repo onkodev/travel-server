@@ -1,0 +1,69 @@
+name: Deploy to EC2 (Dev)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Create deployment package
+        run: |
+          tar -czf deploy.tar.gz \
+            dist \
+            package.json \
+            package-lock.json \
+            prisma
+
+      - name: Copy to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ec2-user
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "deploy.tar.gz"
+          target: "/home/ec2-user"
+
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ec2-user
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/ec2-user
+
+            # Extract new deployment
+            mkdir -p tumakr-server
+            tar -xzf deploy.tar.gz -C tumakr-server
+            rm deploy.tar.gz
+
+            # Install production dependencies
+            cd tumakr-server
+            npm ci --omit=dev
+
+            # Run Prisma generate
+            npx prisma generate
+
+            # Restart PM2
+            pm2 restart tumakr-server || pm2 start dist/main.js --name tumakr-server --env production
+
+            echo "Deployment completed!"
