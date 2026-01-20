@@ -7,6 +7,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
+import type { User } from '@supabase/supabase-js';
 import { AuthService } from './auth.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/user.decorator';
@@ -109,7 +110,7 @@ export class AuthController {
     description: '인증 필요',
     type: ErrorResponseDto,
   })
-  async getMe(@CurrentUser() user: any) {
+  async getMe(@CurrentUser() user: User) {
     return this.authService.getMe(user.id, user);
   }
 

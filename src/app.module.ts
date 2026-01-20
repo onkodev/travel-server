@@ -27,6 +27,7 @@ import { VisitorModule } from './modules/visitor/visitor.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: '.env',
     }),
     ScheduleModule.forRoot(),
     // Rate Limiting: 환경에 따라 다르게 설정

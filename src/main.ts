@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import compression from 'compression';
 import { AppModule } from './app.module';
@@ -100,11 +100,12 @@ async function bootstrap() {
   const port = process.env.PORT || 4000;
   await app.listen(port);
 
-  console.log('\n✅ 서버 실행 완료');
-  console.log(`   http://localhost:${port}/api/docs\n`);
+  const logger = new Logger('Bootstrap');
+  logger.log(`서버 실행 완료: http://localhost:${port}/api/docs`);
 }
 
 bootstrap().catch((err) => {
-  console.error('Application failed to start:', err);
+  const logger = new Logger('Bootstrap');
+  logger.error('Application failed to start:', err);
   process.exit(1);
 });

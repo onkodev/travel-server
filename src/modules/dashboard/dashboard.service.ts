@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 // 일별 트렌드 데이터
@@ -103,6 +103,7 @@ interface CacheEntry {
 
 @Injectable()
 export class DashboardService {
+  private readonly logger = new Logger(DashboardService.name);
   private cache: CacheEntry | null = null;
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5분 캐시
 
@@ -112,11 +113,11 @@ export class DashboardService {
     // 캐시 확인
     const now = Date.now();
     if (this.cache && now - this.cache.timestamp < this.CACHE_TTL) {
-      console.log('[Dashboard] 캐시 히트');
+      this.logger.debug('캐시 히트');
       return this.cache.data;
     }
 
-    console.log('[Dashboard] 데이터 조회 시작');
+    this.logger.debug('데이터 조회 시작');
     const startTime = Date.now();
 
     const today = new Date();
@@ -184,7 +185,7 @@ export class DashboardService {
         (SELECT COUNT(*) FROM bookings WHERE created_at >= ${thirtyDaysAgo}) as funnel_booking,
         (SELECT COUNT(*) FROM bookings WHERE created_at >= ${thirtyDaysAgo} AND status IN ('confirmed', 'completed')) as funnel_confirmed
     `;
-    console.log(`[Dashboard] 핵심 통계: ${Date.now() - startTime}ms`);
+    this.logger.debug(`핵심 통계: ${Date.now() - startTime}ms`);
 
     // 나머지 데이터는 3개씩 병렬 (연결 수 제한)
     const [upcomingBookings, recentEstimates, monthlyRevenue] = await Promise.all([
@@ -213,7 +214,7 @@ export class DashboardService {
       }),
       this.getMonthlyRevenue(),
     ]);
-    console.log(`[Dashboard] 리스트 데이터: ${Date.now() - startTime}ms`);
+    this.logger.debug(`리스트 데이터: ${Date.now() - startTime}ms`);
 
     const [dailyTrends, countryStats, popularTours, tourTypeStats] = await Promise.all([
       this.getDailyTrends(),
@@ -221,7 +222,7 @@ export class DashboardService {
       this.getPopularTours(),
       this.getTourTypeStats(),
     ]);
-    console.log(`[Dashboard] 차트 데이터: ${Date.now() - startTime}ms`);
+    this.logger.debug(`차트 데이터: ${Date.now() - startTime}ms`);
 
     // 통계 매핑
     const totalEstimates = Number(statsResult.total_estimates);
@@ -306,7 +307,7 @@ export class DashboardService {
     // 캐시 저장
     this.cache = { data: result, timestamp: Date.now() };
 
-    console.log(`[Dashboard] 총 소요시간: ${Date.now() - startTime}ms`);
+    this.logger.debug(`총 소요시간: ${Date.now() - startTime}ms`);
 
     return result;
   }
@@ -367,7 +368,7 @@ export class DashboardService {
       if (entry) entry.chats = Number(c.count);
     });
 
-    console.log(`[Dashboard] getDailyTrends: ${Date.now() - start}ms`);
+    this.logger.debug(`getDailyTrends: ${Date.now() - start}ms`);
     return Array.from(dateMap.values());
   }
 
@@ -414,7 +415,7 @@ export class DashboardService {
       revenue: data.revenue,
       bookingCount: data.count,
     }));
-    console.log(`[Dashboard] getMonthlyRevenue: ${Date.now() - start}ms`);
+    this.logger.debug(`getMonthlyRevenue: ${Date.now() - start}ms`);
     return result;
   }
 
@@ -443,7 +444,7 @@ export class DashboardService {
       count: Number(c.count),
       percentage: total > 0 ? Math.round((Number(c.count) / total) * 100) : 0,
     }));
-    console.log(`[Dashboard] getCountryStats: ${Date.now() - start}ms`);
+    this.logger.debug(`getCountryStats: ${Date.now() - start}ms`);
     return result;
   }
 
@@ -474,7 +475,7 @@ export class DashboardService {
       LIMIT 5
     `;
 
-    console.log(`[Dashboard] getPopularTours: ${Date.now() - start}ms`);
+    this.logger.debug(`getPopularTours: ${Date.now() - start}ms`);
     return result.map((r) => ({
       id: r.id,
       title: r.title,
@@ -523,7 +524,7 @@ export class DashboardService {
         ? ((bookingConfirmed / chatbotStarted) * 100).toFixed(1) + '%'
         : '0%';
 
-    console.log(`[Dashboard] getConversionFunnel: ${Date.now() - start}ms`);
+    this.logger.debug(`getConversionFunnel: ${Date.now() - start}ms`);
     return {
       chatbotStarted,
       estimateCreated,
@@ -559,7 +560,7 @@ export class DashboardService {
       count: Number(t.count),
       percentage: total > 0 ? Math.round((Number(t.count) / total) * 100) : 0,
     }));
-    console.log(`[Dashboard] getTourTypeStats: ${Date.now() - start}ms`);
+    this.logger.debug(`getTourTypeStats: ${Date.now() - start}ms`);
     return result;
   }
 }

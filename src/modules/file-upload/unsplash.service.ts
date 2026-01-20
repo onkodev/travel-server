@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 export interface UnsplashImage {
@@ -25,6 +25,7 @@ export interface UnsplashSearchResponse {
 
 @Injectable()
 export class UnsplashService {
+  private readonly logger = new Logger(UnsplashService.name);
   private readonly apiUrl = 'https://api.unsplash.com';
   private readonly accessKey: string;
 
@@ -38,7 +39,7 @@ export class UnsplashService {
     perPage: number = 20,
   ): Promise<UnsplashSearchResponse> {
     if (!this.accessKey) {
-      console.warn('Unsplash API key is not configured');
+      this.logger.warn('Unsplash API key is not configured');
       return { total: 0, total_pages: 0, results: [] };
     }
 
@@ -55,7 +56,7 @@ export class UnsplashService {
     });
 
     if (!response.ok) {
-      console.error('Unsplash API error:', response.status, response.statusText);
+      this.logger.error(`Unsplash API error: ${response.status} ${response.statusText}`);
       throw new Error(`Unsplash API error: ${response.statusText}`);
     }
 

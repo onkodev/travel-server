@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class FileUploadService {
+  private readonly logger = new Logger(FileUploadService.name);
   private region: string;
   private accessKey: string;
   private secretKey: string;
@@ -86,14 +87,14 @@ export class FileUploadService {
 
       if (!uploadResponse.ok) {
         const errorText = await uploadResponse.text();
-        console.error('S3 upload failed:', uploadResponse.status, errorText);
+        this.logger.error(`S3 upload failed: ${uploadResponse.status} ${errorText}`);
         return { success: false, error: 'S3 upload failed' };
       }
 
       const url = `https://${host}/${key}`;
       return { success: true, url, key };
     } catch (error) {
-      console.error('Upload error:', error);
+      this.logger.error('Upload error:', error);
       return { success: false, error: 'Upload failed' };
     }
   }
@@ -105,17 +106,17 @@ export class FileUploadService {
     folder: string = 'items',
   ): Promise<string | null> {
     if (!this.accessKey || !this.secretKey) {
-      console.warn('[S3] AWS credentials not configured');
+      this.logger.warn('AWS credentials not configured');
       return null;
     }
 
-    console.log(`[S3] Uploading from URL: ${imageUrl}`);
+    this.logger.debug(`Uploading from URL: ${imageUrl}`);
 
     try {
       // 이미지 다운로드
       const response = await fetch(imageUrl);
       if (!response.ok) {
-        console.error(`[S3] Failed to fetch image: ${response.status} ${response.statusText}`);
+        this.logger.error(`Failed to fetch image: ${response.status} ${response.statusText}`);
         return null;
       }
 
@@ -164,15 +165,15 @@ export class FileUploadService {
 
       if (!uploadResponse.ok) {
         const errorText = await uploadResponse.text();
-        console.error(`[S3] Upload failed: ${uploadResponse.status}`, errorText);
+        this.logger.error(`Upload failed: ${uploadResponse.status} ${errorText}`);
         return null;
       }
 
       const s3Url = `https://${host}/${key}`;
-      console.log(`[S3] Upload success: ${s3Url}`);
+      this.logger.debug(`Upload success: ${s3Url}`);
       return s3Url;
     } catch (error) {
-      console.error('[S3] Upload error:', error);
+      this.logger.error('Upload error:', error);
       return null;
     }
   }

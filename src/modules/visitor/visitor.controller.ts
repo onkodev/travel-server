@@ -8,6 +8,7 @@ import {
   Query,
   Req,
   UseGuards,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -26,6 +27,8 @@ import { CreateSessionDto, TrackPageViewDto, UpdatePageViewDto } from './dto';
 @ApiTags('Visitor Tracking')
 @Controller('visitor')
 export class VisitorController {
+  private readonly logger = new Logger(VisitorController.name);
+
   constructor(private visitorService: VisitorService) {}
 
   // IP 추출 헬퍼
@@ -77,7 +80,7 @@ export class VisitorController {
     description: '페이지 방문을 기록합니다. sendBeacon 지원.',
   })
   @ApiResponse({ status: 201, description: '기록 성공' })
-  async trackPageView(@Body() body: any) {
+  async trackPageView(@Body() body: TrackPageViewDto) {
     // Analytics용이라 모든 에러를 무시하고 성공 반환
     try {
       if (!body?.visitorId || !body?.path) {
@@ -87,7 +90,7 @@ export class VisitorController {
       return { success: true };
     } catch (error) {
       // 에러가 발생해도 클라이언트에는 성공 반환
-      console.error('Track page view error:', error);
+      this.logger.error('Track page view error:', error);
       return { success: false, message: 'Internal error' };
     }
   }

@@ -17,6 +17,7 @@ import {
   ApiBearerAuth,
   ApiParam,
 } from '@nestjs/swagger';
+import { Prisma } from '@prisma/client';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { BookingService } from './booking.service';
@@ -157,7 +158,7 @@ export class BookingController {
     type: ErrorResponseDto,
   })
   async updateBooking(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateBookingDto) {
-    const updateData: any = { ...body };
+    const updateData: Prisma.BookingUpdateInput = { ...body };
     if (body.bookingDate) {
       updateData.bookingDate = new Date(body.bookingDate);
     }

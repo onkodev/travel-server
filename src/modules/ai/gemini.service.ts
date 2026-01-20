@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -24,6 +24,7 @@ const ITEM_TYPE_LABELS: Record<string, string> = {
 
 @Injectable()
 export class GeminiService {
+  private readonly logger = new Logger(GeminiService.name);
   private apiKey: string;
   private baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
@@ -70,7 +71,7 @@ export class GeminiService {
 
       if (!response.ok) {
         const errorBody = await response.text();
-        console.error('Gemini API error:', response.status, errorBody);
+        this.logger.error(`Gemini API error: ${response.status} ${errorBody}`);
         throw new BadRequestException('AI 응답 생성 실패');
       }
 
@@ -78,13 +79,13 @@ export class GeminiService {
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!text) {
-        console.error('Empty Gemini response:', JSON.stringify(data));
+        this.logger.error(`Empty Gemini response: ${JSON.stringify(data)}`);
         throw new BadRequestException('Gemini returned empty response');
       }
 
       return text;
     } catch (error) {
-      console.error('Gemini API request failed:', error);
+      this.logger.error('Gemini API request failed:', error);
       throw new BadRequestException('AI 서비스 오류');
     }
   }
@@ -106,7 +107,7 @@ export class GeminiService {
         return JSON.parse(jsonMatch[0]);
       }
     } catch (e) {
-      console.error('JSON 파싱 실패:', e);
+      this.logger.error('JSON 파싱 실패:', e);
     }
     return defaultValue;
   }

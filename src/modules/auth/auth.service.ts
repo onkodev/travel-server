@@ -2,12 +2,15 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../../supabase/supabase.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private supabaseService: SupabaseService,
     private configService: ConfigService,
@@ -70,7 +73,7 @@ export class AuthService {
       });
 
       if (profileError) {
-        console.error('프로필 생성 실패:', profileError);
+        this.logger.error('프로필 생성 실패:', profileError);
       }
     }
 
@@ -101,7 +104,7 @@ export class AuthService {
       return { success: true };
     } catch (error) {
       // 로그아웃 실패해도 클라이언트 측에서는 토큰 삭제됨
-      console.error('로그아웃 처리 중 오류:', error);
+      this.logger.error('로그아웃 처리 중 오류:', error);
       return { success: true };
     }
   }

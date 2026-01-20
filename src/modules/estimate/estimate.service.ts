@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma, Estimate } from '@prisma/client';
 import { randomBytes } from 'crypto';
@@ -10,6 +10,8 @@ import { EstimateItemExtendedDto } from './dto/estimate-types.dto';
 
 @Injectable()
 export class EstimateService {
+  private readonly logger = new Logger(EstimateService.name);
+
   constructor(private prisma: PrismaService) {}
 
   // 견적 목록 조회
@@ -374,7 +376,7 @@ export class EstimateService {
         });
       } catch (error) {
         // 메시지 생성 실패해도 발송 처리는 계속 진행
-        console.error('Failed to create chat message for estimate:', error);
+        this.logger.error('Failed to create chat message for estimate:', error);
       }
     }
 
@@ -496,14 +498,14 @@ export class EstimateService {
 
   // 수동 견적 상태 변경
   async updateManualStatus(id: number, status: string) {
-    const updates: any = { statusManual: status };
+    const updates: Prisma.EstimateUpdateInput = { statusManual: status };
     if (status === 'completed') updates.completedAt = new Date();
     return this.prisma.estimate.update({ where: { id }, data: updates });
   }
 
   // AI 견적 상태 변경
   async updateAIStatus(id: number, status: string) {
-    const updates: any = { statusAi: status };
+    const updates: Prisma.EstimateUpdateInput = { statusAi: status };
     if (status === 'sent') updates.sentAt = new Date();
     if (status === 'accepted') updates.respondedAt = new Date();
     if (status === 'completed') updates.completedAt = new Date();

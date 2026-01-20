@@ -1627,48 +1627,48 @@ export class ChatbotService {
     };
   }
 
-  // 관리자용: 국가별 통계
+  // 관리자용: 국가별 통계 (단일 쿼리로 최적화)
   async getCountryStats(days = 30) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    const byCountry = await this.prisma.chatbotFlow.groupBy({
-      by: ['country', 'countryName'],
-      _count: true,
-      where: {
-        createdAt: { gte: startDate },
-        country: { not: null },
-      },
-      orderBy: { _count: { country: 'desc' } },
-      take: 20,
+    // 단일 Raw SQL로 국가별 총 건수와 완료 건수를 한번에 조회
+    const countryStats = await this.prisma.$queryRaw<Array<{
+      country: string;
+      country_name: string | null;
+      total_count: bigint;
+      completed_count: bigint;
+    }>>`
+      SELECT
+        country,
+        country_name,
+        COUNT(*) as total_count,
+        COUNT(CASE WHEN is_completed = true THEN 1 END) as completed_count
+      FROM chatbot_flows
+      WHERE created_at >= ${startDate}
+        AND country IS NOT NULL
+      GROUP BY country, country_name
+      ORDER BY COUNT(*) DESC
+      LIMIT 20
+    `;
+
+    const data = countryStats.map((item) => {
+      const total = Number(item.total_count);
+      const completed = Number(item.completed_count);
+      return {
+        country: item.country,
+        countryName: item.country_name,
+        count: total,
+        completed,
+        conversionRate: total > 0
+          ? `${Math.round((completed / total) * 100)}%`
+          : '0%',
+      };
     });
-
-    // 국가별 전환율 계산
-    const countryStats = await Promise.all(
-      byCountry.map(async (item) => {
-        const completed = await this.prisma.chatbotFlow.count({
-          where: {
-            createdAt: { gte: startDate },
-            country: item.country,
-            isCompleted: true,
-          },
-        });
-
-        return {
-          country: item.country,
-          countryName: item.countryName,
-          count: item._count,
-          completed,
-          conversionRate: item._count > 0
-            ? `${Math.round((completed / item._count) * 100)}%`
-            : '0%',
-        };
-      })
-    );
 
     return {
       period: `${days}일`,
-      data: countryStats,
+      data,
     };
   }
 

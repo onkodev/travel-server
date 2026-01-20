@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FileUploadService } from '../file-upload/file-upload.service';
@@ -51,6 +51,7 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
 
 @Injectable()
 export class TourApiService {
+  private readonly logger = new Logger(TourApiService.name);
   private apiKey: string;
   private baseUrlKor = 'https://apis.data.go.kr/B551011/KorService2';
   private baseUrlEng = 'https://apis.data.go.kr/B551011/EngService2';
@@ -86,20 +87,20 @@ export class TourApiService {
     try {
       const response = await fetch(`${this.baseUrlKor}/searchKeyword2?${params}`);
       if (!response.ok) {
-        console.error(`Tour API error: ${response.status} ${response.statusText}`);
+        this.logger.error(`Tour API error: ${response.status} ${response.statusText}`);
         return [];
       }
 
       const data = await response.json();
       if (data?.response?.header?.resultCode !== '0000') {
-        console.error(`Tour API: ${data?.response?.header?.resultMsg || 'Unknown error'}`);
+        this.logger.error(`Tour API: ${data?.response?.header?.resultMsg || 'Unknown error'}`);
         return [];
       }
 
       const items = data?.response?.body?.items?.item || [];
       return Array.isArray(items) ? items : [items];
     } catch (error) {
-      console.error('Tour API request failed:', error);
+      this.logger.error('Tour API request failed:', error);
       return [];
     }
   }
@@ -166,7 +167,7 @@ export class TourApiService {
     const { keyword, areaCode, contentTypeId, pageNo = 1 } = params;
 
     if (!this.apiKey) {
-      console.warn('Tour API key is not configured');
+      this.logger.warn('Tour API key is not configured');
       return [];
     }
 
@@ -189,20 +190,20 @@ export class TourApiService {
     try {
       const response = await fetch(apiUrl);
       if (!response.ok) {
-        console.error(`Tour API error: ${response.status} ${response.statusText}`);
+        this.logger.error(`Tour API error: ${response.status} ${response.statusText}`);
         return [];
       }
 
       const data = await response.json();
       if (data?.response?.header?.resultCode !== '0000') {
-        console.error(`Tour API: ${data?.response?.header?.resultMsg || 'Unknown error'}`);
+        this.logger.error(`Tour API: ${data?.response?.header?.resultMsg || 'Unknown error'}`);
         return [];
       }
 
       const items = data?.response?.body?.items?.item || [];
       return Array.isArray(items) ? items : [items];
     } catch (error) {
-      console.error('Tour API request failed:', error);
+      this.logger.error('Tour API request failed:', error);
       return [];
     }
   }
@@ -279,15 +280,15 @@ export class TourApiService {
     // 썸네일을 S3에 업로드
     let s3ImageUrl: string | null = null;
     if (itemData.thumbnail) {
-      console.log(`[TourAPI] Uploading thumbnail for ${contentId}: ${itemData.thumbnail}`);
+      this.logger.debug(`Uploading thumbnail for ${contentId}: ${itemData.thumbnail}`);
       s3ImageUrl = await this.fileUploadService.uploadFromUrl(
         itemData.thumbnail,
         contentId,
         'items',
       );
-      console.log(`[TourAPI] S3 URL result: ${s3ImageUrl || 'failed'}`);
+      this.logger.debug(`S3 URL result: ${s3ImageUrl || 'failed'}`);
     } else {
-      console.log(`[TourAPI] No thumbnail for ${contentId}`);
+      this.logger.debug(`No thumbnail for ${contentId}`);
     }
 
     // 새 아이템 생성
