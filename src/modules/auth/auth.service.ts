@@ -35,8 +35,11 @@ export class AuthService {
       });
     }
 
+    // users 테이블에서 프로필 조회 (role 포함)
+    const profile = await this.getMe(data.user.id, data.user);
+
     return {
-      user: data.user,
+      user: profile || data.user,
       session: data.session,
     };
   }
