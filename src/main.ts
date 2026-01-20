@@ -26,8 +26,13 @@ async function bootstrap() {
             process.env.CLIENT_URL,
           ].filter(Boolean);
 
-          // Vercel 프리뷰 도메인 허용
-          if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+          // Vercel 프리뷰 및 localhost 허용
+          if (
+            !origin ||
+            allowedOrigins.includes(origin) ||
+            origin.endsWith('.vercel.app') ||
+            origin.startsWith('http://localhost:')
+          ) {
             callback(null, true);
           } else {
             callback(new Error('Not allowed by CORS'));
