@@ -16,12 +16,23 @@ async function bootstrap() {
   // CORS 설정
   app.enableCors({
     origin: process.env.NODE_ENV === 'production'
-      ? [
-          'https://tumakr.com',
-          'https://www.tumakr.com',
-          'https://admin.tumakr.com',
-          process.env.CLIENT_URL,
-        ].filter(Boolean)
+      ? (origin, callback) => {
+          const allowedOrigins = [
+            'https://tumakr.com',
+            'https://www.tumakr.com',
+            'https://admin.tumakr.com',
+            'https://tumakrguide.com',
+            'https://www.tumakrguide.com',
+            process.env.CLIENT_URL,
+          ].filter(Boolean);
+
+          // Vercel 프리뷰 도메인 허용
+          if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+            callback(null, true);
+          } else {
+            callback(new Error('Not allowed by CORS'));
+          }
+        }
       : true, // 개발환경: 모든 origin 허용
     credentials: true,
   });
