@@ -40,12 +40,14 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('유효하지 않은 토큰입니다');
     }
 
-    // 프로필은 비동기로 가져오되, 기본 사용자 정보만으로 먼저 진행
-    // 프로필이 필요한 엔드포인트에서만 별도로 조회
-    request.user = user;
+    // 프로필에서 role 정보 가져오기
+    const profile = await this.supabaseService.getUserProfile(user.id);
 
-    // 프로필을 비동기로 미리 캐싱 (응답을 기다리지 않음)
-    this.supabaseService.getUserProfile(user.id).catch(() => {});
+    // 사용자 정보에 role 포함
+    request.user = {
+      ...user,
+      role: profile?.role || 'user',
+    };
 
     return true;
   }
