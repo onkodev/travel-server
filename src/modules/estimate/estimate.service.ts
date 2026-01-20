@@ -560,6 +560,7 @@ export class EstimateService {
       createdAt: _c,
       updatedAt: _u,
       shareHash: _s,
+      totalTravelers: _t, // DB generated column - 제외 필요
       ...copyData
     } = original;
     return this.prisma.estimate.create({

@@ -7,7 +7,7 @@ import { GlobalExceptionFilter } from './common/filters';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn'], // 에러와 경고만 출력
+    logger: ['error', 'warn', 'log'], // 에러, 경고, 로그 출력
   });
 
   // Gzip 압축 (응답 크기 60% 이상 감소)

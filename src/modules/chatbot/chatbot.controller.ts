@@ -599,8 +599,9 @@ export class ChatbotController {
   async deleteSession(
     @Param('sessionId') sessionId: string,
     @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
   ) {
-    return this.chatbotService.deleteSession(sessionId, userId);
+    return this.chatbotService.deleteSession(sessionId, userId, userRole);
   }
 
   // ============ AI 견적 API ============

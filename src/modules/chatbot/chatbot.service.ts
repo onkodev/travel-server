@@ -1850,11 +1850,12 @@ export class ChatbotService {
   }
 
   // 세션 삭제
-  async deleteSession(sessionId: string, userId?: string) {
+  async deleteSession(sessionId: string, userId?: string, userRole?: string) {
     const flow = await this.getFlow(sessionId);
 
-    // 사용자 권한 확인 (userId가 제공된 경우)
-    if (userId && flow.userId && flow.userId !== userId) {
+    // 사용자 권한 확인 (admin은 모든 세션 삭제 가능)
+    const isAdmin = userRole === 'admin';
+    if (!isAdmin && userId && flow.userId && flow.userId !== userId) {
       throw new ForbiddenException('You do not have permission to delete this session.');
     }
 
