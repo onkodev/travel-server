@@ -26,6 +26,15 @@ export class AuthService {
       throw new UnauthorizedException(error.message);
     }
 
+    // 이메일 인증 안 된 경우
+    if (data.user && !data.user.email_confirmed_at) {
+      throw new UnauthorizedException({
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Please verify your email before signing in.',
+        email: data.user.email,
+      });
+    }
+
     return {
       user: data.user,
       session: data.session,
