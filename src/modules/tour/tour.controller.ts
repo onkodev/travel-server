@@ -16,6 +16,7 @@ import {
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { TourService } from './tour.service';
 import { Public } from '../../common/decorators/public.decorator';
 import {
@@ -37,6 +38,7 @@ class TourListResponseDto {
 }
 
 @ApiTags('투어')
+@SkipThrottle()
 @Controller('tours')
 export class TourController {
   constructor(private tourService: TourService) {}

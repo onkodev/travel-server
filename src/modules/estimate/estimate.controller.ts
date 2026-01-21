@@ -17,6 +17,7 @@ import {
   ApiBearerAuth,
   ApiParam,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { EstimateService } from './estimate.service';
@@ -55,6 +56,7 @@ class EstimateListResponseDto {
 @ApiBearerAuth('access-token')
 @UseGuards(RolesGuard)
 @Roles('admin', 'agent')
+@SkipThrottle()
 @Controller('estimates')
 export class EstimateController {
   constructor(

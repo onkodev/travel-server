@@ -15,6 +15,7 @@ import {
   ApiBearerAuth,
   ApiParam,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ItineraryTemplateService } from './itinerary-template.service';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import type { AuthenticatedUser } from '../../common/interfaces';
@@ -37,6 +38,7 @@ class TemplateListResponseDto {
 
 @ApiTags('일정 템플릿')
 @ApiBearerAuth('access-token')
+@SkipThrottle()
 @Controller('itinerary-templates')
 export class ItineraryTemplateController {
   constructor(private templateService: ItineraryTemplateService) {}

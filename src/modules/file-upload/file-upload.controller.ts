@@ -19,11 +19,13 @@ import {
   ApiBody,
   ApiQuery,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { FileUploadService } from './file-upload.service';
 import { UnsplashService } from './unsplash.service';
 
 @ApiTags('파일 업로드')
 @ApiBearerAuth('access-token')
+@SkipThrottle()
 @Controller('file-upload')
 export class FileUploadController {
   constructor(

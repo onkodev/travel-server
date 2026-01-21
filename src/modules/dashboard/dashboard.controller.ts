@@ -5,6 +5,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { DashboardService } from './dashboard.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -13,6 +14,7 @@ import { ErrorResponseDto } from '../../common/dto';
 
 @ApiTags('대시보드')
 @ApiBearerAuth('access-token')
+@SkipThrottle()
 @Controller('dashboard')
 @Roles('admin')
 @UseGuards(RolesGuard)

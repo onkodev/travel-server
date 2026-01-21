@@ -16,6 +16,7 @@ import {
   ApiBearerAuth,
   ApiParam,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ItemService } from './item.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -33,6 +34,7 @@ class ItemListResponseDto {
 
 @ApiTags('아이템')
 @ApiBearerAuth('access-token')
+@SkipThrottle()
 @Controller('items')
 @Roles('admin', 'agent')
 @UseGuards(RolesGuard)
