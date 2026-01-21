@@ -1834,6 +1834,32 @@ export class ChatbotService {
     return { sessions };
   }
 
+  // 세션을 사용자에게 연결
+  async linkSessionToUser(sessionId: string, userId: string) {
+    const flow = await this.getFlow(sessionId);
+
+    // 이미 다른 사용자에게 연결된 세션인지 확인
+    if (flow.userId && flow.userId !== userId) {
+      this.logger.warn(`Session ${sessionId} already linked to another user`);
+      // 이미 다른 사용자 세션이면 조용히 성공 반환 (보안상 에러 노출 안함)
+      return { success: true, linked: false };
+    }
+
+    // 이미 같은 사용자에게 연결되어 있으면 스킵
+    if (flow.userId === userId) {
+      return { success: true, linked: false, message: 'Already linked' };
+    }
+
+    // 세션을 사용자에게 연결
+    await this.prisma.chatbotFlow.update({
+      where: { sessionId },
+      data: { userId },
+    });
+
+    this.logger.log(`Session ${sessionId} linked to user ${userId}`);
+    return { success: true, linked: true };
+  }
+
   // 세션 제목 업데이트
   async updateSessionTitle(sessionId: string, title: string, userId?: string) {
     const flow = await this.getFlow(sessionId);

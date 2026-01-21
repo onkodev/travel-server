@@ -22,12 +22,28 @@ export class AuthGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    if (isPublic) {
-      return true;
-    }
-
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers.authorization;
+
+    // Public 라우트: 토큰이 있으면 사용자 정보 추출 시도 (실패해도 허용)
+    if (isPublic) {
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.split(' ')[1];
+          const user = await this.supabaseService.getUserFromToken(token);
+          if (user) {
+            const profile = await this.supabaseService.getUserProfile(user.id);
+            request.user = {
+              ...user,
+              role: profile?.role || 'user',
+            };
+          }
+        } catch {
+          // Public 라우트에서는 토큰 검증 실패해도 무시
+        }
+      }
+      return true;
+    }
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       throw new UnauthorizedException('인증 토큰이 필요합니다');

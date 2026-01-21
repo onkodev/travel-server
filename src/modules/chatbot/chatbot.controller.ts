@@ -405,6 +405,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/6')
   @Public()
+  @UseGuards(AuthGuard) // Public이지만 토큰이 있으면 사용자 정보 추출
   @SkipThrottle()
   @ApiOperation({ summary: 'Step 6 업데이트', description: '여행 정보 입력' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
@@ -412,8 +413,9 @@ export class ChatbotController {
   async updateStep6(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateStep6Dto,
+    @CurrentUser('id') userId?: string, // 로그인된 경우 자동 연결
   ) {
-    return this.chatbotService.updateStep6(sessionId, dto);
+    return this.chatbotService.updateStep6(sessionId, dto, userId);
   }
 
   @Patch(':sessionId/step/7')
@@ -582,6 +584,24 @@ export class ChatbotController {
     @CurrentUser('id') userId: string,
   ) {
     return this.chatbotService.updateSessionTitle(sessionId, dto.title, userId);
+  }
+
+  @Patch(':sessionId/link-user')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard)
+  @SkipThrottle()
+  @ApiOperation({
+    summary: '세션을 현재 사용자에게 연결',
+    description: '비로그인 상태에서 생성된 세션을 현재 로그인한 사용자에게 연결합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({ status: 200, description: '연결 성공' })
+  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  async linkSessionToUser(
+    @Param('sessionId') sessionId: string,
+    @RequireUserId() userId: string,
+  ) {
+    return this.chatbotService.linkSessionToUser(sessionId, userId);
   }
 
   @Delete(':sessionId')
