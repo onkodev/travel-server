@@ -17,6 +17,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { EstimateService } from '../estimate/estimate.service';
 import { GeoIpService } from '../visitor/geoip.service';
 import { AiEstimateService } from './ai-estimate.service';
+import { NotificationService } from '../notification/notification.service';
 import {
   TOUR_TYPES,
   INTEREST_MAIN,
@@ -52,6 +53,7 @@ export class ChatbotService {
     private geoIpService: GeoIpService,
     @Inject(forwardRef(() => AiEstimateService))
     private aiEstimateService: AiEstimateService,
+    private notificationService: NotificationService,
   ) {}
 
   // 새 플로우 시작
@@ -1182,6 +1184,20 @@ export class ChatbotService {
       where: { sessionId },
       data: { isCompleted: true },
     });
+
+    // 관리자에게 알림 전송
+    try {
+      await this.notificationService.notifyNewEstimateRequest({
+        estimateId: flow.estimateId ?? undefined,
+        sessionId: sessionId,
+        customerName: flow.customerName ?? undefined,
+        tourType: flow.tourType ?? undefined,
+      });
+      this.logger.log(`Notification sent for session: ${sessionId}`);
+    } catch (error) {
+      this.logger.error(`Failed to send notification: ${error.message}`);
+      // 알림 실패해도 요청은 성공으로 처리
+    }
 
     // 견적이 있으면 상태 업데이트
     if (flow.estimateId) {

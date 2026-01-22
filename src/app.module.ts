@@ -22,6 +22,9 @@ import { UserModule } from './modules/user/user.module';
 import { FileUploadModule } from './modules/file-upload/file-upload.module';
 import { ChatbotModule } from './modules/chatbot/chatbot.module';
 import { VisitorModule } from './modules/visitor/visitor.module';
+import { GoodsModule } from './modules/goods/goods.module';
+import { NotificationModule } from './modules/notification/notification.module';
+import { ContactModule } from './modules/contact/contact.module';
 
 @Module({
   imports: [
@@ -66,6 +69,9 @@ import { VisitorModule } from './modules/visitor/visitor.module';
     FileUploadModule,
     ChatbotModule,
     VisitorModule,
+    GoodsModule,
+    NotificationModule,
+    ContactModule,
   ],
   providers: [
     {

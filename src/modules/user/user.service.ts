@@ -170,6 +170,9 @@ export class UserService {
       this.handleSupabaseError(error, '사용자 역할 변경');
     }
 
+    // 프로필 캐시 무효화 (AuthGuard에서 새 role 즉시 반영)
+    this.supabaseService.invalidateProfileCache(id);
+
     return { success: true };
   }
 

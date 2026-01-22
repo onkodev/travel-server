@@ -15,16 +15,29 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
-  ApiQuery,
+  ApiBody,
+  ApiParam,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { VisitorService } from './visitor.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
-import { CreateSessionDto, TrackPageViewDto, UpdatePageViewDto } from './dto';
+import {
+  CreateSessionDto,
+  TrackPageViewDto,
+  UpdatePageViewDto,
+  AdminSessionQueryDto,
+  SessionListDto,
+  VisitorStatsDto,
+  VisitorSuccessDto,
+  CreateSessionResponseDto,
+  VisitorSessionDto,
+} from './dto';
+import { ErrorResponseDto } from '../../common/dto';
 
-@ApiTags('Visitor Tracking')
+@ApiTags('방문자 추적')
 @Controller('visitor')
 export class VisitorController {
   private readonly logger = new Logger(VisitorController.name);
@@ -40,14 +53,21 @@ export class VisitorController {
     return req.ip || req.socket.remoteAddress || '';
   }
 
+  // ==================== 공개 API ====================
+
   @Post('session')
   @Public()
   @SkipThrottle()
   @ApiOperation({
     summary: '방문자 세션 생성',
-    description: '새 방문자 세션을 생성하거나 기존 세션을 반환합니다.',
+    description: '새 방문자 세션을 생성하거나 기존 세션을 반환합니다. 핑거프린트가 있으면 기존 세션을 찾습니다.',
   })
-  @ApiResponse({ status: 201, description: '세션 생성 성공' })
+  @ApiBody({ type: CreateSessionDto })
+  @ApiResponse({
+    status: 201,
+    description: '세션 생성 성공',
+    type: CreateSessionResponseDto,
+  })
   async createSession(
     @Req() req: Request,
     @Body() body: CreateSessionDto,
@@ -77,10 +97,15 @@ export class VisitorController {
   @SkipThrottle()
   @ApiOperation({
     summary: '페이지뷰 기록',
-    description: '페이지 방문을 기록합니다. sendBeacon 지원.',
+    description: '페이지 방문을 기록합니다. sendBeacon API를 지원합니다.',
   })
-  @ApiResponse({ status: 201, description: '기록 성공' })
-  async trackPageView(@Body() body: TrackPageViewDto) {
+  @ApiBody({ type: TrackPageViewDto })
+  @ApiResponse({
+    status: 201,
+    description: '기록 성공',
+    type: VisitorSuccessDto,
+  })
+  async trackPageView(@Body() body: TrackPageViewDto): Promise<VisitorSuccessDto> {
     // Analytics용이라 모든 에러를 무시하고 성공 반환
     try {
       if (!body?.visitorId || !body?.path) {
@@ -100,9 +125,20 @@ export class VisitorController {
   @SkipThrottle()
   @ApiOperation({
     summary: '페이지뷰 업데이트',
-    description: '체류 시간, 스크롤 깊이 등을 업데이트합니다.',
+    description: '체류 시간, 스크롤 깊이, 클릭 수 등을 업데이트합니다.',
   })
-  @ApiResponse({ status: 200, description: '업데이트 성공' })
+  @ApiParam({
+    name: 'id',
+    description: '페이지뷰 ID',
+    type: Number,
+    example: 123,
+  })
+  @ApiBody({ type: UpdatePageViewDto })
+  @ApiResponse({
+    status: 200,
+    description: '업데이트 성공',
+    type: VisitorSuccessDto,
+  })
   async updatePageView(
     @Param('id') id: string,
     @Body() body: UpdatePageViewDto,
@@ -117,46 +153,49 @@ export class VisitorController {
     summary: '세션 상세 조회',
     description: '방문자 세션의 상세 정보와 페이지뷰 목록을 조회합니다.',
   })
-  @ApiResponse({ status: 200, description: '조회 성공' })
+  @ApiParam({
+    name: 'id',
+    description: '세션 ID',
+    type: String,
+    example: 'visitor_abc123',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '조회 성공',
+    type: VisitorSessionDto,
+  })
   async getSession(@Param('id') id: string) {
     return this.visitorService.getSession(id);
   }
 
-  // ============ 관리자 API ============
+  // ==================== 관리자 API ====================
 
   @Get('admin/sessions')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
   @SkipThrottle()
   @ApiOperation({
-    summary: '방문자 세션 목록 (관리자)',
-    description: '모든 방문자 세션 목록을 조회합니다.',
+    summary: '방문자 세션 목록 조회 (관리자)',
+    description: '모든 방문자 세션 목록을 조회합니다. 필터링 및 페이지네이션을 지원합니다.',
   })
-  @ApiQuery({ name: 'page', required: false })
-  @ApiQuery({ name: 'limit', required: false })
-  @ApiQuery({ name: 'country', required: false })
-  @ApiQuery({ name: 'hasChatbot', required: false })
-  @ApiQuery({ name: 'hasEstimate', required: false })
-  @ApiQuery({ name: 'startDate', required: false })
-  @ApiQuery({ name: 'endDate', required: false })
-  @ApiResponse({ status: 200, description: '조회 성공' })
-  async getSessions(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('country') country?: string,
-    @Query('hasChatbot') hasChatbot?: string,
-    @Query('hasEstimate') hasEstimate?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
+  @ApiResponse({
+    status: 200,
+    description: '조회 성공',
+    type: SessionListDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: '인증 실패',
+    type: ErrorResponseDto,
+  })
+  async getSessions(@Query() query: AdminSessionQueryDto) {
     return this.visitorService.getSessions({
-      page: page ? parseInt(page) : undefined,
-      limit: limit ? parseInt(limit) : undefined,
-      country,
-      hasChatbot: hasChatbot !== undefined ? hasChatbot === 'true' : undefined,
-      hasEstimate: hasEstimate !== undefined ? hasEstimate === 'true' : undefined,
-      startDate,
-      endDate,
+      page: query.page,
+      limit: query.limit,
+      country: query.country,
+      hasChatbot: query.hasChatbot,
+      hasEstimate: query.hasEstimate,
+      startDate: query.startDate,
+      endDate: query.endDate,
     });
   }
 
@@ -165,10 +204,18 @@ export class VisitorController {
   @UseGuards(AuthGuard)
   @SkipThrottle()
   @ApiOperation({
-    summary: '방문자 통계 (관리자)',
-    description: '방문자 통계를 조회합니다.',
+    summary: '방문자 통계 조회 (관리자)',
+    description: '일별, 주별, 월별 방문자 통계와 국가별 분포를 조회합니다.',
   })
-  @ApiResponse({ status: 200, description: '조회 성공' })
+  @ApiResponse({
+    status: 200,
+    description: '조회 성공',
+    type: VisitorStatsDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: '인증 실패',
+    type: ErrorResponseDto,
+  })
   async getStats() {
     return this.visitorService.getStats();
   }
@@ -178,10 +225,24 @@ export class VisitorController {
   @UseGuards(AuthGuard)
   @SkipThrottle()
   @ApiOperation({
-    summary: '세션 상세 (관리자)',
-    description: '방문자 세션 상세 정보를 조회합니다.',
+    summary: '세션 상세 조회 (관리자)',
+    description: '방문자 세션의 상세 정보를 조회합니다. 페이지뷰 목록 및 사용자 행동 정보를 포함합니다.',
   })
-  @ApiResponse({ status: 200, description: '조회 성공' })
+  @ApiParam({
+    name: 'id',
+    description: '세션 ID',
+    type: String,
+    example: 'visitor_abc123',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '조회 성공',
+    type: VisitorSessionDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: '인증 실패',
+    type: ErrorResponseDto,
+  })
   async getSessionAdmin(@Param('id') id: string) {
     return this.visitorService.getSession(id);
   }

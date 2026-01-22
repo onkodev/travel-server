@@ -20,6 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@aws-sdk/client-ses": "^3.972.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
@@ -34,7 +35,6 @@
     "compression": "^1.8.1",
     "prisma": "^6.0.0",
     "reflect-metadata": "^0.2.2",
-    "resend": "^6.8.0",
     "rxjs": "^7.8.1",
     "swagger-ui-express": "^5.0.1",
     "ua-parser-js": "^2.0.8"

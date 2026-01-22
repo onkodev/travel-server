@@ -53,8 +53,8 @@ export class TourService {
     // source에 따라 다른 필드 선택
     const selectFields =
       source === 'auth'
-        ? 'id, title, title_i18n, thumbnail_url, duration_minutes, price, currency, tags, region_id'
-        : 'id, title, thumbnail_url, duration_minutes, price, currency, category, tags';
+        ? 'id, title, title_i18n, thumbnail_url, duration_minutes, price, currency, tags, region_id, review_count, average_rating'
+        : 'id, title, thumbnail_url, duration_minutes, price, currency, category, tags, review_count, average_rating';
 
     let query = supabase
       .from('tours')

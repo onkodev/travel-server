@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { Prisma, Estimate } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { convertDecimalFields, toDateTime, omit } from '../../common/utils';
@@ -12,7 +13,10 @@ import { EstimateItemExtendedDto } from './dto/estimate-types.dto';
 export class EstimateService {
   private readonly logger = new Logger(EstimateService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService,
+  ) {}
 
   // 견적 목록 조회
   async getEstimates(params: {
@@ -378,6 +382,34 @@ export class EstimateService {
         // 메시지 생성 실패해도 발송 처리는 계속 진행
         this.logger.error('Failed to create chat message for estimate:', error);
       }
+    }
+
+    // 고객 이메일이 있으면 이메일 발송
+    if (estimate.customerEmail) {
+      const items = (estimate.items as unknown as Array<{
+        name: string;
+        type?: string;
+        price: number;
+        quantity: number;
+        date?: string;
+      }>) || [];
+
+      this.emailService.sendEstimate({
+        to: estimate.customerEmail,
+        customerName: estimate.customerName || 'Valued Customer',
+        estimateTitle: estimate.title || 'Your Travel Quotation',
+        shareHash: estimate.shareHash || '',
+        items,
+        totalAmount: Number(estimate.totalAmount) || 0,
+        currency: estimate.currency || 'USD',
+        travelDays: estimate.travelDays || undefined,
+        startDate: estimate.startDate,
+        endDate: estimate.endDate,
+        adultsCount: estimate.adultsCount || undefined,
+        childrenCount: estimate.childrenCount || undefined,
+      }).catch((error) => {
+        this.logger.error(`Failed to send estimate email to ${estimate.customerEmail}:`, error);
+      });
     }
 
     return convertDecimalFields(updatedEstimate);

@@ -426,3 +426,46 @@ model PageView {
   @@index([createdAt(sort: Desc)], map: "idx_page_views_created_at")
   @@map("page_views")
 }
+
+model Goods {
+  id           Int       @id @default(autoincrement())
+  name         String    @db.VarChar(255)
+  nameKor      String?   @map("name_kor") @db.VarChar(255)
+  description  String?
+  category     String    @db.VarChar(50)
+  thumbnailUrl String?   @map("thumbnail_url") @db.VarChar(500)
+  imageUrls    String[]  @map("image_urls")
+  price        Decimal   @default(0) @db.Decimal(10, 2)
+  currency     String    @default("USD") @db.VarChar(3)
+  stock        Int       @default(0)
+  options      Json?
+  tags         String[]
+  status       String    @default("draft") @db.VarChar(20)
+  isFeatured   Boolean   @default(false) @map("is_featured")
+  viewCount    Int       @default(0) @map("view_count")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([category], map: "idx_goods_category")
+  @@index([status], map: "idx_goods_status")
+  @@index([isFeatured], map: "idx_goods_is_featured")
+  @@index([createdAt(sort: Desc)], map: "idx_goods_created_at")
+  @@map("goods")
+}
+
+model Contact {
+  id        Int       @id @default(autoincrement())
+  name      String    @db.VarChar(100)
+  email     String    @db.VarChar(255)
+  message   String
+  status    String    @default("pending") @db.VarChar(20) // pending, replied, closed
+  reply     String?
+  repliedAt DateTime? @map("replied_at") @db.Timestamptz(6)
+  repliedBy String?   @map("replied_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status], map: "idx_contacts_status")
+  @@index([createdAt(sort: Desc)], map: "idx_contacts_created_at")
+  @@map("contacts")
+}
