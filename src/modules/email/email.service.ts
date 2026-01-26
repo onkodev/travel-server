@@ -516,7 +516,6 @@ export class EmailService {
       customerName,
       estimateTitle,
       estimateUrl,
-      items,
       totalAmount,
       currency,
       travelDays,
@@ -535,6 +534,7 @@ export class EmailService {
 
     // 금액 포맷팅
     const formatCurrency = (amount: number, curr: string): string => {
+      if (!amount || amount === 0) return 'TBD';
       return new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: curr || 'USD',
@@ -542,39 +542,8 @@ export class EmailService {
       }).format(amount);
     };
 
-    // 아이템 타입 아이콘
-    const getTypeIcon = (type?: string): string => {
-      switch (type) {
-        case 'accommodation': return '🏨';
-        case 'transportation': return '🚗';
-        case 'place': return '📍';
-        case 'contents': return '🎫';
-        default: return '•';
-      }
-    };
-
-    // 아이템 목록 HTML (최대 5개만 표시)
-    const displayItems = items.slice(0, 5);
-    const itemsHtml = displayItems.map((item) => `
-      <tr>
-        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb;">
-          <span style="font-size: 16px; margin-right: 8px;">${getTypeIcon(item.type)}</span>
-          <span style="color: #374151; font-size: 14px;">${item.name}</span>
-          ${item.date ? `<span style="color: #9ca3af; font-size: 12px; margin-left: 8px;">${item.date}</span>` : ''}
-        </td>
-        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #374151; font-size: 14px;">
-          ${formatCurrency(item.price * item.quantity, currency)}
-        </td>
-      </tr>
-    `).join('');
-
-    const moreItemsNote = items.length > 5
-      ? `<tr><td colspan="2" style="padding: 12px 16px; color: #6b7280; font-size: 13px; text-align: center;">+${items.length - 5} more items...</td></tr>`
-      : '';
-
     // 여행 정보
     const travelers = (adultsCount || 0) + (childrenCount || 0);
-    const travelersText = travelers > 0 ? `${travelers} traveler${travelers > 1 ? 's' : ''}` : '';
 
     return `
 <!DOCTYPE html>
@@ -583,112 +552,104 @@ export class EmailService {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f5f5f5;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f8fafc;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8fafc; padding: 48px 20px;">
     <tr>
       <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+        <table width="520" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);">
+
           <!-- Header -->
           <tr>
-            <td style="background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); padding: 30px 40px; text-align: center;">
-              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">Tumakr</h1>
-              <p style="margin: 8px 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">Your Korea Travel Partner</p>
+            <td style="padding: 32px 40px 24px; text-align: center; border-bottom: 1px solid #f1f5f9;">
+              <h1 style="margin: 0; color: #0ea5e9; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">Tumakr</h1>
             </td>
           </tr>
 
           <!-- Content -->
           <tr>
-            <td style="padding: 40px;">
-              <!-- Welcome Message -->
-              <p style="margin: 0 0 20px; color: #374151; font-size: 16px; line-height: 1.6;">
-                Dear ${customerName},
+            <td style="padding: 32px 40px;">
+              <p style="margin: 0 0 24px; color: #334155; font-size: 16px; line-height: 1.7;">
+                Hi ${customerName},
               </p>
 
-              <p style="margin: 0 0 24px; color: #374151; font-size: 16px; line-height: 1.6;">
-                Your personalized travel quotation is ready! We've carefully prepared an itinerary based on your preferences.
+              <p style="margin: 0 0 32px; color: #334155; font-size: 16px; line-height: 1.7;">
+                Your travel quotation is ready! Click below to view the full details.
               </p>
 
-              <!-- Estimate Summary Card -->
-              <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 12px; padding: 24px; margin-bottom: 24px;">
-                <h2 style="margin: 0 0 16px; color: #0369a1; font-size: 18px; font-weight: 600;">
-                  📋 ${estimateTitle}
-                </h2>
+              <!-- Summary Card -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8fafc; border-radius: 12px; margin-bottom: 32px;">
+                <tr>
+                  <td style="padding: 24px;">
+                    <p style="margin: 0 0 4px; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Your Trip</p>
+                    <h2 style="margin: 0 0 20px; color: #0f172a; font-size: 20px; font-weight: 600;">${estimateTitle}</h2>
 
-                <!-- Trip Details -->
-                <table width="100%" style="margin-bottom: 16px;">
-                  <tr>
-                    <td style="padding: 8px 0;">
-                      <span style="color: #6b7280; font-size: 13px;">📅 Travel Dates</span>
-                      <p style="margin: 4px 0 0; color: #111827; font-size: 15px; font-weight: 500;">
-                        ${formatDate(startDate)} - ${formatDate(endDate)}${travelDays ? ` (${travelDays} days)` : ''}
-                      </p>
-                    </td>
-                    ${travelersText ? `
-                    <td style="padding: 8px 0;">
-                      <span style="color: #6b7280; font-size: 13px;">👥 Travelers</span>
-                      <p style="margin: 4px 0 0; color: #111827; font-size: 15px; font-weight: 500;">
-                        ${travelersText}
-                      </p>
-                    </td>
-                    ` : ''}
-                  </tr>
-                </table>
-
-                <!-- Total Amount -->
-                <div style="background-color: #ffffff; border-radius: 8px; padding: 16px; text-align: center;">
-                  <p style="margin: 0 0 4px; color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Total Amount</p>
-                  <p style="margin: 0; color: #0369a1; font-size: 28px; font-weight: 700;">
-                    ${formatCurrency(totalAmount, currency)}
-                  </p>
-                </div>
-              </div>
-
-              <!-- Items Preview -->
-              <div style="margin-bottom: 24px;">
-                <p style="margin: 0 0 12px; color: #111827; font-size: 14px; font-weight: 600;">Itinerary Highlights:</p>
-                <table width="100%" style="border-collapse: collapse; background-color: #f9fafb; border-radius: 8px; overflow: hidden;">
-                  ${itemsHtml}
-                  ${moreItemsNote}
-                </table>
-              </div>
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">
+                          <span style="color: #64748b; font-size: 14px;">Dates</span>
+                        </td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; text-align: right;">
+                          <span style="color: #0f172a; font-size: 14px; font-weight: 500;">${formatDate(startDate)} - ${formatDate(endDate)}</span>
+                        </td>
+                      </tr>
+                      ${travelDays ? `
+                      <tr>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">
+                          <span style="color: #64748b; font-size: 14px;">Duration</span>
+                        </td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; text-align: right;">
+                          <span style="color: #0f172a; font-size: 14px; font-weight: 500;">${travelDays} days</span>
+                        </td>
+                      </tr>
+                      ` : ''}
+                      ${travelers > 0 ? `
+                      <tr>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">
+                          <span style="color: #64748b; font-size: 14px;">Travelers</span>
+                        </td>
+                        <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; text-align: right;">
+                          <span style="color: #0f172a; font-size: 14px; font-weight: 500;">${travelers} ${travelers > 1 ? 'people' : 'person'}</span>
+                        </td>
+                      </tr>
+                      ` : ''}
+                      <tr>
+                        <td style="padding: 12px 0 0;">
+                          <span style="color: #64748b; font-size: 14px;">Total</span>
+                        </td>
+                        <td style="padding: 12px 0 0; text-align: right;">
+                          <span style="color: #0ea5e9; font-size: 24px; font-weight: 700;">${formatCurrency(totalAmount, currency)}</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
 
               <!-- CTA Button -->
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td align="center" style="padding: 16px 0;">
-                    <a href="${estimateUrl}" style="display: inline-block; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; box-shadow: 0 4px 14px rgba(14, 165, 233, 0.4);">
-                      View Full Quotation
+                  <td align="center">
+                    <a href="${estimateUrl}" style="display: inline-block; background-color: #0ea5e9; color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 8px; font-size: 16px; font-weight: 600;">
+                      View Quotation
                     </a>
                   </td>
                 </tr>
               </table>
 
-              <p style="margin: 24px 0 0; color: #6b7280; font-size: 14px; text-align: center;">
-                Or copy this link: <a href="${estimateUrl}" style="color: #0ea5e9; text-decoration: none; word-break: break-all;">${estimateUrl}</a>
-              </p>
-
-              <!-- Note -->
-              <div style="margin-top: 32px; padding: 16px; background-color: #fef3c7; border-radius: 8px; border-left: 4px solid #f59e0b;">
-                <p style="margin: 0; color: #92400e; font-size: 14px; line-height: 1.6;">
-                  <strong>💡 Note:</strong> This quotation is valid for 14 days. If you have any questions or need modifications, please don't hesitate to contact us.
-                </p>
-              </div>
-
-              <p style="margin: 32px 0 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                Best regards,<br>
-                <strong>The Tumakr Team</strong>
+              <p style="margin: 24px 0 0; color: #94a3b8; font-size: 13px; text-align: center;">
+                <a href="${estimateUrl}" style="color: #94a3b8; text-decoration: underline;">${estimateUrl}</a>
               </p>
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="background-color: #f9fafb; padding: 24px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
-              <p style="margin: 0; color: #9ca3af; font-size: 12px;">
-                © ${new Date().getFullYear()} Tumakr. All rights reserved.
+            <td style="padding: 24px 40px; text-align: center; border-top: 1px solid #f1f5f9;">
+              <p style="margin: 0 0 8px; color: #94a3b8; font-size: 13px;">
+                Questions? Reply to this email or contact us anytime.
               </p>
-              <p style="margin: 8px 0 0; color: #9ca3af; font-size: 12px;">
-                <a href="https://tumakr.com" style="color: #0ea5e9; text-decoration: none;">tumakr.com</a>
+              <p style="margin: 0; color: #cbd5e1; font-size: 12px;">
+                © ${new Date().getFullYear()} Tumakr
               </p>
             </td>
           </tr>
