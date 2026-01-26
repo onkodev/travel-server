@@ -215,7 +215,7 @@ export class EmailService {
     try {
       const { to, customerName, estimateTitle, shareHash } = params;
       const clientUrl = this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
-      const estimateUrl = `${clientUrl}/estimate/${shareHash}`;
+      const estimateUrl = `${clientUrl}/quotation/${shareHash}`;
 
       const command = new SendEmailCommand({
         Source: `Tumakr <${this.fromEmail}>`,
