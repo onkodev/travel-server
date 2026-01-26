@@ -21,12 +21,15 @@ import {
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ChatbotService } from './chatbot.service';
+import { ChatbotAnalyticsService } from './chatbot-analytics.service';
 import { AiEstimateService } from './ai-estimate.service';
+import { ConversationalEstimateService } from './conversational-estimate.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { RequireUserId } from '../../common/decorators/require-user.decorator';
 import { SupabaseService } from '../../supabase/supabase.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import {
   StartFlowDto,
   UpdateStep1Dto,
@@ -46,6 +49,12 @@ import {
   ModifyEstimateDto,
   GenerateEstimateResponseDto,
   ModifyEstimateResponseDto,
+  ModifyItineraryMessageDto,
+  ModifyItineraryResponseDto,
+  RegenerateDayResponseDto,
+  FinalizeItineraryResponseDto,
+  TravelChatDto,
+  TravelChatResponseDto,
 } from './dto';
 import { StepResponseDto, FlowStartResponseDto } from './dto/step-response.dto';
 import { ChatbotFlowDto } from './dto/chatbot-flow.dto';
@@ -56,8 +65,11 @@ import { ErrorResponseDto } from '../../common/dto';
 export class ChatbotController {
   constructor(
     private chatbotService: ChatbotService,
+    private chatbotAnalyticsService: ChatbotAnalyticsService,
     private aiEstimateService: AiEstimateService,
+    private conversationalEstimateService: ConversationalEstimateService,
     private supabaseService: SupabaseService,
+    private prisma: PrismaService,
   ) {}
 
   @Post('start')
@@ -171,7 +183,7 @@ export class ChatbotController {
   })
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getFlowStats() {
-    return this.chatbotService.getFlowStats();
+    return this.chatbotAnalyticsService.getFlowStats();
   }
 
   @Get('admin/funnel')
@@ -185,7 +197,7 @@ export class ChatbotController {
   @ApiQuery({ name: 'days', required: false, description: '조회 기간 (일)' })
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getFunnelAnalysis(@Query('days') days?: string) {
-    return this.chatbotService.getFunnelAnalysis(days ? parseInt(days) : 30);
+    return this.chatbotAnalyticsService.getFunnelAnalysis(days ? parseInt(days) : 30);
   }
 
   @Get('admin/leads')
@@ -199,7 +211,7 @@ export class ChatbotController {
   @ApiQuery({ name: 'limit', required: false, description: '조회 개수' })
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getLeadScores(@Query('limit') limit?: string) {
-    return this.chatbotService.getLeadScores(limit ? parseInt(limit) : 50);
+    return this.chatbotAnalyticsService.getLeadScores(limit ? parseInt(limit) : 50);
   }
 
   @Get('admin/countries')
@@ -213,7 +225,7 @@ export class ChatbotController {
   @ApiQuery({ name: 'days', required: false, description: '조회 기간 (일)' })
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getCountryStats(@Query('days') days?: string) {
-    return this.chatbotService.getCountryStats(days ? parseInt(days) : 30);
+    return this.chatbotAnalyticsService.getCountryStats(days ? parseInt(days) : 30);
   }
 
   @Get('admin/flow/:sessionId')
@@ -454,40 +466,36 @@ export class ChatbotController {
   }
 
   @Post(':sessionId/complete')
-  @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
+  @Public()
+  @UseGuards(AuthGuard) // Public이지만 토큰 있으면 userId 추출
   @Throttle({ default: { limit: 5, ttl: 60000 } }) // 1분에 5회 제한
   @ApiOperation({
-    summary: '플로우 완료 및 견적 생성 (로그인 필수)',
+    summary: '플로우 완료 및 견적 생성',
     description:
-      '7단계 질문 플로우를 완료하고 초기 견적을 생성합니다. Step 7이 완료되어야 합니다.',
+      '7단계 질문 플로우를 완료하고 초기 견적을 생성합니다. Step 6이 완료되어야 합니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 201, description: '견적 생성 성공' })
-  @ApiResponse({ status: 400, description: 'Step 7 미완료', type: ErrorResponseDto })
-  @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
+  @ApiResponse({ status: 400, description: '설문 미완료', type: ErrorResponseDto })
   async completeFlow(
     @Param('sessionId') sessionId: string,
-    @RequireUserId() userId: string,
+    @CurrentUser('id') userId?: string,
   ) {
     return this.chatbotService.completeFlow(sessionId, userId);
   }
 
   @Post(':sessionId/send-to-expert')
-  @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
+  @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } }) // 1분에 5회 제한
   @ApiOperation({
-    summary: '전문가에게 보내기 (로그인 필수)',
+    summary: '전문가에게 보내기',
     description:
       '상담 요청을 전문가에게 전송합니다. 견적이 있으면 검토 대기 상태로 변경하고, 없으면 상담 요청만 전송합니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '전문가에게 전달 성공' })
-  @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
   async sendToExpert(
     @Param('sessionId') sessionId: string,
-    @RequireUserId() _userId: string, // 인증 확인용
   ) {
     return this.chatbotService.sendToExpert(sessionId);
   }
@@ -627,8 +635,7 @@ export class ChatbotController {
   // ============ AI 견적 API ============
 
   @Post(':sessionId/estimate/generate')
-  @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
+  @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({
     summary: 'AI 견적 생성 (향상된 버전)',
@@ -641,13 +648,67 @@ export class ChatbotController {
     type: GenerateEstimateResponseDto,
   })
   @ApiResponse({ status: 400, description: '설문 미완료', type: ErrorResponseDto })
-  @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
   @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
   async generateAiEstimate(
     @Param('sessionId') sessionId: string,
-    @RequireUserId() _userId: string,
   ) {
-    return this.aiEstimateService.generateFirstEstimate(sessionId);
+    const result = await this.aiEstimateService.generateFirstEstimate(sessionId);
+
+    // 생성된 견적의 items 조회
+    const estimate = await this.prisma.estimate.findUnique({
+      where: { id: result.estimateId },
+      select: { items: true },
+    });
+
+    const items = (estimate?.items || []) as unknown as Array<{
+      isTbd?: boolean;
+      dayNumber?: number;
+      orderIndex?: number;
+      itemId?: number;
+      type?: string;
+      note?: string;
+      itemInfo?: {
+        nameKor?: string;
+        nameEng?: string;
+        descriptionEng?: string;
+        images?: Array<{ url: string; type?: string }>;
+        lat?: number;
+        lng?: number;
+        addressEnglish?: string;
+      };
+    }>;
+
+    // images 배열에서 URL만 추출하는 헬퍼
+    const extractImageUrls = (images?: Array<{ url: string; type?: string }>): string[] => {
+      if (!images || !Array.isArray(images)) return [];
+      return images.map(img => img.url).filter(Boolean);
+    };
+
+    return {
+      ...result,
+      items: items.map(item => ({
+        id: String(item.itemId || `tbd-${item.dayNumber}`),
+        type: item.type || 'place',
+        itemId: item.itemId || null,
+        itemName: item.itemInfo?.nameKor || item.itemInfo?.nameEng,
+        name: item.itemInfo?.nameKor,
+        nameEng: item.itemInfo?.nameEng,
+        dayNumber: item.dayNumber || 1,
+        orderIndex: item.orderIndex || 0,
+        isTbd: item.isTbd || false,
+        note: item.note,
+        itemInfo: item.itemInfo ? {
+          nameKor: item.itemInfo.nameKor,
+          nameEng: item.itemInfo.nameEng,
+          descriptionEng: item.itemInfo.descriptionEng,
+          images: extractImageUrls(item.itemInfo.images),
+          lat: item.itemInfo.lat,
+          lng: item.itemInfo.lng,
+          addressEnglish: item.itemInfo.addressEnglish,
+        } : undefined,
+      })),
+      hasTbdDays: items.some(item => item.isTbd),
+    };
   }
 
   @Patch('estimate/:estimateId/modify')
@@ -678,5 +739,94 @@ export class ChatbotController {
       action: dto.action,
       preference: dto.preference,
     });
+  }
+
+  // ============ AI 대화형 일정 수정 API (Step 7) ============
+
+  @Post(':sessionId/chat')
+  @Public()
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @ApiOperation({
+    summary: '여행 도우미 대화',
+    description: 'AI 여행 도우미와 대화합니다. 여행 관련 질문에 답변하고, 일정 수정 요청도 처리합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({
+    status: 200,
+    description: '응답 성공',
+    type: TravelChatResponseDto,
+  })
+  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  async travelChat(
+    @Param('sessionId') sessionId: string,
+    @Body() dto: TravelChatDto,
+  ): Promise<TravelChatResponseDto> {
+    return this.conversationalEstimateService.chat(sessionId, dto.message);
+  }
+
+  @Post(':sessionId/itinerary/modify')
+  @Public()
+  @UseGuards(AuthGuard)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @ApiOperation({
+    summary: '대화형 일정 수정',
+    description: '사용자의 자연어 메시지를 분석하여 AI가 일정을 수정합니다. Step 7에서 사용됩니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({
+    status: 200,
+    description: '수정 성공',
+    type: ModifyItineraryResponseDto,
+  })
+  @ApiResponse({ status: 400, description: '견적 없음', type: ErrorResponseDto })
+  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  async modifyItineraryConversational(
+    @Param('sessionId') sessionId: string,
+    @Body() dto: ModifyItineraryMessageDto,
+  ) {
+    return this.conversationalEstimateService.modifyItinerary(sessionId, dto.message);
+  }
+
+  @Post(':sessionId/itinerary/regenerate-day/:dayNumber')
+  @Public()
+  @UseGuards(AuthGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({
+    summary: '특정 일차 일정 재생성',
+    description: '지정된 일차의 일정을 AI가 새로 생성합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiParam({ name: 'dayNumber', description: '재생성할 일차' })
+  @ApiResponse({
+    status: 200,
+    description: '재생성 성공',
+    type: RegenerateDayResponseDto,
+  })
+  @ApiResponse({ status: 400, description: '잘못된 요청', type: ErrorResponseDto })
+  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  async regenerateDay(
+    @Param('sessionId') sessionId: string,
+    @Param('dayNumber') dayNumber: string,
+  ) {
+    return this.conversationalEstimateService.regenerateDay(sessionId, parseInt(dayNumber, 10));
+  }
+
+  @Post(':sessionId/itinerary/finalize')
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({
+    summary: '일정 확정 및 전문가에게 전송',
+    description: 'Step 7에서 수정한 일정을 확정하고 전문가에게 전송합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({
+    status: 200,
+    description: '전송 성공',
+    type: FinalizeItineraryResponseDto,
+  })
+  @ApiResponse({ status: 400, description: '견적 없음', type: ErrorResponseDto })
+  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  async finalizeItinerary(@Param('sessionId') sessionId: string) {
+    return this.conversationalEstimateService.finalizeItinerary(sessionId);
   }
 }

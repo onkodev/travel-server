@@ -38,23 +38,23 @@ export class AIEstimateStatsDto {
   @ApiProperty({ description: '전체 AI 견적 수' })
   total: number;
 
-  @ApiProperty({ description: '초안' })
+  @ApiProperty({ description: '초안 (AI 생성 완료, 관리자 검토 전)' })
   draft: number;
 
-  @ApiProperty({ description: '대기 중' })
+  @ApiProperty({ description: '검토 대기' })
   pending: number;
 
   @ApiProperty({ description: '발송됨' })
   sent: number;
 
-  @ApiProperty({ description: '수락됨' })
-  accepted: number;
+  @ApiProperty({ description: '승인됨 (결제 대기)' })
+  approved: number;
 
   @ApiProperty({ description: '완료' })
   completed: number;
 
-  @ApiProperty({ description: '보관' })
-  archived: number;
+  @ApiProperty({ description: '취소됨' })
+  cancelled: number;
 }
 
 export class AdjacentIdsDto {

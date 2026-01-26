@@ -295,4 +295,20 @@ export class AuthController {
       body.redirectTo,
     );
   }
+
+  @Post('sync-login')
+  @SkipThrottle()
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: '로그인 시간 동기화',
+    description: 'OAuth implicit flow 로그인 시 로그인 시간을 동기화합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '동기화 성공',
+    type: SuccessMessageResponseDto,
+  })
+  async syncLogin(@CurrentUser() user: User) {
+    return this.authService.syncLogin(user.id, user.email_confirmed_at);
+  }
 }

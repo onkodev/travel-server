@@ -6,6 +6,16 @@ import {
   NotificationQueryDto,
 } from './dto/notification.dto';
 
+// 알림 타입 상수
+export const NOTIFICATION_TYPES = {
+  NEW_ESTIMATE_REQUEST: 'new_estimate_request',
+  PAYMENT_COMPLETED: 'payment_completed',
+  MODIFICATION_REQUEST: 'modification_request',
+  ESTIMATE_SENT: 'estimate_sent',
+} as const;
+
+export type NotificationType = (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];
+
 @Injectable()
 export class NotificationService {
   constructor(private prisma: PrismaService) {}
@@ -128,7 +138,7 @@ export class NotificationService {
     const tourTypeDisplay = this.getTourTypeKorean(data.tourType);
 
     await this.createNotification({
-      type: 'new_estimate_request',
+      type: NOTIFICATION_TYPES.NEW_ESTIMATE_REQUEST,
       recipientAgentId: adminAgentId,
       title: '새로운 상담 요청',
       message: `${customerDisplay}님이 ${tourTypeDisplay} 상담을 요청했습니다.`,
@@ -137,6 +147,95 @@ export class NotificationService {
       metadata: {
         customerName: data.customerName,
         tourType: data.tourType,
+      },
+    });
+  }
+
+  // 관리자 알림 생성 공통 메서드
+  async notifyAdmins(data: {
+    type: string;
+    title: string;
+    message: string;
+    relatedEstimateId?: number;
+    relatedSessionId?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    // 현재는 모든 관리자가 agentId = 1을 공유
+    // 향후 개별 관리자 알림이 필요하면 여기서 관리자 목록 조회 후 각각 생성
+    const adminAgentId = 1;
+
+    await this.createNotification({
+      type: data.type,
+      recipientAgentId: adminAgentId,
+      title: data.title,
+      message: data.message,
+      relatedEstimateId: data.relatedEstimateId,
+      relatedSessionId: data.relatedSessionId,
+      metadata: data.metadata,
+    });
+  }
+
+  // 고객 결제 완료 알림
+  async notifyPaymentCompleted(data: {
+    estimateId: number;
+    customerName?: string;
+    amount: number;
+    currency?: string;
+  }): Promise<void> {
+    const customerDisplay = data.customerName || '고객';
+    const amountDisplay = `${data.currency || 'USD'} ${data.amount.toLocaleString()}`;
+
+    await this.notifyAdmins({
+      type: NOTIFICATION_TYPES.PAYMENT_COMPLETED,
+      title: '결제 완료',
+      message: `${customerDisplay}님이 견적 #${data.estimateId}에 대해 ${amountDisplay} 결제를 완료했습니다.`,
+      relatedEstimateId: data.estimateId,
+      metadata: {
+        customerName: data.customerName,
+        amount: data.amount,
+        currency: data.currency,
+      },
+    });
+  }
+
+  // 고객 수정 요청 알림
+  async notifyModificationRequest(data: {
+    estimateId: number;
+    sessionId?: string;
+    customerName?: string;
+    requestContent?: string;
+  }): Promise<void> {
+    const customerDisplay = data.customerName || '고객';
+
+    await this.notifyAdmins({
+      type: NOTIFICATION_TYPES.MODIFICATION_REQUEST,
+      title: '견적 수정 요청',
+      message: `${customerDisplay}님이 견적 #${data.estimateId}에 대해 수정을 요청했습니다.`,
+      relatedEstimateId: data.estimateId,
+      relatedSessionId: data.sessionId,
+      metadata: {
+        customerName: data.customerName,
+        requestContent: data.requestContent,
+      },
+    });
+  }
+
+  // 견적 발송 완료 알림 (내부 로깅용)
+  async notifyEstimateSent(data: {
+    estimateId: number;
+    customerName?: string;
+    customerEmail?: string;
+  }): Promise<void> {
+    const customerDisplay = data.customerName || '고객';
+
+    await this.notifyAdmins({
+      type: NOTIFICATION_TYPES.ESTIMATE_SENT,
+      title: '견적 발송 완료',
+      message: `${customerDisplay}님에게 견적 #${data.estimateId}가 발송되었습니다.`,
+      relatedEstimateId: data.estimateId,
+      metadata: {
+        customerName: data.customerName,
+        customerEmail: data.customerEmail,
       },
     });
   }

@@ -222,6 +222,11 @@ export class UpdateStep6Dto {
   @IsBoolean()
   needsPickup?: boolean;
 
+  @ApiPropertyOptional({ description: 'English guide / interpreter needed' })
+  @IsOptional()
+  @IsBoolean()
+  needsGuide?: boolean;
+
   @ApiPropertyOptional({ description: 'Additional notes', maxLength: 2000 })
   @IsOptional()
   @IsString()
@@ -274,11 +279,11 @@ export class UpdateStep7Dto {
 export class RespondToEstimateDto {
   @ApiProperty({
     description: 'Customer response',
-    enum: ['accepted', 'declined'],
+    enum: ['approved', 'declined'],
   })
   @IsString()
-  @IsIn(['accepted', 'declined'], { message: 'Invalid response.' })
-  response: 'accepted' | 'declined';
+  @IsIn(['approved', 'declined'], { message: 'Invalid response.' })
+  response: 'approved' | 'declined';
 
   @ApiPropertyOptional({ description: 'Modification request', maxLength: 2000 })
   @IsOptional()

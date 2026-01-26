@@ -1,41 +1,17 @@
 export const TOUR_TYPES = {
   online: {
-    label: 'Online Tour',
-    labelKo: '온라인 투어',
+    label: 'Online Self-Guided Tour',
+    labelKo: '온라인 셀프가이드 투어',
     description: 'Self-guided walking tour with digital guidebook',
     descriptionKo: '디지털 가이드북으로 직접 걸으며 하는 투어',
     status: 'available',
     redirectUrl: 'https://tumakrguide.com',
   },
-  private: {
-    label: 'Private Tour',
-    labelKo: '프라이빗 투어',
-    description: 'Fixed itinerary tours with professional guide',
-    descriptionKo: '전문 가이드와 함께하는 고정 일정 투어',
-    status: 'available',
-    redirectUrl: 'https://onedaykorea.com',
-  },
-  history: {
-    label: 'History Tour',
-    labelKo: '히스토리 투어',
-    description: 'History-focused tours (Coming Soon)',
-    descriptionKo: '역사에 초점을 맞춘 투어 (준비중)',
-    status: 'coming_soon',
-    redirectUrl: null,
-  },
-  multi_day: {
-    label: 'Multi-day Tour',
-    labelKo: '멀티데이 투어',
-    description: 'Extended tours spanning multiple days (Coming Soon)',
-    descriptionKo: '여러 날에 걸친 투어 (준비중)',
-    status: 'coming_soon',
-    redirectUrl: null,
-  },
-  custom: {
-    label: 'Custom Tour',
-    labelKo: '커스텀 투어',
-    description: 'Build your own itinerary with AI + expert assistance',
-    descriptionKo: 'AI와 전문가의 도움으로 나만의 일정 만들기',
+  inquiry: {
+    label: 'Tour Inquiry',
+    labelKo: '투어 문의',
+    description: 'Get personalized tour recommendations from our experts',
+    descriptionKo: '전문가로부터 맞춤 투어 추천 받기',
     status: 'available',
     redirectUrl: null, // 챗봇 플로우 계속
   },
@@ -50,7 +26,7 @@ export const INTEREST_MAIN = {
   kculture: {
     label: 'K-Culture',
     labelKo: 'K-컬처',
-    sub: ['kpop', 'kdrama'],
+    sub: ['kpop', 'kdrama', 'beauty'],
   },
   food_shopping: {
     label: 'Food & Shopping',
@@ -65,7 +41,7 @@ export const INTEREST_MAIN = {
   local: {
     label: 'Local Experience',
     labelKo: '로컬 경험',
-    sub: ['like_local', 'sports'],
+    sub: ['like_local', 'sports', 'luxury'],
   },
 } as const;
 
@@ -95,6 +71,11 @@ export const INTEREST_SUB = {
   kdrama: {
     label: 'K-drama Locations',
     labelKo: '드라마 촬영지',
+    main: 'kculture',
+  },
+  beauty: {
+    label: 'K-Beauty',
+    labelKo: 'K-뷰티',
     main: 'kculture',
   },
   // Food & Shopping
@@ -148,6 +129,11 @@ export const INTEREST_SUB = {
   sports: {
     label: 'Sports',
     labelKo: '스포츠',
+    main: 'local',
+  },
+  luxury: {
+    label: 'Luxury',
+    labelKo: '럭셔리',
     main: 'local',
   },
 } as const;
@@ -247,11 +233,21 @@ export const ATTRACTIONS = {
 } as const;
 
 export const BUDGET_RANGES = {
-  '50-100': { label: '$50 - $100 per person', labelKo: '1인당 $50 - $100', min: 50, max: 100 },
-  '100-200': { label: '$100 - $200 per person', labelKo: '1인당 $100 - $200', min: 100, max: 200 },
-  '200-300': { label: '$200 - $300 per person', labelKo: '1인당 $200 - $300', min: 200, max: 300 },
-  '300-500': { label: '$300 - $500 per person', labelKo: '1인당 $300 - $500', min: 300, max: 500 },
-  '500+': { label: '$500+ per person', labelKo: '1인당 $500 이상', min: 500, max: null },
+  low: {
+    label: 'Low — Cost-efficient, core highlights',
+    labelKo: '저가 — 핵심 명소 위주, 비용 효율',
+    tier: 'low',
+  },
+  mid: {
+    label: 'Mid — Balanced comfort & experience (Most popular)',
+    labelKo: '중가 — 편안함과 경험의 균형 (인기)',
+    tier: 'mid',
+  },
+  premium: {
+    label: 'Premium — High comfort, smooth logistics',
+    labelKo: '프리미엄 — 최고의 편안함, 원활한 이동',
+    tier: 'premium',
+  },
 } as const;
 
 export const AGE_RANGES = {

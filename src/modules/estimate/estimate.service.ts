@@ -1,12 +1,13 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { NotificationService } from '../notification/notification.service';
 import { Prisma, Estimate } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { convertDecimalFields, toDateTime, omit } from '../../common/utils';
 import { CreateEstimateDto } from './dto/estimate-create.dto';
 import { UpdateEstimateDto } from './dto/estimate-update.dto';
-import { EstimateItemDto } from './dto/estimate.dto';
+import { EstimateItemDto, ESTIMATE_STATUS } from './dto/estimate.dto';
 import { EstimateItemExtendedDto } from './dto/estimate-types.dto';
 
 @Injectable()
@@ -16,6 +17,7 @@ export class EstimateService {
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
+    private notificationService: NotificationService,
   ) {}
 
   // 견적 목록 조회
@@ -178,6 +180,18 @@ export class EstimateService {
     return convertDecimalFields(enrichedEstimate);
   }
 
+  // 이미지 배열에서 URL 문자열 배열로 변환하는 헬퍼
+  private extractImageUrls(images: unknown): string[] {
+    if (!images || !Array.isArray(images)) return [];
+    return images.map((img) => {
+      if (typeof img === 'string') return img;
+      if (typeof img === 'object' && img !== null && 'url' in img) {
+        return (img as { url: string }).url;
+      }
+      return null;
+    }).filter((url): url is string => Boolean(url));
+  }
+
   // 아이템 정보 보강 헬퍼
   private async enrichEstimateItems(estimate: Estimate) {
     const items = estimate.items as unknown as EstimateItemExtendedDto[];
@@ -215,13 +229,45 @@ export class EstimateService {
     // itemId -> Item 매핑
     const itemMap = new Map(itemRecords.map((item) => [item.id, item]));
 
-    // 아이템 정보 보강
+    // 아이템 정보 보강 + 이미지 포맷 정규화
     const enrichedItems = items.map((item) => {
-      if (!item.itemId) return item;
-      const itemRecord = itemMap.get(item.itemId);
-      if (!itemRecord) return item;
+      // 이미지 포맷 정규화 (항상 수행 - 객체 형식 → 문자열 배열 변환)
+      const normalizedImages = this.extractImageUrls(item.itemInfo?.images);
 
-      // itemInfo가 없거나 images/lat/lng가 없는 경우 보강
+      // itemId가 없으면 이미지만 정규화하고 반환
+      if (!item.itemId) {
+        if (item.itemInfo?.images && normalizedImages.length > 0) {
+          return {
+            ...item,
+            itemInfo: {
+              ...item.itemInfo,
+              images: normalizedImages,
+            },
+          };
+        }
+        return item;
+      }
+
+      const itemRecord = itemMap.get(item.itemId);
+
+      // DB에 아이템이 없으면 이미지만 정규화하고 반환
+      if (!itemRecord) {
+        if (item.itemInfo?.images && normalizedImages.length > 0) {
+          return {
+            ...item,
+            itemInfo: {
+              ...item.itemInfo,
+              images: normalizedImages,
+            },
+          };
+        }
+        return item;
+      }
+
+      // DB 이미지 추출
+      const dbImages = this.extractImageUrls(itemRecord.images);
+
+      // itemInfo가 없거나 정보가 부족한 경우 전체 보강
       if (!item.itemInfo || !item.itemInfo.images || item.itemInfo.images.length === 0 || item.itemInfo.lat == null || item.itemInfo.lng == null) {
         return {
           ...item,
@@ -230,38 +276,46 @@ export class EstimateService {
             nameKor: item.itemInfo?.nameKor || itemRecord.nameKor,
             nameEng: item.itemInfo?.nameEng || itemRecord.nameEng,
             descriptionEng: item.itemInfo?.descriptionEng || itemRecord.descriptionEng,
-            images: (item.itemInfo?.images?.length ? item.itemInfo.images : itemRecord.images) || [],
+            images: normalizedImages.length > 0 ? normalizedImages : dbImages,
             lat: item.itemInfo?.lat ?? itemRecord.lat,
             lng: item.itemInfo?.lng ?? itemRecord.lng,
             addressEnglish: item.itemInfo?.addressEnglish || itemRecord.addressEnglish,
           },
         };
       }
-      return item;
+
+      // 정보는 있지만 이미지 포맷만 정규화 필요한 경우
+      return {
+        ...item,
+        itemInfo: {
+          ...item.itemInfo,
+          images: normalizedImages.length > 0 ? normalizedImages : dbImages,
+        },
+      };
     });
 
     return { ...estimate, items: enrichedItems };
   }
 
-  // 공유 해시로 견적 조회
+  // 공유 해시로 견적 조회 (조회 + viewedAt 업데이트를 단일 쿼리로 최적화)
   async getEstimateByShareHash(shareHash: string) {
-    const estimate = await this.prisma.estimate.findUnique({
-      where: { shareHash },
-    });
+    try {
+      // update는 조회 + 업데이트를 단일 쿼리로 처리하고 데이터 반환
+      const estimate = await this.prisma.estimate.update({
+        where: { shareHash },
+        data: { viewedAt: new Date() },
+      });
 
-    if (!estimate) {
-      throw new NotFoundException('견적을 찾을 수 없습니다');
+      // 아이템 정보 보강 (itemInfo가 없는 경우)
+      const enrichedEstimate = await this.enrichEstimateItems(estimate);
+      return convertDecimalFields(enrichedEstimate);
+    } catch (error) {
+      // P2025: Record not found
+      if (error.code === 'P2025') {
+        throw new NotFoundException('견적을 찾을 수 없습니다');
+      }
+      throw error;
     }
-
-    // 조회 시간 업데이트
-    await this.prisma.estimate.update({
-      where: { id: estimate.id },
-      data: { viewedAt: new Date() },
-    });
-
-    // 아이템 정보 보강 (itemInfo가 없는 경우)
-    const enrichedEstimate = await this.enrichEstimateItems(estimate);
-    return convertDecimalFields(enrichedEstimate);
   }
 
   // 견적 생성
@@ -342,47 +396,10 @@ export class EstimateService {
     const updatedEstimate = await this.prisma.estimate.update({
       where: { id },
       data: {
-        statusAi: 'sent',
+        statusAi: ESTIMATE_STATUS.SENT,
         sentAt: new Date(),
       },
     });
-
-    // chatSessionId가 있으면 해당 채팅 세션에 견적 메시지 추가/업데이트
-    if (estimate.chatSessionId) {
-      try {
-        // 기존 견적 메시지 삭제 (재발송 시 최신 데이터로 교체)
-        await this.prisma.chatbotMessage.deleteMany({
-          where: {
-            sessionId: estimate.chatSessionId,
-            messageType: 'estimate',
-          },
-        });
-
-        // 견적 카드를 표시하기 위한 메시지 (messageType: 'estimate')
-        await this.prisma.chatbotMessage.create({
-          data: {
-            sessionId: estimate.chatSessionId,
-            role: 'bot',
-            content: 'Your personalized quotation is ready! Please review the details below.',
-            messageType: 'estimate',
-            // options 필드에 견적 데이터 저장 (JSON)
-            options: {
-              estimateId: estimate.id,
-              shareHash: estimate.shareHash,
-              title: estimate.title,
-              items: estimate.items,
-              totalAmount: estimate.totalAmount,
-              currency: estimate.currency,
-              travelDays: estimate.travelDays,
-              startDate: estimate.startDate,
-            },
-          },
-        });
-      } catch (error) {
-        // 메시지 생성 실패해도 발송 처리는 계속 진행
-        this.logger.error('Failed to create chat message for estimate:', error);
-      }
-    }
 
     // 고객 이메일이 있으면 이메일 발송
     if (estimate.customerEmail) {
@@ -412,6 +429,16 @@ export class EstimateService {
       });
     }
 
+    // 관리자에게 견적 발송 완료 알림
+    this.notificationService.notifyEstimateSent({
+      estimateId: estimate.id,
+      customerName: estimate.customerName || undefined,
+      customerEmail: estimate.customerEmail || undefined,
+    }).catch((error) => {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to send estimate notification: ${errorMessage}`);
+    });
+
     return convertDecimalFields(updatedEstimate);
   }
 
@@ -420,14 +447,22 @@ export class EstimateService {
     const [total, pending, sent, completed] = await Promise.all([
       this.prisma.estimate.count(),
       this.prisma.estimate.count({
-        where: { OR: [{ statusAi: 'pending' }, { statusManual: 'planning' }] },
+        where: {
+          OR: [
+            { statusAi: ESTIMATE_STATUS.PENDING },
+            { statusManual: 'planning' },
+          ],
+        },
       }),
       this.prisma.estimate.count({
-        where: { statusAi: 'sent' },
+        where: { statusAi: ESTIMATE_STATUS.SENT },
       }),
       this.prisma.estimate.count({
         where: {
-          OR: [{ statusAi: 'completed' }, { statusManual: 'completed' }],
+          OR: [
+            { statusAi: ESTIMATE_STATUS.COMPLETED },
+            { statusManual: 'completed' },
+          ],
         },
       }),
     ]);
@@ -505,18 +540,19 @@ export class EstimateService {
       this.prisma.estimate.count({
         where: {
           source: 'ai',
-          statusAi: { not: 'archived' },
+          statusAi: { not: ESTIMATE_STATUS.CANCELLED },
         },
       }),
     ]);
 
+    // 6개 상태: draft, pending, sent, approved, completed, cancelled
     const stats = {
       draft: 0,
       pending: 0,
       sent: 0,
-      accepted: 0,
+      approved: 0,
       completed: 0,
-      archived: 0,
+      cancelled: 0,
     };
     statusCounts.forEach((item) => {
       const status = item.statusAi as keyof typeof stats;
@@ -538,9 +574,9 @@ export class EstimateService {
   // AI 견적 상태 변경
   async updateAIStatus(id: number, status: string) {
     const updates: Prisma.EstimateUpdateInput = { statusAi: status };
-    if (status === 'sent') updates.sentAt = new Date();
-    if (status === 'accepted') updates.respondedAt = new Date();
-    if (status === 'completed') updates.completedAt = new Date();
+    if (status === ESTIMATE_STATUS.SENT) updates.sentAt = new Date();
+    if (status === ESTIMATE_STATUS.APPROVED) updates.respondedAt = new Date();
+    if (status === ESTIMATE_STATUS.COMPLETED) updates.completedAt = new Date();
     return this.prisma.estimate.update({ where: { id }, data: updates });
   }
 

@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
+import { normalizeImages } from '../../common/utils';
 
 // UUID 생성 헬퍼
 function generateItemId(): string {
@@ -143,12 +144,12 @@ export class AiEstimateService {
     // 6. Estimate 생성
     const estimate = await this.createEstimate(flow, items, template);
 
-    // 7. ChatbotFlow 업데이트
+    // 7. ChatbotFlow 업데이트 (Step 7 진입 - isCompleted는 finalizeItinerary에서 설정)
     await this.prisma.chatbotFlow.update({
       where: { sessionId: flow.sessionId },
       data: {
         estimateId: estimate.id,
-        isCompleted: true,
+        // isCompleted: false - 사용자가 "Send to Expert" 클릭 시 true로 변경
       },
     });
 
@@ -372,7 +373,7 @@ export class AiEstimateService {
           nameKor: attraction.nameKor,
           nameEng: attraction.nameEng,
           descriptionEng: attraction.descriptionEng || undefined,
-          images: Array.isArray(attraction.images) ? (attraction.images as { url: string; type?: string }[]) : [],
+          images: normalizeImages(attraction.images),
           lat: Number(attraction.lat),
           lng: Number(attraction.lng),
           addressEnglish: attraction.addressEnglish || undefined,
@@ -420,7 +421,7 @@ export class AiEstimateService {
       where: { sessionId: flow.sessionId },
       data: {
         estimateId: estimate.id,
-        isCompleted: true,
+        // isCompleted: false - 사용자가 "Send to Expert" 클릭 시 true로 변경
       },
     });
 
@@ -477,7 +478,7 @@ export class AiEstimateService {
         customerPhone: flow.customerPhone,
         nationality: flow.nationality,
         source: 'ai',
-        statusAi: hasTbdItems ? 'pending_review' : 'draft',
+        statusAi: hasTbdItems ? 'pending' : 'draft',
         chatSessionId: flow.sessionId,
         shareHash,
         internalMemo,

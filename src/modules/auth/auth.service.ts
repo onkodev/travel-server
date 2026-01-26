@@ -38,6 +38,19 @@ export class AuthService {
       });
     }
 
+    // users 테이블 업데이트: last_login_at, email_verified 동기화
+    const authClient = this.supabaseService.getAuthClient();
+    await authClient
+      .from('users')
+      .update({
+        last_login_at: new Date().toISOString(),
+        email_verified: !!data.user.email_confirmed_at,
+      })
+      .eq('id', data.user.id);
+
+    // 캐시 무효화 (업데이트된 값 반영)
+    this.supabaseService.invalidateProfileCache(data.user.id);
+
     // users 테이블에서 프로필 조회 (role 포함)
     const profile = await this.getMe(data.user.id, data.user);
 
@@ -70,6 +83,7 @@ export class AuthService {
         id: authData.user.id,
         email: authData.user.email,
         name: username,
+        email_verified: false, // 회원가입 시 이메일 미인증 상태
       });
 
       if (profileError) {
@@ -203,7 +217,7 @@ export class AuthService {
       throw new UnauthorizedException(error.message);
     }
 
-    // users 테이블에 프로필이 없으면 생성
+    // users 테이블에 프로필이 없으면 생성, 있으면 로그인 시간 업데이트
     if (data.user) {
       const { data: existingUser } = await authClient
         .from('users')
@@ -219,7 +233,21 @@ export class AuthService {
             data.user.user_metadata?.full_name ||
             data.user.email?.split('@')[0],
           avatar_url: data.user.user_metadata?.avatar_url,
+          email_verified: !!data.user.email_confirmed_at,
+          last_login_at: new Date().toISOString(),
         });
+      } else {
+        // 기존 사용자: 로그인 시간 및 이메일 인증 상태 업데이트
+        await authClient
+          .from('users')
+          .update({
+            last_login_at: new Date().toISOString(),
+            email_verified: !!data.user.email_confirmed_at,
+          })
+          .eq('id', data.user.id);
+
+        // 캐시 무효화
+        this.supabaseService.invalidateProfileCache(data.user.id);
       }
     }
 
@@ -358,5 +386,23 @@ export class AuthService {
       success: true,
       message: '인증 이메일이 재발송되었습니다.',
     };
+  }
+
+  // 로그인 시간 동기화 (OAuth implicit flow용)
+  async syncLogin(userId: string, emailConfirmedAt?: string | null) {
+    const authClient = this.supabaseService.getAuthClient();
+
+    await authClient
+      .from('users')
+      .update({
+        last_login_at: new Date().toISOString(),
+        email_verified: !!emailConfirmedAt,
+      })
+      .eq('id', userId);
+
+    // 캐시 무효화
+    this.supabaseService.invalidateProfileCache(userId);
+
+    return { success: true };
   }
 }

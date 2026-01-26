@@ -8,64 +8,6 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class AnalyzeEstimateDto {
-  @ApiProperty({ description: '분석할 견적 요청 내용' })
-  @IsString()
-  content: string;
-}
-
-export class AnalyzeEstimateResponseDto {
-  @ApiProperty({ description: '추출된 목적지' })
-  destination: string;
-
-  @ApiProperty({ description: '추출된 여행 기간 (일)' })
-  days: number;
-
-  @ApiPropertyOptional({ description: '추출된 인원 수' })
-  travelers?: number;
-
-  @ApiPropertyOptional({ description: '추출된 관심사', type: [String] })
-  interests?: string[];
-
-  @ApiPropertyOptional({ description: '추가 요청 사항' })
-  additionalRequests?: string;
-}
-
-export class GenerateTimelineDto {
-  @ApiProperty({ description: '여행 목적지', example: '제주도' })
-  @IsString()
-  destination: string;
-
-  @ApiProperty({ description: '여행 일수', example: 3 })
-  @IsNumber()
-  days: number;
-
-  @ApiPropertyOptional({ description: '관심사 목록', type: [String] })
-  @IsOptional()
-  @IsArray()
-  interests?: string[];
-
-  @ApiPropertyOptional({ description: '포함할 아이템 목록' })
-  @IsOptional()
-  @IsArray()
-  items?: any[];
-}
-
-export class GenerateItemContentDto {
-  @ApiProperty({ description: '아이템 이름', example: '서울 남산타워' })
-  @IsString()
-  name: string;
-
-  @ApiProperty({ description: '아이템 타입', example: 'place' })
-  @IsString()
-  type: string;
-
-  @ApiPropertyOptional({ description: '주소' })
-  @IsOptional()
-  @IsString()
-  address?: string;
-}
-
 export class TourApiSearchQueryDto {
   @ApiPropertyOptional({ description: '검색 키워드' })
   @IsOptional()
@@ -146,6 +88,29 @@ export class AnalyzeEstimateV2Dto {
   @ApiProperty({ description: '견적 아이템 목록', type: [Object] })
   @IsArray()
   items: object[];
+}
+
+export class AnalyzeEstimateResponseDto {
+  @ApiProperty({ description: '성공 여부' })
+  success: boolean;
+
+  @ApiProperty({ description: '추출된 지역 목록', type: [String] })
+  regions: string[];
+
+  @ApiProperty({ description: '추출된 관심사 목록', type: [String] })
+  interests: string[];
+
+  @ApiProperty({ description: '추출된 키워드 목록', type: [String] })
+  keywords: string[];
+
+  @ApiPropertyOptional({ description: '그룹 타입' })
+  groupType?: string | null;
+
+  @ApiPropertyOptional({ description: '예산 수준' })
+  budgetLevel?: string | null;
+
+  @ApiProperty({ description: '특별 요구사항', type: [String] })
+  specialNeeds: string[];
 }
 
 export class GenerateTimelineV2Dto {

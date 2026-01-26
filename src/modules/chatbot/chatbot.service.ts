@@ -15,6 +15,7 @@ const isValidUUID = (str: string): boolean => {
 };
 import { PrismaService } from '../../prisma/prisma.service';
 import { EstimateService } from '../estimate/estimate.service';
+import { ESTIMATE_STATUS } from '../estimate/dto';
 import { GeoIpService } from '../visitor/geoip.service';
 import { AiEstimateService } from './ai-estimate.service';
 import { NotificationService } from '../notification/notification.service';
@@ -667,19 +668,34 @@ export class ChatbotService {
     const flow = await this.getFlow(sessionId);
 
     // 서브 관심사가 선택된 메인 관심사에 속하는지 검증
+    // interestMain이 있는 경우에만 검증 (클라이언트 플로우에서는 interestMain 없이 바로 sub 선택 가능)
     const selectedMains = flow.interestMain || [];
-    const invalidSubs = dto.interestSub.filter((sub) => {
-      const subData = INTEREST_SUB[sub as keyof typeof INTEREST_SUB];
-      return !subData || !selectedMains.includes(subData.main);
-    });
+    if (selectedMains.length > 0) {
+      const invalidSubs = dto.interestSub.filter((sub) => {
+        const subData = INTEREST_SUB[sub as keyof typeof INTEREST_SUB];
+        return !subData || !selectedMains.includes(subData.main);
+      });
 
-    if (invalidSubs.length > 0) {
-      throw new BadRequestException(
-        `Invalid sub-interests for selected main categories: ${invalidSubs.join(', ')}`,
-      );
+      if (invalidSubs.length > 0) {
+        throw new BadRequestException(
+          `Invalid sub-interests for selected main categories: ${invalidSubs.join(', ')}`,
+        );
+      }
     }
 
-    return this.updateFlowStep(sessionId, 4, { interestSub: dto.interestSub });
+    // interestSub에서 interestMain 자동 추론
+    const inferredMains = new Set<string>();
+    dto.interestSub.forEach((sub) => {
+      const subData = INTEREST_SUB[sub as keyof typeof INTEREST_SUB];
+      if (subData) {
+        inferredMains.add(subData.main);
+      }
+    });
+
+    return this.updateFlowStep(sessionId, 4, {
+      interestSub: dto.interestSub,
+      interestMain: [...inferredMains],
+    });
   }
 
   // Step 4 업데이트
@@ -721,13 +737,12 @@ export class ChatbotService {
   async updateStep6(sessionId: string, dto: UpdateStep6Dto, userId?: string) {
     await this.validateSessionExists(sessionId);
 
-    // 여행 날짜가 오늘 이후인지 검증
-    const travelDate = new Date(dto.travelDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (travelDate < today) {
+    // 여행 날짜가 오늘 이후인지 검증 (YYYY-MM-DD 문자열 비교로 타임존 이슈 방지)
+    const todayStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    if (dto.travelDate < todayStr) {
       throw new BadRequestException('Travel date must be today or in the future.');
     }
+    const travelDate = new Date(dto.travelDate + 'T00:00:00'); // 로컬 시간으로 파싱
 
     return this.prisma.chatbotFlow.update({
       where: { sessionId },
@@ -749,6 +764,7 @@ export class ChatbotService {
         // 예산 및 기타
         budgetRange: dto.budgetRange,
         needsPickup: dto.needsPickup,
+        needsGuide: dto.needsGuide,
         // 추가 요청사항
         additionalNotes: dto.additionalNotes,
         // 유저 연결 (로그인 시)
@@ -1116,8 +1132,8 @@ export class ChatbotService {
   }
 
   // 플로우 완료 및 견적 생성 (AI 기반)
-  async completeFlow(sessionId: string, userId: string) {
-    this.logger.log(`Completing flow: sessionId=${sessionId}, userId=${userId}`);
+  async completeFlow(sessionId: string, userId?: string) {
+    this.logger.log(`Completing flow: sessionId=${sessionId}, userId=${userId || 'anonymous'}`);
 
     const flow = await this.getFlow(sessionId);
 
@@ -1149,8 +1165,8 @@ export class ChatbotService {
       // 업데이트된 플로우 조회
       const updatedFlow = await this.getFlow(sessionId);
 
-      // Flow에 userId 연결 (아직 없는 경우)
-      if (!updatedFlow.userId) {
+      // Flow에 userId 연결 (아직 없고 userId가 제공된 경우)
+      if (userId && !updatedFlow.userId) {
         await this.prisma.chatbotFlow.update({
           where: { sessionId },
           data: { userId },
@@ -1203,7 +1219,7 @@ export class ChatbotService {
     if (flow.estimateId) {
       const estimate = await this.estimateService.updateAIStatus(
         flow.estimateId,
-        'pending',
+        ESTIMATE_STATUS.PENDING,
       );
       return {
         success: true,
@@ -1218,14 +1234,14 @@ export class ChatbotService {
       success: true,
       message: 'Inquiry submitted. Our expert will contact you soon.',
       estimateId: null,
-      status: 'pending',
+      status: ESTIMATE_STATUS.PENDING,
     };
   }
 
   // 고객 응답 (승인/수정요청)
   async respondToEstimate(
     sessionId: string,
-    response: 'accepted' | 'declined', // 클라이언트 호환성을 위해 유지
+    response: 'approved' | 'declined', // approved: 결제 대기, declined: 거절
     modificationRequest?: string,
   ) {
     const flow = await this.getFlow(sessionId);
@@ -1234,11 +1250,11 @@ export class ChatbotService {
       throw new BadRequestException('Estimate not found.');
     }
 
-    // 수정 요청이 있으면 다시 pending으로
+    // 수정 요청이 있으면 revisionRequested 플래그 활성화 (상태는 sent 유지)
     if (modificationRequest) {
       const currentEstimate = await this.prisma.estimate.findUnique({
         where: { id: flow.estimateId },
-        select: { requestContent: true },
+        select: { requestContent: true, customerName: true },
       });
       const existingContent = currentEstimate?.requestContent || '';
       const updatedContent = existingContent
@@ -1249,26 +1265,40 @@ export class ChatbotService {
         where: { id: flow.estimateId },
         data: {
           requestContent: updatedContent,
-          statusAi: 'pending', // 수정 요청 → 다시 대기
+          revisionRequested: true,
+          revisionNote: modificationRequest,
         },
       });
+
+      // 관리자에게 수정 요청 알림 전송
+      try {
+        await this.notificationService.notifyModificationRequest({
+          estimateId: flow.estimateId,
+          sessionId: sessionId,
+          customerName: currentEstimate?.customerName || flow.customerName || undefined,
+          requestContent: modificationRequest,
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Failed to send modification request notification: ${errorMessage}`);
+      }
 
       return {
         success: true,
         message: 'Modification request submitted. Our expert will review and contact you.',
-        status: 'pending',
+        status: ESTIMATE_STATUS.SENT, // 상태는 sent 유지, revisionRequested 플래그로 구분
       };
     }
 
-    // 승인인 경우 accepted로
+    // 승인인 경우 approved로 (결제 대기)
     const estimate = await this.estimateService.updateAIStatus(
       flow.estimateId,
-      'accepted',
+      ESTIMATE_STATUS.APPROVED,
     );
 
     return {
       success: true,
-      message: 'Estimate accepted. We will contact you soon.',
+      message: 'Estimate approved. Please proceed to payment.',
       status: estimate.statusAi,
     };
   }
@@ -1392,47 +1422,31 @@ export class ChatbotService {
   async getFlowStats() {
     const [
       total,
+      // 견적 상태별 통계 (AI 견적 기준)
+      pending,
+      sent,
+      approved,
       completed,
-      byTourType,
-      byUtmSource,
-      byStep,
     ] = await Promise.all([
       this.prisma.chatbotFlow.count(),
-      this.prisma.chatbotFlow.count({ where: { isCompleted: true } }),
-      this.prisma.chatbotFlow.groupBy({
-        by: ['tourType'],
-        _count: true,
-        where: { tourType: { not: null } },
-      }),
-      this.prisma.chatbotFlow.groupBy({
-        by: ['utmSource'],
-        _count: true,
-        where: { utmSource: { not: null } },
-      }),
-      this.prisma.chatbotFlow.groupBy({
-        by: ['currentStep'],
-        _count: true,
-      }),
+      this.prisma.estimate.count({ where: { source: 'ai', statusAi: 'pending' } }),
+      this.prisma.estimate.count({ where: { source: 'ai', statusAi: 'sent' } }),
+      this.prisma.estimate.count({ where: { source: 'ai', statusAi: 'approved' } }),
+      this.prisma.estimate.count({ where: { source: 'ai', statusAi: 'completed' } }),
     ]);
 
-    const conversionRate = total > 0 ? ((completed / total) * 100).toFixed(1) : '0';
+    const successCount = approved + completed;
+    const totalProcessed = sent + approved + completed;
+    const approvalRate = totalProcessed > 0
+      ? ((successCount / totalProcessed) * 100).toFixed(1)
+      : '0';
 
     return {
-      total,
-      completed,
-      conversionRate: `${conversionRate}%`,
-      byTourType: byTourType.map((item) => ({
-        tourType: item.tourType,
-        count: item._count,
-      })),
-      byUtmSource: byUtmSource.map((item) => ({
-        utmSource: item.utmSource,
-        count: item._count,
-      })),
-      byStep: byStep.map((item) => ({
-        step: item.currentStep,
-        count: item._count,
-      })),
+      total,           // 전체 상담
+      pending,         // 검토 대기
+      sent,            // 고객 대기
+      success: successCount, // 승인 완료 (approved + completed)
+      approvalRate: `${approvalRate}%`, // 승인율
     };
   }
 
@@ -1465,13 +1479,13 @@ export class ChatbotService {
       this.prisma.estimate.count({
         where: {
           createdAt: { gte: startDate },
-          statusAi: { in: ['sent', 'accepted'] }
+          statusAi: { in: ['sent', 'approved'] }
         }
       }),
       this.prisma.estimate.count({
         where: {
           createdAt: { gte: startDate },
-          statusAi: 'accepted'
+          statusAi: 'approved'
         }
       }),
     ]);
@@ -1790,8 +1804,8 @@ export class ChatbotService {
 
   // 메시지 목록 조회
   async getMessages(sessionId: string) {
-    // 세션 존재 확인
-    await this.getFlow(sessionId);
+    // 세션 존재만 간단히 확인 (getFlow 호출 제거로 중복 쿼리 방지)
+    await this.validateSessionExists(sessionId);
 
     return this.prisma.chatbotMessage.findMany({
       where: { sessionId },
