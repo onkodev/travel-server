@@ -256,11 +256,6 @@ export class CreateEstimateDto {
   @IsString()
   validDate?: string;
 
-  @ApiPropertyOptional({ description: '결제 여부' })
-  @IsOptional()
-  @IsBoolean()
-  isPaid?: boolean;
-
   @ApiPropertyOptional({ description: '결제 금액' })
   @IsOptional()
   @IsNumber()
