@@ -1,8 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { GeoIpService } from './geoip.service';
+import { GeoIpService } from '../geoip/geoip.service';
 import { UAParser } from 'ua-parser-js';
 import { TrackPageViewDto } from './dto';
+import {
+  calculateSkip,
+  createPaginatedResponse,
+} from '../../common/dto/pagination.dto';
 
 export interface CreateVisitorSessionDto {
   fingerprint?: string;
@@ -249,7 +253,7 @@ export class VisitorService {
       startDate,
       endDate,
     } = params;
-    const skip = (page - 1) * limit;
+    const skip = calculateSkip(page, limit);
 
     const where: Record<string, unknown> = {};
 
@@ -292,15 +296,7 @@ export class VisitorService {
       this.prisma.visitorSession.count({ where }),
     ]);
 
-    return {
-      data: sessions,
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+    return createPaginatedResponse(sessions, total, page, limit);
   }
 
   /**

@@ -5,7 +5,28 @@ import {
   IsNumber,
   IsBoolean,
   IsArray,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+
+/**
+ * 이미지 정보
+ */
+export class ImageDto {
+  @ApiProperty({ description: '이미지 URL' })
+  @IsString()
+  url: string;
+
+  @ApiPropertyOptional({ description: '이미지 타입' })
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @ApiPropertyOptional({ description: '이미지 alt 텍스트' })
+  @IsOptional()
+  @IsString()
+  alt?: string;
+}
 
 /**
  * 견적 아이템 정보 (아이템 상세)
@@ -26,10 +47,12 @@ export class EstimateItemInfoDto {
   @IsString()
   descriptionEng?: string;
 
-  @ApiPropertyOptional({ description: '이미지 URL 목록', type: [String] })
+  @ApiPropertyOptional({ description: '이미지 목록', type: [ImageDto] })
   @IsOptional()
   @IsArray()
-  images?: string[];
+  @ValidateNested({ each: true })
+  @Type(() => ImageDto)
+  images?: ImageDto[];
 
   @ApiPropertyOptional({ description: '위도' })
   @IsOptional()

@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { NotificationService } from '../notification/notification.service';
@@ -9,6 +10,11 @@ import { CreateEstimateDto } from './dto/estimate-create.dto';
 import { UpdateEstimateDto } from './dto/estimate-update.dto';
 import { EstimateItemDto, ESTIMATE_STATUS } from './dto/estimate.dto';
 import { EstimateItemExtendedDto } from './dto/estimate-types.dto';
+import {
+  calculateSkip,
+  createPaginatedResponse,
+} from '../../common/dto/pagination.dto';
+import { ESTIMATE_EVENTS, EstimateSentEvent } from '../../common/events';
 
 @Injectable()
 export class EstimateService {
@@ -18,6 +24,7 @@ export class EstimateService {
     private prisma: PrismaService,
     private emailService: EmailService,
     private notificationService: NotificationService,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   // 견적 목록 조회
@@ -49,7 +56,7 @@ export class EstimateService {
       isPinned,
       upcoming,
     } = params;
-    const skip = (page - 1) * limit;
+    const skip = calculateSkip(page, limit);
 
     const where: Prisma.EstimateWhereInput = {};
 
@@ -154,15 +161,12 @@ export class EstimateService {
       this.prisma.estimate.count({ where }),
     ]);
 
-    return {
-      data: estimates.map(convertDecimalFields),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+    return createPaginatedResponse(
+      estimates.map(convertDecimalFields),
+      total,
+      page,
+      limit,
+    );
   }
 
   // 견적 상세 조회
@@ -439,6 +443,15 @@ export class EstimateService {
       this.logger.error(`Failed to send estimate notification: ${errorMessage}`);
     });
 
+    // 채팅 세션이 있으면 이벤트 발송 (ChatbotService가 수신하여 메시지 저장)
+    if (estimate.chatSessionId) {
+      const event: EstimateSentEvent = {
+        chatSessionId: estimate.chatSessionId,
+        estimateId: estimate.id,
+      };
+      this.eventEmitter.emit(ESTIMATE_EVENTS.SENT, event);
+    }
+
     return convertDecimalFields(updatedEstimate);
   }
 
@@ -629,22 +642,33 @@ export class EstimateService {
       updatedAt: _u,
       shareHash: _s,
       totalTravelers: _t, // DB generated column - 제외 필요
+      items,
+      displayOptions,
+      timeline,
+      revisionHistory: _rh,
       ...copyData
     } = original;
-    return this.prisma.estimate.create({
-      data: {
-        ...copyData,
-        title: `${original.title}_copy`,
-        shareHash: randomBytes(16).toString('hex'),
-        statusManual: 'planning',
-        isPinned: false,
-        revisionHistory: [],
-        sentAt: null,
-        respondedAt: null,
-        viewedAt: null,
-        completedAt: null,
-      } as any,
-    });
+
+    // JsonValue null 처리 헬퍼
+    const toJsonInput = (value: Prisma.JsonValue) =>
+      value === null ? Prisma.JsonNull : value;
+
+    const createData: Prisma.EstimateUncheckedCreateInput = {
+      ...copyData,
+      items: toJsonInput(items),
+      displayOptions: toJsonInput(displayOptions),
+      timeline: toJsonInput(timeline),
+      title: `${original.title}_copy`,
+      shareHash: randomBytes(16).toString('hex'),
+      statusManual: 'planning',
+      isPinned: false,
+      revisionHistory: [],
+      sentAt: null,
+      respondedAt: null,
+      viewedAt: null,
+      completedAt: null,
+    };
+    return this.prisma.estimate.create({ data: createData });
   }
 
   // 이전/다음 견적 ID 조회

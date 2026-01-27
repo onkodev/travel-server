@@ -1,6 +1,37 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsArray, IsIn } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsArray, IsIn, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/dto';
+
+/**
+ * 투어 일정 아이템
+ */
+export class TourItineraryItemDto {
+  @ApiPropertyOptional({ description: '일정 순서' })
+  @IsOptional()
+  @IsNumber()
+  order?: number;
+
+  @ApiPropertyOptional({ description: '시간' })
+  @IsOptional()
+  @IsString()
+  time?: string;
+
+  @ApiPropertyOptional({ description: '장소명' })
+  @IsOptional()
+  @IsString()
+  place?: string;
+
+  @ApiPropertyOptional({ description: '설명' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({ description: '소요 시간 (분)' })
+  @IsOptional()
+  @IsNumber()
+  duration?: number;
+}
 
 export class TourDto {
   @ApiProperty({ description: '투어 ID' })
@@ -219,10 +250,12 @@ export class UpdateTourDto {
   @IsString()
   notes?: string;
 
-  @ApiPropertyOptional({ description: '일정 목록' })
+  @ApiPropertyOptional({ description: '일정 목록', type: [TourItineraryItemDto] })
   @IsOptional()
   @IsArray()
-  itinerary?: any[];
+  @ValidateNested({ each: true })
+  @Type(() => TourItineraryItemDto)
+  itinerary?: TourItineraryItemDto[];
 
   @ApiPropertyOptional({ description: '최소 인원' })
   @IsOptional()

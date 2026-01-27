@@ -16,7 +16,7 @@ export interface EstimateItem {
   dayNumber: number;
   orderIndex: number;
   type: string;
-  itemId: number | null;
+  itemId?: number;
   isTbd: boolean;
   note?: string;
   quantity: number;
@@ -291,7 +291,7 @@ export class AiEstimateService {
         dayNumber: day,
         orderIndex: 0,
         type: 'place',
-        itemId: null,
+        itemId: undefined,
         isTbd: true,
         note: '전문가 상담 후 확정 예정',
         quantity: 1,
@@ -400,7 +400,7 @@ export class AiEstimateService {
         dayNumber: day,
         orderIndex: 0,
         type: 'place',
-        itemId: null,
+        itemId: undefined,
         isTbd: true,
         note: '전문가 상담 후 확정 예정',
         quantity: 1,

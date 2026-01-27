@@ -20,6 +20,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../../common/types';
 import { BookingService } from './booking.service';
 import { Public } from '../../common/decorators/public.decorator';
 import {
@@ -44,7 +45,7 @@ class BookingListResponseDto {
 @ApiTags('예약')
 @ApiBearerAuth('access-token')
 @UseGuards(RolesGuard)
-@Roles('admin', 'agent')
+@Roles(UserRole.ADMIN, UserRole.AGENT)
 @Controller('bookings')
 export class BookingController {
   constructor(private bookingService: BookingService) {}

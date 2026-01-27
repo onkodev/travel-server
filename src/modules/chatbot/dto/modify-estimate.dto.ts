@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsNumber, IsOptional, IsIn } from 'class-validator';
+import { EstimateItemExtendedDto } from '../../estimate/dto/estimate-types.dto';
 
 export class ModifyEstimateDto {
   @ApiProperty({
@@ -48,6 +49,6 @@ export class ModifyEstimateResponseDto {
   @ApiProperty({ description: '성공 여부' })
   success: boolean;
 
-  @ApiProperty({ description: '업데이트된 아이템 목록' })
-  items: any[];
+  @ApiProperty({ description: '업데이트된 아이템 목록', type: [EstimateItemExtendedDto] })
+  items: EstimateItemExtendedDto[];
 }

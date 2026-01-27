@@ -2,6 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
+import {
+  calculateSkip,
+  createPaginatedResponse,
+} from '../../common/dto/pagination.dto';
 
 @Injectable()
 export class PaymentService {
@@ -28,7 +32,7 @@ export class PaymentService {
       dateFrom,
       dateTo,
     } = params;
-    const skip = (page - 1) * limit;
+    const skip = calculateSkip(page, limit);
 
     const where: Prisma.PaymentWhereInput = {};
 
@@ -74,15 +78,12 @@ export class PaymentService {
       this.prisma.payment.count({ where }),
     ]);
 
-    return {
-      data: payments.map(convertDecimalFields),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+    return createPaginatedResponse(
+      payments.map(convertDecimalFields),
+      total,
+      page,
+      limit,
+    );
   }
 
   // 결제 상세 조회

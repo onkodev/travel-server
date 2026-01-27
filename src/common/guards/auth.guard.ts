@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { toUserRole, AuthenticatedUser } from '../types';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -35,8 +36,8 @@ export class AuthGuard implements CanActivate {
             const profile = await this.supabaseService.getUserProfile(user.id);
             request.user = {
               ...user,
-              role: profile?.role || 'user',
-            };
+              role: toUserRole(profile?.role),
+            } as AuthenticatedUser;
           }
         } catch {
           // Public 라우트에서는 토큰 검증 실패해도 무시
@@ -59,11 +60,11 @@ export class AuthGuard implements CanActivate {
     // 프로필에서 role 정보 가져오기
     const profile = await this.supabaseService.getUserProfile(user.id);
 
-    // 사용자 정보에 role 포함
+    // 사용자 정보에 role 포함 (타입 안전)
     request.user = {
       ...user,
-      role: profile?.role || 'user',
-    };
+      role: toUserRole(profile?.role),
+    } as AuthenticatedUser;
 
     return true;
   }

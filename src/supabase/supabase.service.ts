@@ -8,6 +8,21 @@ interface CacheEntry<T> {
   timestamp: number;
 }
 
+// 사용자 프로필 타입
+interface UserProfile {
+  id: string;
+  email: string;
+  name?: string;
+  phone?: string;
+  avatar_url?: string;
+  role?: 'user' | 'admin' | 'agent';
+  is_active?: boolean;
+  email_verified?: boolean;
+  last_login_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 @Injectable()
 export class SupabaseService {
   private authClient: SupabaseClient;
@@ -17,7 +32,7 @@ export class SupabaseService {
   // 토큰 검증 캐시
   private tokenCache: Map<string, CacheEntry<User | null>> = new Map();
   // 프로필 캐시
-  private profileCache: Map<string, CacheEntry<any>> = new Map();
+  private profileCache: Map<string, CacheEntry<UserProfile | null>> = new Map();
 
   // 캐시 TTL 설정 (보안을 위해 단축)
   private readonly TOKEN_CACHE_TTL = 1 * 60 * 1000; // 1분 (토큰 검증은 더 짧게)

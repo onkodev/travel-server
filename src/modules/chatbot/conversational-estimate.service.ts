@@ -8,7 +8,7 @@ import { normalizeImages, type ImageObject } from '../../common/utils';
 export interface EstimateItem {
   id: string;
   type: string;
-  itemId: number | null;
+  itemId?: number;
   itemName?: string;
   name?: string;
   nameEng?: string;
@@ -616,7 +616,7 @@ export class ConversationalEstimateService {
     const newItem: EstimateItem = {
       id: `tbd-${Date.now()}`,
       type: 'place',
-      itemId: null, // DB 아이템 없음
+      itemId: undefined, // DB 아이템 없음
       itemName: placeName,
       name: placeName,
       nameEng: placeName,

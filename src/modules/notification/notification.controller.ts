@@ -22,6 +22,7 @@ import {
   MarkAsReadDto,
   UnreadCountDto,
   DeleteNotificationDto,
+  DeleteNotificationsDto,
   NotificationSuccessDto,
 } from './dto/notification.dto';
 import { CurrentUser } from '../../common/decorators/user.decorator';
@@ -169,6 +170,35 @@ export class NotificationController {
 
     const agentId = 1;
     await this.notificationService.deleteNotification(agentId, dto.notificationId);
+    return { success: true };
+  }
+
+  @Post('delete-batch')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '알림 대량 삭제',
+    description: '여러 알림을 한 번에 삭제합니다.',
+  })
+  @ApiBody({ type: DeleteNotificationsDto })
+  @ApiResponse({
+    status: 200,
+    description: '알림 대량 삭제 성공',
+    type: NotificationSuccessDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: '인증 실패',
+    type: ErrorResponseDto,
+  })
+  async deleteNotifications(
+    @CurrentUser('role') role: string,
+    @Body() dto: DeleteNotificationsDto,
+  ): Promise<NotificationSuccessDto> {
+    if (role !== 'admin') {
+      return { success: false };
+    }
+
+    const agentId = 1;
+    await this.notificationService.deleteNotifications(agentId, dto.notificationIds);
     return { success: true };
   }
 }

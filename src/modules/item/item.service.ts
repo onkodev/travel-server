@@ -13,9 +13,26 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+// 아이템 목록 조회용 타입
+export interface ItemListItem {
+  id: number;
+  type: string;
+  nameKor: string | null;
+  nameEng: string | null;
+  keyword: string | null;
+  price: number;
+  weekdayPrice: number | null;
+  weekendPrice: number | null;
+  region: string | null;
+  area: string | null;
+}
+
+// 캐시 데이터 타입
+type CacheData = { data: ItemListItem[] } | unknown;
+
 @Injectable()
 export class ItemService {
-  private cache = new Map<string, CacheEntry<any>>();
+  private cache = new Map<string, CacheEntry<CacheData>>();
   private readonly CACHE_TTL = 60 * 60 * 1000; // 1시간
 
   constructor(private prisma: PrismaService) {}
@@ -177,7 +194,7 @@ export class ItemService {
   // 타입별 아이템 조회 (캐싱 적용)
   async getItemsByType(type: string) {
     const cacheKey = `items_type_${type}`;
-    const cached = this.getFromCache<{ data: any[] }>(cacheKey);
+    const cached = this.getFromCache<{ data: ItemListItem[] }>(cacheKey);
     if (cached) return cached;
 
     const items = await this.prisma.item.findMany({
@@ -204,7 +221,7 @@ export class ItemService {
   // 지역별 아이템 조회 (캐싱 적용)
   async getItemsByRegion(region: string) {
     const cacheKey = `items_region_${region}`;
-    const cached = this.getFromCache<{ data: any[] }>(cacheKey);
+    const cached = this.getFromCache<{ data: ItemListItem[] }>(cacheKey);
     if (cached) return cached;
 
     const items = await this.prisma.item.findMany({

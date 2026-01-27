@@ -66,7 +66,8 @@ export class GeoIpService {
 
       return result;
     } catch (error) {
-      this.logger.error(`GeoIP lookup error for ${ip}:`, error.message);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`GeoIP lookup error for ${ip}: ${errorMessage}`);
       return this.getEmptyData();
     }
   }
@@ -117,7 +118,8 @@ export class GeoIpService {
           }
         }
       } catch (error) {
-        this.logger.error('GeoIP batch lookup error:', error.message);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.error(`GeoIP batch lookup error: ${errorMessage}`);
         // 실패한 IP들은 빈 데이터로
         for (const ip of uncachedIps) {
           if (!results.has(ip)) {

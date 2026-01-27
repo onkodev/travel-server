@@ -3,6 +3,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
+import {
+  calculateSkip,
+  createPaginatedResponse,
+} from '../../common/dto/pagination.dto';
 
 @Injectable()
 export class BookingService {
@@ -27,7 +31,7 @@ export class BookingService {
       dateFrom,
       dateTo,
     } = params;
-    const skip = (page - 1) * limit;
+    const skip = calculateSkip(page, limit);
 
     const where: Prisma.BookingWhereInput = {};
 
@@ -68,15 +72,12 @@ export class BookingService {
       this.prisma.booking.count({ where }),
     ]);
 
-    return {
-      data: bookings.map(convertDecimalFields),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+    return createPaginatedResponse(
+      bookings.map(convertDecimalFields),
+      total,
+      page,
+      limit,
+    );
   }
 
   // 예약 상세 조회

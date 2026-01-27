@@ -20,6 +20,7 @@ import {
 import { SkipThrottle } from '@nestjs/throttler';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../../common/types';
 import { EstimateService } from './estimate.service';
 import { EstimateSchedulerService } from './estimate-scheduler.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -55,7 +56,7 @@ class EstimateListResponseDto {
 @ApiTags('견적')
 @ApiBearerAuth('access-token')
 @UseGuards(RolesGuard)
-@Roles('admin', 'agent')
+@Roles(UserRole.ADMIN, UserRole.AGENT)
 @SkipThrottle()
 @Controller('estimates')
 export class EstimateController {

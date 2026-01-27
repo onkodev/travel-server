@@ -21,6 +21,7 @@ import { GoodsService } from './goods.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { UserRole } from '../../common/types';
 import {
   GoodsDto,
   GoodsQueryDto,
@@ -28,6 +29,7 @@ import {
   UpdateGoodsDto,
   GOODS_CATEGORIES,
 } from './dto';
+import type { GoodsCategory } from './dto';
 import {
   ErrorResponseDto,
   SuccessResponseDto,
@@ -90,8 +92,8 @@ export class GoodsPublicController {
     enum: GOODS_CATEGORIES,
   })
   @ApiResponse({ status: 200, description: '조회 성공', type: [GoodsDto] })
-  async getGoodsByCategory(@Param('category') category: string) {
-    return this.goodsService.getGoodsByCategory(category as any);
+  async getGoodsByCategory(@Param('category') category: GoodsCategory) {
+    return this.goodsService.getGoodsByCategory(category);
   }
 
   @Get(':id')
@@ -117,7 +119,7 @@ export class GoodsPublicController {
 @ApiBearerAuth('access-token')
 @SkipThrottle()
 @Controller('admin/goods')
-@Roles('admin')
+@Roles(UserRole.ADMIN)
 @UseGuards(RolesGuard)
 export class GoodsAdminController {
   constructor(private goodsService: GoodsService) {}

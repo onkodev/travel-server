@@ -5,6 +5,16 @@ import {
   Logger,
 } from '@nestjs/common';
 import { SupabaseService } from '../../supabase/supabase.service';
+import {
+  SupabaseError,
+  isSupabaseError,
+  UserTourData,
+  ReviewData,
+} from '../../common/types';
+import {
+  calculateSkip,
+  createPaginatedResponse,
+} from '../../common/dto/pagination.dto';
 
 export interface UserListItem {
   id: string;
@@ -57,8 +67,10 @@ export class UserService {
   constructor(private supabaseService: SupabaseService) {}
 
   // Supabase 에러를 NestJS 예외로 변환
-  private handleSupabaseError(error: any, context: string): never {
-    this.logger.error(`${context}: ${error.message}`, error.stack);
+  private handleSupabaseError(error: SupabaseError | unknown, context: string): never {
+    const message = isSupabaseError(error) ? error.message : 'Unknown error';
+    const stack = isSupabaseError(error) ? error.stack : undefined;
+    this.logger.error(`${context}: ${message}`, stack);
     throw new InternalServerErrorException(`${context} 처리 중 오류가 발생했습니다`);
   }
 
@@ -66,7 +78,7 @@ export class UserService {
     const supabase = this.supabaseService.getAuthClient();
     const page = params.page || 1;
     const limit = params.limit || 10;
-    const offset = (page - 1) * limit;
+    const offset = calculateSkip(page, limit);
 
     let query = supabase.from('users').select('*', { count: 'exact' });
 
@@ -99,15 +111,7 @@ export class UserService {
     // camelCase로 변환
     const users = (data || []).map(this.mapUserToCamelCase);
 
-    return {
-      data: users,
-      meta: {
-        total: count || 0,
-        page,
-        limit,
-        totalPages: Math.ceil((count || 0) / limit),
-      },
-    };
+    return createPaginatedResponse(users, count || 0, page, limit);
   }
 
   async getUserStats(): Promise<UserStats> {
@@ -213,7 +217,7 @@ export class UserService {
   }
 
   // 통계 계산 헬퍼
-  private calculateStats(userTours: any[], reviews: any[]) {
+  private calculateStats(userTours: UserTourData[], reviews: ReviewData[]) {
     // 1. 여행한 도시 수 (regions 고유 개수)
     const uniqueRegionIds = new Set(
       userTours.map((ut) => ut.tours?.regionId).filter(Boolean),

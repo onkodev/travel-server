@@ -7,6 +7,7 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private sesClient: SESClient;
   private fromEmail: string;
+  private replyToEmail: string;
 
   constructor(private configService: ConfigService) {
     this.sesClient = new SESClient({
@@ -18,6 +19,8 @@ export class EmailService {
     });
     this.fromEmail =
       this.configService.get<string>('AWS_SES_FROM_EMAIL') || 'noreply@tumakr.com';
+    this.replyToEmail =
+      this.configService.get<string>('AWS_SES_REPLY_TO_EMAIL') || 'info@onedaykorea.com';
   }
 
   async sendContactReply(params: {
@@ -34,6 +37,7 @@ export class EmailService {
         Destination: {
           ToAddresses: [to],
         },
+        ReplyToAddresses: [this.replyToEmail],
         Message: {
           Subject: {
             Charset: 'UTF-8',
@@ -79,6 +83,7 @@ export class EmailService {
         Destination: {
           ToAddresses: toAddresses,
         },
+        ReplyToAddresses: [this.replyToEmail],
         Message: {
           Subject: {
             Charset: 'UTF-8',
@@ -127,6 +132,7 @@ export class EmailService {
         Destination: {
           ToAddresses: [adminEmail],
         },
+        ReplyToAddresses: [this.replyToEmail],
         Message: {
           Subject: {
             Charset: 'UTF-8',
@@ -166,6 +172,7 @@ export class EmailService {
         Destination: {
           ToAddresses: [to],
         },
+        ReplyToAddresses: [this.replyToEmail],
         Message: {
           Subject: {
             Charset: 'UTF-8',
@@ -222,6 +229,7 @@ export class EmailService {
         Destination: {
           ToAddresses: [to],
         },
+        ReplyToAddresses: [this.replyToEmail],
         Message: {
           Subject: {
             Charset: 'UTF-8',
@@ -646,7 +654,7 @@ export class EmailService {
           <tr>
             <td style="padding: 24px 40px; text-align: center; border-top: 1px solid #f1f5f9;">
               <p style="margin: 0 0 8px; color: #94a3b8; font-size: 13px;">
-                Questions? Reply to this email or contact us anytime.
+                Questions? Contact us at <a href="mailto:info@onedaykorea.com" style="color: #0ea5e9; text-decoration: none;">info@onedaykorea.com</a>
               </p>
               <p style="margin: 0; color: #cbd5e1; font-size: 12px;">
                 © ${new Date().getFullYear()} Tumakr

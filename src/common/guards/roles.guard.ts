@@ -5,18 +5,15 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { SupabaseService } from '../../supabase/supabase.service';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { UserRole, ROLE_HIERARCHY, toUserRole } from '../types';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(
-    private reflector: Reflector,
-    private supabaseService: SupabaseService,
-  ) {}
+  constructor(private reflector: Reflector) {}
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  canActivate(context: ExecutionContext): boolean {
     // @Public() 데코레이터가 있으면 접근 허용
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -27,7 +24,7 @@ export class RolesGuard implements CanActivate {
     }
 
     // @Roles() 데코레이터에서 필요한 역할 가져오기
-    const requiredRoles = this.reflector.getAllAndOverride<string[]>(
+    const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
       ROLES_KEY,
       [context.getHandler(), context.getClass()],
     );
@@ -45,15 +42,15 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('인증이 필요합니다');
     }
 
-    // 프로필에서 역할 가져오기
-    const profile = await this.supabaseService.getUserProfile(user.id);
-    const userRole = profile?.role || 'user';
+    // AuthGuard에서 이미 설정한 role 사용 (중복 DB 조회 제거)
+    const userRole = toUserRole(user.role);
+    const userRoleLevel = ROLE_HIERARCHY[userRole];
 
-    // request에 역할 정보 추가 (컨트롤러에서 사용 가능)
-    request.userRole = userRole;
-
-    // 역할 확인
-    const hasRole = requiredRoles.includes(userRole);
+    // 역할 계층 확인: 상위 역할은 하위 역할의 권한 포함
+    // 예: admin은 agent, user 권한도 가짐
+    const hasRole = requiredRoles.some(
+      (role) => userRoleLevel >= ROLE_HIERARCHY[role],
+    );
 
     if (!hasRole) {
       throw new ForbiddenException(

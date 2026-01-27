@@ -2,6 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
+import {
+  calculateSkip,
+  createPaginatedResponse,
+} from '../../common/dto/pagination.dto';
 
 @Injectable()
 export class ReviewService {
@@ -15,7 +19,7 @@ export class ReviewService {
     isVisible?: boolean;
   }) {
     const { page = 1, limit = 20, tourId, isVisible } = params;
-    const skip = (page - 1) * limit;
+    const skip = calculateSkip(page, limit);
 
     const where: Prisma.ReviewWhereInput = {};
 
@@ -40,20 +44,17 @@ export class ReviewService {
       this.prisma.review.count({ where }),
     ]);
 
-    return {
-      data: reviews.map(convertDecimalFields),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+    return createPaginatedResponse(
+      reviews.map(convertDecimalFields),
+      total,
+      page,
+      limit,
+    );
   }
 
   // 투어별 공개 리뷰 조회
   async getPublicReviewsByTour(tourId: number, page = 1, limit = 10) {
-    const skip = (page - 1) * limit;
+    const skip = calculateSkip(page, limit);
 
     const where: Prisma.ReviewWhereInput = {
       tourId,
@@ -70,15 +71,12 @@ export class ReviewService {
       this.prisma.review.count({ where }),
     ]);
 
-    return {
-      data: reviews.map(convertDecimalFields),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+    return createPaginatedResponse(
+      reviews.map(convertDecimalFields),
+      total,
+      page,
+      limit,
+    );
   }
 
   // 리뷰 상세 조회

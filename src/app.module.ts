@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { APP_GUARD } from '@nestjs/core';
 
 import { PrismaModule } from './prisma/prisma.module';
@@ -25,6 +26,7 @@ import { VisitorModule } from './modules/visitor/visitor.module';
 import { GoodsModule } from './modules/goods/goods.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { ContactModule } from './modules/contact/contact.module';
+import { GeoIpModule } from './modules/geoip/geoip.module';
 
 @Module({
   imports: [
@@ -33,6 +35,7 @@ import { ContactModule } from './modules/contact/contact.module';
       envFilePath: '.env',
     }),
     ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot(),
     // Rate Limiting: 환경에 따라 다르게 설정
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
@@ -55,6 +58,7 @@ import { ContactModule } from './modules/contact/contact.module';
     }),
     PrismaModule,
     SupabaseModule,
+    GeoIpModule,
     AuthModule,
     EstimateModule,
     ItemModule,

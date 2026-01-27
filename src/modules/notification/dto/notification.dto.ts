@@ -144,6 +144,19 @@ export class DeleteNotificationDto {
 }
 
 /**
+ * 대량 알림 삭제 요청 DTO
+ */
+export class DeleteNotificationsDto {
+  @ApiProperty({
+    type: [Number],
+    description: '삭제할 알림 ID 배열',
+    example: [1, 2, 3],
+  })
+  @IsInt({ each: true, message: '알림 ID는 정수여야 합니다' })
+  notificationIds: number[];
+}
+
+/**
  * 성공 응답 DTO
  */
 export class NotificationSuccessDto {

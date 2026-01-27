@@ -27,10 +27,10 @@ class MessageOptionDto {
 }
 
 export class SaveMessageDto {
-  @ApiProperty({ description: '메시지 역할', enum: ['bot', 'user'] })
+  @ApiProperty({ description: '메시지 역할', enum: ['bot', 'user', 'admin'] })
   @IsString()
-  @IsIn(['bot', 'user'])
-  role: 'bot' | 'user';
+  @IsIn(['bot', 'user', 'admin'])
+  role: 'bot' | 'user' | 'admin';
 
   @ApiProperty({ description: '메시지 내용' })
   @IsString()

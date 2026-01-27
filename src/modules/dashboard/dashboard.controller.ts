@@ -9,6 +9,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { DashboardService } from './dashboard.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { UserRole } from '../../common/types';
 import { DashboardDataDto } from './dto';
 import { ErrorResponseDto } from '../../common/dto';
 
@@ -16,7 +17,7 @@ import { ErrorResponseDto } from '../../common/dto';
 @ApiBearerAuth('access-token')
 @SkipThrottle()
 @Controller('dashboard')
-@Roles('admin')
+@Roles(UserRole.ADMIN)
 @UseGuards(RolesGuard)
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}

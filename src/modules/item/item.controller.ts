@@ -20,6 +20,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { ItemService } from './item.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { UserRole } from '../../common/types';
 import { ItemDto, ItemQueryDto, CreateItemDto, UpdateItemDto } from './dto';
 import {
   ErrorResponseDto,
@@ -36,7 +37,7 @@ class ItemListResponseDto {
 @ApiBearerAuth('access-token')
 @SkipThrottle()
 @Controller('items')
-@Roles('admin', 'agent')
+@Roles(UserRole.ADMIN, UserRole.AGENT)
 @UseGuards(RolesGuard)
 export class ItemController {
   constructor(private itemService: ItemService) {}

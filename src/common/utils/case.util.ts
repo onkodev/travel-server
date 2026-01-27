@@ -1,3 +1,5 @@
+import { isRecord } from '../types';
+
 /**
  * snake_case를 camelCase로 변환
  */
@@ -8,17 +10,17 @@ export function snakeToCamel(str: string): string {
 /**
  * 객체의 키를 snake_case에서 camelCase로 변환
  */
-export function toCamelCase<T>(obj: any): T {
+export function toCamelCase<T>(obj: unknown): T {
   if (obj === null || obj === undefined) {
-    return obj;
+    return obj as T;
   }
 
   if (Array.isArray(obj)) {
     return obj.map((item) => toCamelCase(item)) as T;
   }
 
-  if (typeof obj === 'object') {
-    const result: any = {};
+  if (isRecord(obj)) {
+    const result: Record<string, unknown> = {};
     for (const key in obj) {
       if (Object.prototype.hasOwnProperty.call(obj, key)) {
         const camelKey = snakeToCamel(key);
@@ -28,7 +30,7 @@ export function toCamelCase<T>(obj: any): T {
     return result as T;
   }
 
-  return obj;
+  return obj as T;
 }
 
 /**
@@ -41,17 +43,17 @@ export function camelToSnake(str: string): string {
 /**
  * 객체의 키를 camelCase에서 snake_case로 변환
  */
-export function toSnakeCase<T>(obj: any): T {
+export function toSnakeCase<T>(obj: unknown): T {
   if (obj === null || obj === undefined) {
-    return obj;
+    return obj as T;
   }
 
   if (Array.isArray(obj)) {
     return obj.map((item) => toSnakeCase(item)) as T;
   }
 
-  if (typeof obj === 'object') {
-    const result: any = {};
+  if (isRecord(obj)) {
+    const result: Record<string, unknown> = {};
     for (const key in obj) {
       if (Object.prototype.hasOwnProperty.call(obj, key)) {
         const snakeKey = camelToSnake(key);
@@ -61,5 +63,5 @@ export function toSnakeCase<T>(obj: any): T {
     return result as T;
   }
 
-  return obj;
+  return obj as T;
 }

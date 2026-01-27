@@ -19,6 +19,7 @@ import { UserService } from './user.service';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { UserRole } from '../../common/types';
 import {
   UserDetailDto,
   UserListItemDto,
@@ -42,7 +43,7 @@ export class UserController {
   constructor(private userService: UserService) {}
 
   @Get()
-  @Roles('admin')
+  @Roles(UserRole.ADMIN)
   @UseGuards(RolesGuard)
   @ApiOperation({
     summary: '사용자 목록 조회',
@@ -75,7 +76,7 @@ export class UserController {
   }
 
   @Get('stats')
-  @Roles('admin')
+  @Roles(UserRole.ADMIN)
   @UseGuards(RolesGuard)
   @ApiOperation({
     summary: '사용자 통계 조회',
@@ -130,7 +131,7 @@ export class UserController {
   }
 
   @Get(':id')
-  @Roles('admin')
+  @Roles(UserRole.ADMIN)
   @UseGuards(RolesGuard)
   @ApiOperation({
     summary: '사용자 상세 조회',
@@ -153,7 +154,7 @@ export class UserController {
   }
 
   @Patch(':id/status')
-  @Roles('admin')
+  @Roles(UserRole.ADMIN)
   @UseGuards(RolesGuard)
   @ApiOperation({
     summary: '사용자 상태 변경',
@@ -179,7 +180,7 @@ export class UserController {
   }
 
   @Patch(':id/role')
-  @Roles('admin')
+  @Roles(UserRole.ADMIN)
   @UseGuards(RolesGuard)
   @ApiOperation({
     summary: '사용자 역할 변경',

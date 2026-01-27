@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsString, MaxLength, MinLength } from 'class-validator';
+import { EstimateItemExtendedDto } from '../../estimate/dto/estimate-types.dto';
 
 export class ModifyItineraryMessageDto {
   @ApiProperty({
@@ -18,8 +19,8 @@ export class ModifyItineraryResponseDto {
   @ApiProperty({ description: 'Operation success status' })
   success: boolean;
 
-  @ApiProperty({ description: 'Updated estimate items' })
-  updatedItems: any[];
+  @ApiProperty({ description: 'Updated estimate items', type: [EstimateItemExtendedDto] })
+  updatedItems: EstimateItemExtendedDto[];
 
   @ApiProperty({ description: 'Bot response message' })
   botMessage: string;
@@ -41,8 +42,8 @@ export class RegenerateDayResponseDto {
   @ApiProperty({ description: 'Operation success status' })
   success: boolean;
 
-  @ApiProperty({ description: 'Updated estimate items' })
-  updatedItems: any[];
+  @ApiProperty({ description: 'Updated estimate items', type: [EstimateItemExtendedDto] })
+  updatedItems: EstimateItemExtendedDto[];
 
   @ApiProperty({ description: 'Bot response message' })
   botMessage: string;
@@ -86,8 +87,9 @@ export class TravelChatResponseDto {
   @ApiProperty({
     description: 'Updated estimate items (only for modification intent)',
     required: false,
+    type: [EstimateItemExtendedDto],
   })
-  updatedItems?: any[];
+  updatedItems?: EstimateItemExtendedDto[];
 
   @ApiProperty({
     description: 'Whether modification was successful (only for modification intent)',

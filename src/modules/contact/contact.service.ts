@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { EmailService } from '../email/email.service';
 import { CreateContactDto, ContactQueryDto, ContactListDto } from './dto/contact.dto';
+import { calculateSkip } from '../../common/dto/pagination.dto';
 
 @Injectable()
 export class ContactService {
@@ -69,7 +70,7 @@ export class ContactService {
 
   async getContacts(query: ContactQueryDto): Promise<ContactListDto> {
     const { page = 1, limit = 20, status } = query;
-    const skip = (page - 1) * limit;
+    const skip = calculateSkip(page, limit);
 
     const where = status ? { status } : {};
 

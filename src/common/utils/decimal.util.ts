@@ -1,3 +1,5 @@
+import { isPrismaDecimal, isRecord } from '../types';
+
 /**
  * Prisma Decimal 필드를 숫자로 변환하는 유틸리티
  * Prisma는 Decimal 타입을 문자열 또는 Decimal 객체로 반환하므로
@@ -28,15 +30,11 @@ export function convertDecimalFields<T>(obj: T): T {
   if (Array.isArray(obj)) return obj.map(convertDecimalFields) as T;
   if (typeof obj !== 'object') return obj;
 
-  const converted: any = {};
+  const converted: Record<string, unknown> = {};
   for (const key of Object.keys(obj as object)) {
-    const value = (obj as any)[key];
+    const value = (obj as Record<string, unknown>)[key];
 
-    if (
-      value !== null &&
-      typeof value === 'object' &&
-      typeof value.toNumber === 'function'
-    ) {
+    if (isPrismaDecimal(value)) {
       // Prisma Decimal object
       converted[key] = value.toNumber();
     } else if (typeof value === 'string' && DECIMAL_FIELDS.includes(key)) {
@@ -45,7 +43,7 @@ export function convertDecimalFields<T>(obj: T): T {
       converted[key] = isNaN(parsed) ? 0 : parsed;
     } else if (value instanceof Date) {
       converted[key] = value;
-    } else if (typeof value === 'object' && value !== null) {
+    } else if (isRecord(value)) {
       converted[key] = convertDecimalFields(value);
     } else {
       converted[key] = value;

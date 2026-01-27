@@ -4,9 +4,8 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
-  Inject,
-  forwardRef,
 } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 
 // UUID 형식 검증 헬퍼
 const isValidUUID = (str: string): boolean => {
@@ -16,9 +15,16 @@ const isValidUUID = (str: string): boolean => {
 import { PrismaService } from '../../prisma/prisma.service';
 import { EstimateService } from '../estimate/estimate.service';
 import { ESTIMATE_STATUS } from '../estimate/dto';
-import { GeoIpService } from '../visitor/geoip.service';
+import { GeoIpService } from '../geoip/geoip.service';
 import { AiEstimateService } from './ai-estimate.service';
 import { NotificationService } from '../notification/notification.service';
+import { EstimateItem } from '../../common/types';
+import { ESTIMATE_EVENTS } from '../../common/events';
+import type { EstimateSentEvent } from '../../common/events';
+import {
+  calculateSkip,
+  createPaginatedResponse,
+} from '../../common/dto/pagination.dto';
 import {
   TOUR_TYPES,
   INTEREST_MAIN,
@@ -50,9 +56,7 @@ export class ChatbotService {
   constructor(
     private prisma: PrismaService,
     private estimateService: EstimateService,
-    @Inject(forwardRef(() => GeoIpService))
     private geoIpService: GeoIpService,
-    @Inject(forwardRef(() => AiEstimateService))
     private aiEstimateService: AiEstimateService,
     private notificationService: NotificationService,
   ) {}
@@ -967,10 +971,10 @@ export class ChatbotService {
 
   // 견본 아이템 복제 + TBD 처리
   private prepareItemsFromTemplate(
-    templateItems: any[],
+    templateItems: EstimateItem[],
     requestedDays: number,
     templateDays: number,
-  ): any[] {
+  ): EstimateItem[] {
     if (!templateItems || templateItems.length === 0) {
       // 템플릿에 아이템이 없으면 TBD로만 채움
       return this.createTbdItems(1, requestedDays);
@@ -1002,13 +1006,13 @@ export class ChatbotService {
   }
 
   // TBD 아이템 생성
-  private createTbdItems(startDay: number, endDay: number): any[] {
-    const items: any[] = [];
+  private createTbdItems(startDay: number, endDay: number): EstimateItem[] {
+    const items: EstimateItem[] = [];
     for (let day = startDay; day <= endDay; day++) {
       items.push({
         id: `tbd-${day}`,
         type: 'tbd',
-        itemId: null,
+        itemId: undefined,
         itemName: 'To Be Determined',
         quantity: 1,
         unitPrice: 0,
@@ -1141,12 +1145,12 @@ export class ChatbotService {
     if (flow.isCompleted && flow.estimateId) {
       this.logger.log(`Flow already completed: sessionId=${sessionId}, estimateId=${flow.estimateId}`);
       const estimate = await this.estimateService.getEstimate(flow.estimateId);
-      const items = Array.isArray(estimate.items) ? estimate.items : [];
+      const items = (Array.isArray(estimate.items) ? estimate.items : []) as EstimateItem[];
       return {
         flow,
         estimate,
         templateUsed: null,
-        hasTbdDays: items.some((item: any) => item.isTbd),
+        hasTbdDays: items.some((item) => item.isTbd),
       };
     }
 
@@ -1175,7 +1179,7 @@ export class ChatbotService {
 
       // 견적 아이템 정보 보강
       const enrichedEstimate = await this.estimateService.getEstimate(estimateId);
-      const items = Array.isArray(enrichedEstimate.items) ? enrichedEstimate.items : [];
+      const items = (Array.isArray(enrichedEstimate.items) ? enrichedEstimate.items : []) as EstimateItem[];
 
       this.logger.log(`Flow completed successfully: sessionId=${sessionId}, estimateId=${estimateId}`);
 
@@ -1183,7 +1187,7 @@ export class ChatbotService {
         flow: updatedFlow,
         estimate: enrichedEstimate,
         templateUsed: null,
-        hasTbdDays: items.some((item: any) => item.isTbd),
+        hasTbdDays: items.some((item) => item.isTbd),
       };
     } catch (error) {
       this.logger.error(`Failed to complete flow: sessionId=${sessionId}`, error.stack);
@@ -1250,7 +1254,7 @@ export class ChatbotService {
       throw new BadRequestException('Estimate not found.');
     }
 
-    // 수정 요청이 있으면 revisionRequested 플래그 활성화 (상태는 sent 유지)
+    // 수정 요청이 있으면 revisionRequested 플래그 활성화 및 상태를 pending으로 변경
     if (modificationRequest) {
       const currentEstimate = await this.prisma.estimate.findUnique({
         where: { id: flow.estimateId },
@@ -1267,6 +1271,7 @@ export class ChatbotService {
           requestContent: updatedContent,
           revisionRequested: true,
           revisionNote: modificationRequest,
+          statusAi: ESTIMATE_STATUS.PENDING, // 상태를 pending으로 변경하여 관리자 검토 필요 표시
         },
       });
 
@@ -1286,7 +1291,7 @@ export class ChatbotService {
       return {
         success: true,
         message: 'Modification request submitted. Our expert will review and contact you.',
-        status: ESTIMATE_STATUS.SENT, // 상태는 sent 유지, revisionRequested 플래그로 구분
+        status: ESTIMATE_STATUS.PENDING, // 상태를 pending으로 반환
       };
     }
 
@@ -1320,7 +1325,7 @@ export class ChatbotService {
       endDate,
       utmSource,
     } = params;
-    const skip = (page - 1) * limit;
+    const skip = calculateSkip(page, limit);
 
     const where: {
       isCompleted?: boolean;
@@ -1407,15 +1412,28 @@ export class ChatbotService {
         : null,
     }));
 
-    return {
-      data: flowsWithStatus,
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+    return createPaginatedResponse(flowsWithStatus, total, page, limit);
+  }
+
+  // ============================================================================
+  // 이벤트 핸들러
+  // ============================================================================
+
+  /**
+   * 견적 발송 이벤트 핸들러
+   * EstimateService에서 견적 발송 시 호출됨
+   */
+  @OnEvent(ESTIMATE_EVENTS.SENT)
+  async handleEstimateSent(event: EstimateSentEvent) {
+    try {
+      await this.saveMessage(event.chatSessionId, {
+        role: 'bot',
+        content: `🎉 Your personalized travel quotation is ready!\n\nPlease review the details and let us know if you'd like any modifications. You can click "Request Modification" to make changes, or "Accept" to confirm your booking.`,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to save chat message for estimate ${event.estimateId}: ${errorMessage}`);
+    }
   }
 
   // 관리자용: 플로우 통계
@@ -1708,14 +1726,14 @@ export class ChatbotService {
   async saveMessage(
     sessionId: string,
     data: {
-      role: 'bot' | 'user';
+      role: 'bot' | 'user' | 'admin';
       content: string;
       messageType?: 'text' | 'options' | 'form';
       options?: Array<{ value: string; label: string; sub?: string }>;
     },
   ) {
     // 세션 존재 확인
-    await this.getFlow(sessionId);
+    const flow = await this.getFlow(sessionId);
 
     const message = await this.prisma.chatbotMessage.create({
       data: {
@@ -1741,6 +1759,28 @@ export class ChatbotService {
           data: { title },
         });
       }
+
+      // 고객이 메시지를 보냈고, 견적이 전송된 상태라면 관리자에게 알림
+      if (flow.estimateId) {
+        const estimate = await this.prisma.estimate.findUnique({
+          where: { id: flow.estimateId },
+          select: { statusAi: true, customerName: true },
+        });
+
+        // 견적이 sent 상태일 때만 알림 (전문가가 고객에게 견적을 보낸 후)
+        if (estimate?.statusAi === 'sent') {
+          try {
+            await this.notificationService.notifyCustomerMessage({
+              sessionId,
+              customerName: estimate.customerName || flow.customerName || undefined,
+              messagePreview: data.content,
+            });
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger.error(`Failed to send customer message notification: ${errorMessage}`);
+          }
+        }
+      }
     }
 
     return message;
@@ -1750,7 +1790,7 @@ export class ChatbotService {
   async saveMessagesBatch(
     sessionId: string,
     messages: Array<{
-      role: 'bot' | 'user';
+      role: 'bot' | 'user' | 'admin';
       content: string;
       messageType?: 'text' | 'options' | 'form';
       options?: Array<{ value: string; label: string; sub?: string }>;

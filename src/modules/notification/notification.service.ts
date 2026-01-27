@@ -5,6 +5,7 @@ import {
   NotificationListDto,
   NotificationQueryDto,
 } from './dto/notification.dto';
+import { calculateSkip } from '../../common/dto/pagination.dto';
 
 // 알림 타입 상수
 export const NOTIFICATION_TYPES = {
@@ -12,6 +13,7 @@ export const NOTIFICATION_TYPES = {
   PAYMENT_COMPLETED: 'payment_completed',
   MODIFICATION_REQUEST: 'modification_request',
   ESTIMATE_SENT: 'estimate_sent',
+  CUSTOMER_MESSAGE: 'customer_message',
 } as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];
@@ -25,7 +27,7 @@ export class NotificationService {
     query: NotificationQueryDto,
   ): Promise<NotificationListDto> {
     const { page = 1, limit = 20, type, unreadOnly } = query;
-    const skip = (page - 1) * limit;
+    const skip = calculateSkip(page, limit);
 
     const where: Record<string, unknown> = {
       recipientAgentId: agentId,
@@ -98,6 +100,16 @@ export class NotificationService {
         recipientAgentId: agentId,
       },
     });
+  }
+
+  async deleteNotifications(agentId: number, notificationIds: number[]): Promise<number> {
+    const result = await this.prisma.notification.deleteMany({
+      where: {
+        id: { in: notificationIds },
+        recipientAgentId: agentId,
+      },
+    });
+    return result.count;
   }
 
   async createNotification(data: {
@@ -236,6 +248,33 @@ export class NotificationService {
       metadata: {
         customerName: data.customerName,
         customerEmail: data.customerEmail,
+      },
+    });
+  }
+
+  // 고객 채팅 메시지 알림
+  async notifyCustomerMessage(data: {
+    sessionId: string;
+    customerName?: string;
+    messagePreview?: string;
+  }): Promise<void> {
+    const customerDisplay = data.customerName || '고객';
+    const preview = data.messagePreview
+      ? data.messagePreview.length > 50
+        ? data.messagePreview.slice(0, 50) + '...'
+        : data.messagePreview
+      : '';
+
+    await this.notifyAdmins({
+      type: NOTIFICATION_TYPES.CUSTOMER_MESSAGE,
+      title: '새 고객 메시지',
+      message: preview
+        ? `${customerDisplay}님: "${preview}"`
+        : `${customerDisplay}님이 메시지를 보냈습니다.`,
+      relatedSessionId: data.sessionId,
+      metadata: {
+        customerName: data.customerName,
+        messagePreview: data.messagePreview,
       },
     });
   }

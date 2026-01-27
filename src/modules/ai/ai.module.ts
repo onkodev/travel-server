@@ -14,12 +14,11 @@ import { TravelAssistantService } from './services/travel-assistant.service';
 import { TourApiService } from './tour-api.service';
 
 // Module imports
-import { EstimateModule } from '../estimate/estimate.module';
 import { ItemModule } from '../item/item.module';
 import { FileUploadModule } from '../file-upload/file-upload.module';
 
 @Module({
-  imports: [EstimateModule, ItemModule, FileUploadModule],
+  imports: [ItemModule, FileUploadModule],
   controllers: [AiController],
   providers: [
     // Core

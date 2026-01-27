@@ -6,7 +6,12 @@ import {
 } from '@nestjs/common';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { toCamelCase, toSnakeCase } from '../../common/utils/case.util';
+import { SupabaseError, isSupabaseError } from '../../common/types';
 import { CreateTourDto, UpdateTourDto } from './dto';
+import {
+  calculateSkip,
+  createPaginatedResponse,
+} from '../../common/dto/pagination.dto';
 
 @Injectable()
 export class TourService {
@@ -15,8 +20,10 @@ export class TourService {
   constructor(private supabaseService: SupabaseService) {}
 
   // Supabase 에러를 NestJS 예외로 변환
-  private handleSupabaseError(error: any, context: string): never {
-    this.logger.error(`${context}: ${error.message}`, error.stack);
+  private handleSupabaseError(error: SupabaseError | unknown, context: string): never {
+    const message = isSupabaseError(error) ? error.message : 'Unknown error';
+    const stack = isSupabaseError(error) ? error.stack : undefined;
+    this.logger.error(`${context}: ${message}`, stack);
     throw new InternalServerErrorException(`${context} 처리 중 오류가 발생했습니다`);
   }
 
@@ -47,7 +54,7 @@ export class TourService {
       regionId,
       source,
     } = params;
-    const offset = (page - 1) * limit;
+    const offset = calculateSkip(page, limit);
     const supabase = this.getClient(source);
 
     // source에 따라 다른 필드 선택
@@ -87,15 +94,12 @@ export class TourService {
       this.handleSupabaseError(error, '공개 투어 목록 조회');
     }
 
-    return {
-      data: toCamelCase(data || []),
-      meta: {
-        total: count || 0,
-        page,
-        limit,
-        totalPages: Math.ceil((count || 0) / limit),
-      },
-    };
+    return createPaginatedResponse(
+      toCamelCase<unknown[]>(data || []),
+      count || 0,
+      page,
+      limit,
+    );
   }
 
   // 투어 목록 조회 (관리자용) - admin 프로젝트 전용
@@ -106,7 +110,7 @@ export class TourService {
     search?: string;
   }) {
     const { page = 1, limit = 20, status, search } = params;
-    const offset = (page - 1) * limit;
+    const offset = calculateSkip(page, limit);
     const supabase = this.supabaseService.getAdminClient();
 
     let query = supabase
@@ -134,15 +138,12 @@ export class TourService {
       this.handleSupabaseError(error, '관리자 투어 목록 조회');
     }
 
-    return {
-      data: toCamelCase(data || []),
-      meta: {
-        total: count || 0,
-        page,
-        limit,
-        totalPages: Math.ceil((count || 0) / limit),
-      },
-    };
+    return createPaginatedResponse(
+      toCamelCase<unknown[]>(data || []),
+      count || 0,
+      page,
+      limit,
+    );
   }
 
   // 투어 상세 조회 - source에 따라 다른 스키마 사용
