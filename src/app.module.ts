@@ -46,7 +46,7 @@ import { GeoIpModule } from './modules/geoip/geoip.module';
           {
             name: 'default',
             ttl: 60000, // 60초
-            limit: isProduction ? 100 : 500, // 프로덕션: 100회, 개발: 500회
+            limit: isProduction ? 200 : 500, // 프로덕션: 200회, 개발: 500회
           },
           {
             name: 'strict',
