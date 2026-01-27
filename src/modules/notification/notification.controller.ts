@@ -25,11 +25,13 @@ import {
   DeleteNotificationsDto,
   NotificationSuccessDto,
 } from './dto/notification.dto';
+import { SkipThrottle } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { ErrorResponseDto } from '../../common/dto';
 
 @ApiTags('알림')
 @ApiBearerAuth('access-token')
+@SkipThrottle()
 @Controller('notifications')
 export class NotificationController {
   constructor(private readonly notificationService: NotificationService) {}
