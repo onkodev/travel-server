@@ -12,12 +12,14 @@ const isValidUUID = (str: string): boolean => {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   return uuidRegex.test(str);
 };
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EstimateService } from '../estimate/estimate.service';
 import { ESTIMATE_STATUS } from '../estimate/dto';
 import { GeoIpService } from '../geoip/geoip.service';
 import { AiEstimateService } from './ai-estimate.service';
 import { NotificationService } from '../notification/notification.service';
+import { EmailService } from '../email/email.service';
 import { EstimateItem } from '../../common/types';
 import { ESTIMATE_EVENTS } from '../../common/events';
 import type { EstimateSentEvent } from '../../common/events';
@@ -59,6 +61,8 @@ export class ChatbotService {
     private geoIpService: GeoIpService,
     private aiEstimateService: AiEstimateService,
     private notificationService: NotificationService,
+    private emailService: EmailService,
+    private configService: ConfigService,
   ) {}
 
   // 새 플로우 시작
@@ -1135,6 +1139,175 @@ export class ChatbotService {
     return lines.join('\n');
   }
 
+  // 채팅 폼 제출 관리자 알림 이메일 템플릿 (스크린샷 형식 - 심플 텍스트)
+  private getChatbotInquiryAdminEmailTemplate(params: {
+    customerName: string;
+    customerEmail: string;
+    customerPhone: string;
+    nationality: string;
+    ipAddress: string;
+    countryName: string;
+    country: string;
+    tourType: string;
+    needsPickup: boolean;
+    isFirstVisit: boolean;
+    travelDate: string;
+    duration: number;
+    budgetRange: string;
+    adultsCount: number;
+    childrenCount: number;
+    infantsCount: number;
+    seniorsCount: number;
+    ageRange: string;
+    interestMain: string[];
+    interestSub: string[];
+    attractions: string[];
+    region: string;
+    additionalNotes: string;
+    needsGuide: boolean;
+    hasPlan: boolean | null;
+    planDetails: string;
+    visitedProducts: string[];
+    sessionId: string;
+  }): string {
+    const p = params;
+
+    // 라벨 변환 헬퍼
+    const tourTypeLabel = p.tourType
+      ? (TOUR_TYPES[p.tourType as keyof typeof TOUR_TYPES]?.label || p.tourType)
+      : '-';
+    const regionLabel = p.region
+      ? (REGIONS[p.region as keyof typeof REGIONS]?.label || p.region)
+      : '-';
+    const interestMainLabels = (p.interestMain || [])
+      .map((v) => INTEREST_MAIN[v as keyof typeof INTEREST_MAIN]?.label || v);
+    const interestSubLabels = (p.interestSub || [])
+      .map((v) => INTEREST_SUB[v as keyof typeof INTEREST_SUB]?.label || v);
+    const attractionLabels = (p.attractions || [])
+      .map((v) => ATTRACTIONS[v as keyof typeof ATTRACTIONS]?.label || v);
+    const budgetLabel = p.budgetRange
+      ? (BUDGET_RANGES[p.budgetRange as keyof typeof BUDGET_RANGES]?.label || p.budgetRange)
+      : '-';
+    const ageRangeLabel = p.ageRange
+      ? (AGE_RANGES[p.ageRange as keyof typeof AGE_RANGES]?.label || p.ageRange)
+      : '-';
+
+    // 인원 요약
+    const groupParts: string[] = [];
+    if (p.adultsCount) groupParts.push(`${p.adultsCount} Adult(s)`);
+    if (p.childrenCount) groupParts.push(`${p.childrenCount} Child(ren)`);
+    if (p.infantsCount) groupParts.push(`${p.infantsCount} Infant(s)`);
+    if (p.seniorsCount) groupParts.push(`${p.seniorsCount} Senior(s)`);
+    const groupSummary = groupParts.length > 0 ? groupParts.join(', ') : '-';
+
+    // 여행일
+    const travelDateStr = p.travelDate || '-';
+
+    // Duration 포맷
+    const durationStr = p.duration ? `${p.duration}D${p.duration - 1}N` : '-';
+
+    // IP 정보
+    const ipInfo = p.ipAddress
+      ? `${p.ipAddress}${p.countryName ? ` (${p.countryName} / ${p.country})` : ''}`
+      : '-';
+
+    // 관심사 통합
+    const allInterests = [...interestMainLabels, ...interestSubLabels];
+
+    // 방문 상품
+    const visitedStr = (p.visitedProducts || []).length > 0
+      ? p.visitedProducts.join(', ')
+      : '';
+
+    const l = (label: string, value: string) =>
+      `<tr><td style="padding:4px 12px 4px 0;color:#888;white-space:nowrap;vertical-align:top;">${label}</td><td style="padding:4px 0;color:#222;">${value}</td></tr>`;
+
+    const section = (title: string) =>
+      `<tr><td colspan="2" style="padding:16px 0 6px;font-size:12px;font-weight:600;color:#f97316;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #eee;">${title}</td></tr>`;
+
+    const rows: string[] = [];
+
+    // Customer Info
+    rows.push(section('Customer Info'));
+    rows.push(l('Name', p.customerName));
+    rows.push(l('E-Mail', `<a href="mailto:${p.customerEmail}" style="color:#0ea5e9;text-decoration:none;">${p.customerEmail}</a>`));
+    if (p.customerPhone && p.customerPhone !== '-') rows.push(l('Phone', p.customerPhone));
+    rows.push(l('Nationality', p.nationality || '-'));
+    rows.push(l('IP', ipInfo));
+
+    // Tour Details
+    rows.push(section('Tour Details'));
+    rows.push(l('Looking for', tourTypeLabel));
+    rows.push(l('First Time in Korea', p.isFirstVisit ? 'Yes' : p.isFirstVisit === false ? 'No' : '-'));
+    rows.push(l('Tour Date', travelDateStr));
+    rows.push(l('Duration', durationStr));
+    rows.push(l('Price Range', budgetLabel));
+
+    // Group
+    rows.push(section('Group'));
+    rows.push(l('Travelers', groupSummary));
+
+    // Services
+    rows.push(section('Services'));
+    rows.push(l('Airport Transfer', p.needsPickup ? 'Yes' : 'No'));
+    if (p.needsGuide !== null && p.needsGuide !== undefined) {
+      rows.push(l('Guide', p.needsGuide ? 'Yes' : 'No'));
+    }
+
+    // Interests & Locations
+    if (allInterests.length > 0 || attractionLabels.length > 0 || p.region) {
+      rows.push(section('Interests & Locations'));
+      if (allInterests.length > 0) rows.push(l('Interested in', allInterests.join(', ')));
+      if (p.region) rows.push(l('Region', regionLabel));
+    }
+
+    // Plan
+    if (p.hasPlan !== null && p.hasPlan !== undefined) {
+      rows.push(section('Plan'));
+      rows.push(l('Has Plan', p.hasPlan ? 'Yes' : 'No'));
+      if (p.planDetails) rows.push(l('Details', p.planDetails));
+    }
+
+    // Additional Notes
+    if (p.additionalNotes) {
+      rows.push(section('Additional Notes'));
+      rows.push(`<tr><td colspan="2" style="padding:6px 0;color:#222;">${p.additionalNotes}</td></tr>`);
+    }
+
+    // Visited Products
+    if (visitedStr) {
+      rows.push(section('Visited Products'));
+      rows.push(`<tr><td colspan="2" style="padding:6px 0;color:#222;">${visitedStr}</td></tr>`);
+    }
+
+    const adminUrl = this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
+
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f5f5f5;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+        <tr><td style="background:#f97316;padding:16px 24px;">
+          <span style="color:#fff;font-size:16px;font-weight:600;">New Chat Inquiry</span>
+          <span style="color:rgba(255,255,255,0.8);font-size:13px;float:right;">${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</span>
+        </td></tr>
+        <tr><td style="padding:8px 24px 24px;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;line-height:1.6;">
+            ${rows.join('\n            ')}
+          </table>
+        </td></tr>
+        <tr><td style="padding:0 24px 24px;" align="center">
+          <a href="${adminUrl}/admin/chatbot/${p.sessionId}" style="display:inline-block;background:#0ea5e9;color:#fff;text-decoration:none;padding:10px 28px;border-radius:6px;font-size:14px;font-weight:600;">관리자 페이지에서 확인</a>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`.trim();
+  }
+
   // 플로우 완료 및 견적 생성 (AI 기반)
   async completeFlow(sessionId: string, userId?: string) {
     this.logger.log(`Completing flow: sessionId=${sessionId}, userId=${userId || 'anonymous'}`);
@@ -1217,6 +1390,91 @@ export class ChatbotService {
     } catch (error) {
       this.logger.error(`Failed to send notification: ${error.message}`);
       // 알림 실패해도 요청은 성공으로 처리
+    }
+
+    // 이메일 알림 발송
+    try {
+      // 방문자 브라우징 기록 조회
+      let visitedProducts: string[] = [];
+      if (flow.visitorId) {
+        try {
+          const visitorSession = await this.prisma.visitorSession.findUnique({
+            where: { id: flow.visitorId },
+            include: {
+              pageViews: {
+                orderBy: { createdAt: 'asc' },
+                select: { path: true, title: true },
+              },
+            },
+          });
+          if (visitorSession?.pageViews) {
+            visitedProducts = visitorSession.pageViews
+              .filter((pv) => pv.title && pv.path?.startsWith('/tour'))
+              .map((pv) => pv.title!);
+          }
+        } catch (err) {
+          this.logger.warn(`Failed to fetch visitor browsing history: ${err.message}`);
+        }
+      }
+
+      // 1) 관리자에게 새 상담 요청 알림 이메일
+      const adminEmail = this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL')
+        || this.configService.get<string>('ADMIN_EMAIL')
+        || 'admin@tumakr.com';
+
+      const travelDateStr = flow.travelDate
+        ? new Date(flow.travelDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+        : '';
+
+      await this.emailService.sendEmail({
+        to: adminEmail,
+        subject: `[New Inquiry] ${flow.customerName || 'Customer'} - ${flow.tourType || 'Tour'} Request`,
+        html: this.getChatbotInquiryAdminEmailTemplate({
+          customerName: flow.customerName ?? '-',
+          customerEmail: flow.customerEmail ?? '-',
+          customerPhone: flow.customerPhone ?? '-',
+          nationality: flow.nationality ?? '-',
+          ipAddress: flow.ipAddress ?? '-',
+          countryName: flow.countryName ?? '',
+          country: flow.country ?? '',
+          tourType: flow.tourType ?? '',
+          needsPickup: flow.needsPickup ?? false,
+          isFirstVisit: flow.isFirstVisit ?? false,
+          travelDate: travelDateStr,
+          duration: flow.duration ?? 0,
+          budgetRange: flow.budgetRange ?? '',
+          adultsCount: flow.adultsCount ?? 0,
+          childrenCount: flow.childrenCount ?? 0,
+          infantsCount: flow.infantsCount ?? 0,
+          seniorsCount: flow.seniorsCount ?? 0,
+          ageRange: flow.ageRange ?? '',
+          interestMain: flow.interestMain ?? [],
+          interestSub: flow.interestSub ?? [],
+          attractions: flow.attractions ?? [],
+          region: flow.region ?? '',
+          additionalNotes: flow.additionalNotes ?? '',
+          needsGuide: flow.needsGuide ?? false,
+          hasPlan: flow.hasPlan ?? null,
+          planDetails: flow.planDetails ?? '',
+          visitedProducts,
+          sessionId,
+        }),
+      });
+      this.logger.log(`Admin email sent for session: ${sessionId}`);
+
+      // 2) 고객에게 접수 확인 이메일
+      if (flow.customerEmail) {
+        const surveySummary = this.buildSurveySummary(flow as Parameters<ChatbotService['buildSurveySummary']>[0]);
+        await this.emailService.sendContactConfirmation({
+          to: flow.customerEmail,
+          customerName: flow.customerName || 'Customer',
+          message: surveySummary,
+        });
+        this.logger.log(`Confirmation email sent to customer: ${flow.customerEmail}`);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to send email notification: ${error.message}`);
+      // 이메일 실패해도 요청은 성공으로 처리
     }
 
     // 견적이 있으면 상태 업데이트
