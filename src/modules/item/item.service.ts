@@ -116,6 +116,14 @@ export class ItemService {
     return convertDecimalFields(item);
   }
 
+  // 여러 아이템 한번에 조회
+  async getItemsByIds(ids: number[]) {
+    const items = await this.prisma.item.findMany({
+      where: { id: { in: ids } },
+    });
+    return items.map(convertDecimalFields);
+  }
+
   // 아이템 생성
   async createItem(data: Prisma.ItemCreateInput) {
     const item = await this.prisma.item.create({ data });

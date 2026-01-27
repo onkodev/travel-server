@@ -62,6 +62,16 @@ export class ItemController {
     });
   }
 
+  @Post('batch')
+  @ApiOperation({
+    summary: '아이템 배치 조회',
+    description: '여러 아이템을 ID 목록으로 한번에 조회합니다.',
+  })
+  @ApiResponse({ status: 200, description: '조회 성공', type: [ItemDto] })
+  async getItemsByIds(@Body() body: { ids: number[] }) {
+    return this.itemService.getItemsByIds(body.ids);
+  }
+
   @Get('type/:type')
   @ApiOperation({
     summary: '타입별 아이템 조회',
