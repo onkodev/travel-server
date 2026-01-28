@@ -22,6 +22,7 @@ import {
   GoogleCallbackDto,
   RefreshTokenDto,
   ResendVerificationDto,
+  MagicLinkDto,
   AuthResponseDto,
   UserDto,
   GoogleOAuthUrlResponseDto,
@@ -184,6 +185,26 @@ export class AuthController {
   })
   async handleGoogleCallback(@Body() body: GoogleCallbackDto) {
     return this.authService.handleGoogleCallback(body.code);
+  }
+
+  @Public()
+  @Post('magic-link')
+  @ApiOperation({
+    summary: '매직링크 로그인',
+    description: '이메일로 매직링크를 발송하여 비밀번호 없이 로그인합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '매직링크 발송 성공',
+    type: SuccessMessageResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: '잘못된 요청',
+    type: ErrorResponseDto,
+  })
+  async sendMagicLink(@Body() body: MagicLinkDto) {
+    return this.authService.sendMagicLink(body.email, body.redirectTo);
   }
 
   @Public()

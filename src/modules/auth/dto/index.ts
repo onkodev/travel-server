@@ -5,3 +5,4 @@ export * from './password.dto';
 export * from './google.dto';
 export * from './token.dto';
 export * from './auth-response.dto';
+export * from './magic-link.dto';

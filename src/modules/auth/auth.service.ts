@@ -97,6 +97,25 @@ export class AuthService {
     };
   }
 
+  // 매직링크 로그인
+  async sendMagicLink(email: string, redirectTo?: string) {
+    const anonClient = this.supabaseService.getAuthAnonClient();
+
+    const { error } = await anonClient.auth.signInWithOtp({
+      email,
+      options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
+    });
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return {
+      success: true,
+      message: '매직링크가 이메일로 발송되었습니다.',
+    };
+  }
+
   // 로그아웃
   async signOut(token: string) {
     try {
