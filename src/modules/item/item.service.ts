@@ -219,6 +219,8 @@ export class ItemService {
         weekendPrice: true,
         region: true,
         area: true,
+        lat: true,
+        lng: true,
       },
     });
     const result = { data: items.map(convertDecimalFields) };
@@ -246,6 +248,8 @@ export class ItemService {
         weekendPrice: true,
         region: true,
         area: true,
+        lat: true,
+        lng: true,
       },
     });
     const result = { data: items.map(convertDecimalFields) };
