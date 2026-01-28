@@ -8,9 +8,10 @@ import { EstimateModule } from '../estimate/estimate.module';
 import { NotificationModule } from '../notification/notification.module';
 import { AiModule } from '../ai/ai.module';
 import { ItemModule } from '../item/item.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
-  imports: [EstimateModule, NotificationModule, AiModule, ItemModule],
+  imports: [EstimateModule, NotificationModule, AiModule, ItemModule, EmailModule],
   controllers: [ChatbotController],
   providers: [ChatbotService, ChatbotAnalyticsService, AiEstimateService, ConversationalEstimateService],
   exports: [ChatbotService, ChatbotAnalyticsService, AiEstimateService, ConversationalEstimateService],
