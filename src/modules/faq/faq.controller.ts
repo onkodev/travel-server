@@ -10,7 +10,7 @@ import {
   UseGuards,
   ParseIntPipe,
 } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import {
   ApiTags,
   ApiOperation,
@@ -37,6 +37,7 @@ import {
 @ApiBearerAuth('access-token')
 @UseGuards(RolesGuard)
 @Roles(UserRole.ADMIN, UserRole.AGENT)
+@SkipThrottle()
 @Controller('faq')
 export class FaqController {
   constructor(private faqService: FaqService) {}

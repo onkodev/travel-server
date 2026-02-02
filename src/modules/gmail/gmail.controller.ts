@@ -12,6 +12,7 @@ import {
   ApiOperation,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/types';
@@ -22,6 +23,7 @@ import { BatchSyncDto, ThreadQueryDto } from './dto';
 @ApiBearerAuth('access-token')
 @UseGuards(RolesGuard)
 @Roles(UserRole.ADMIN)
+@SkipThrottle()
 @Controller('gmail/admin')
 export class GmailController {
   constructor(private gmailSyncService: GmailSyncService) {}
