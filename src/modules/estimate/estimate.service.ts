@@ -16,9 +16,29 @@ import {
 } from '../../common/dto/pagination.dto';
 import { ESTIMATE_EVENTS, EstimateSentEvent } from '../../common/events';
 
+// Item 캐시 타입 (Prisma 타입과 호환)
+interface ItemCacheEntry {
+  data: Map<number, ItemInfo>;
+  expiresAt: number;
+}
+
+interface ItemInfo {
+  id: number;
+  nameKor: string | null;
+  nameEng: string | null;
+  descriptionEng: string | null;
+  images: Prisma.JsonValue;
+  lat: Prisma.Decimal | null;
+  lng: Prisma.Decimal | null;
+  addressEnglish: string | null;
+}
+
 @Injectable()
 export class EstimateService {
   private readonly logger = new Logger(EstimateService.name);
+  // Item 정보 캐시 (enrichEstimateItems용)
+  private itemCache: ItemCacheEntry | null = null;
+  private readonly ITEM_CACHE_TTL = 30 * 60 * 1000; // 30분
 
   constructor(
     private prisma: PrismaService,
@@ -26,6 +46,28 @@ export class EstimateService {
     private notificationService: NotificationService,
     private eventEmitter: EventEmitter2,
   ) {}
+
+  // Item 캐시에서 가져오기 (만료되면 null)
+  private getItemFromCache(itemId: number): ItemInfo | null {
+    if (!this.itemCache || Date.now() > this.itemCache.expiresAt) {
+      this.itemCache = null;
+      return null;
+    }
+    return this.itemCache.data.get(itemId) || null;
+  }
+
+  // Item 캐시에 추가
+  private addItemsToCache(items: ItemInfo[]): void {
+    if (!this.itemCache || Date.now() > this.itemCache.expiresAt) {
+      this.itemCache = {
+        data: new Map(),
+        expiresAt: Date.now() + this.ITEM_CACHE_TTL,
+      };
+    }
+    for (const item of items) {
+      this.itemCache.data.set(item.id, item);
+    }
+  }
 
   // 견적 목록 조회
   async getEstimates(params: {
@@ -196,7 +238,7 @@ export class EstimateService {
     }).filter((url): url is string => Boolean(url));
   }
 
-  // 아이템 정보 보강 헬퍼
+  // 아이템 정보 보강 헬퍼 (캐싱 적용)
   private async enrichEstimateItems(estimate: Estimate) {
     const items = estimate.items as unknown as EstimateItemExtendedDto[];
     if (!items || items.length === 0) return estimate;
@@ -216,22 +258,41 @@ export class EstimateService {
     )];
     if (itemIds.length === 0) return estimate;
 
-    const itemRecords = await this.prisma.item.findMany({
-      where: { id: { in: itemIds } },
-      select: {
-        id: true,
-        nameKor: true,
-        nameEng: true,
-        descriptionEng: true,
-        images: true,
-        lat: true,
-        lng: true,
-        addressEnglish: true,
-      },
-    });
+    // 캐시에서 먼저 찾기
+    const itemMap = new Map<number, ItemInfo>();
+    const uncachedIds: number[] = [];
 
-    // itemId -> Item 매핑
-    const itemMap = new Map(itemRecords.map((item) => [item.id, item]));
+    for (const id of itemIds) {
+      const cached = this.getItemFromCache(id);
+      if (cached) {
+        itemMap.set(id, cached);
+      } else {
+        uncachedIds.push(id);
+      }
+    }
+
+    // 캐시에 없는 것만 DB 조회
+    if (uncachedIds.length > 0) {
+      const itemRecords = await this.prisma.item.findMany({
+        where: { id: { in: uncachedIds } },
+        select: {
+          id: true,
+          nameKor: true,
+          nameEng: true,
+          descriptionEng: true,
+          images: true,
+          lat: true,
+          lng: true,
+          addressEnglish: true,
+        },
+      });
+
+      // 캐시에 추가하고 맵에도 추가
+      this.addItemsToCache(itemRecords);
+      for (const item of itemRecords) {
+        itemMap.set(item.id, item);
+      }
+    }
 
     // 아이템 정보 보강 + 이미지 포맷 정규화
     const enrichedItems = items.map((item) => {

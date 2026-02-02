@@ -13,11 +13,44 @@ import {
   createPaginatedResponse,
 } from '../../common/dto/pagination.dto';
 
+// 인메모리 캐시 (TTL 지원)
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
 @Injectable()
 export class TourService {
   private readonly logger = new Logger(TourService.name);
+  private cache = new Map<string, CacheEntry<unknown>>();
+  private readonly CACHE_TTL = 10 * 60 * 1000; // 10분
+  private readonly STATIC_CACHE_TTL = 60 * 60 * 1000; // 1시간 (카테고리, 태그)
 
   constructor(private supabaseService: SupabaseService) {}
+
+  // 캐시에서 가져오기 (만료되면 null 반환)
+  private getFromCache<T>(key: string): T | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return null;
+    }
+    return entry.data as T;
+  }
+
+  // 캐시에 저장
+  private setCache<T>(key: string, data: T, ttl?: number): void {
+    this.cache.set(key, {
+      data,
+      expiresAt: Date.now() + (ttl || this.CACHE_TTL),
+    });
+  }
+
+  // 캐시 무효화 (투어 생성/수정/삭제 시 호출)
+  private invalidateCache(): void {
+    this.cache.clear();
+  }
 
   // Supabase 에러를 NestJS 예외로 변환
   private handleSupabaseError(error: SupabaseError | unknown, context: string): never {
@@ -54,19 +87,35 @@ export class TourService {
       regionId,
       source,
     } = params;
+
+    // 캐시 키 생성 (검색어가 없는 경우만 캐싱)
+    const cacheKey = !search
+      ? `public_tours_${source || 'admin'}_${page}_${limit}_${category || ''}_${regionId || ''}_${(tags || []).join(',')}`
+      : null;
+
+    if (cacheKey) {
+      const cached = this.getFromCache<ReturnType<typeof createPaginatedResponse>>(cacheKey);
+      if (cached) return cached;
+    }
+
     const offset = calculateSkip(page, limit);
     const supabase = this.getClient(source);
 
-    // source에 따라 다른 필드 선택
+    // source에 따라 다른 필드 선택 (* 로 전체 조회해서 디버깅)
     const selectFields =
       source === 'auth'
-        ? 'id, title, title_i18n, thumbnail_url, duration_minutes, price, currency, tags, region_id, review_count, average_rating'
+        ? '*'
         : 'id, title, thumbnail_url, duration_minutes, price, currency, category, tags, review_count, average_rating';
 
     let query = supabase
       .from('tours')
       .select(selectFields, { count: 'exact' })
       .eq('status', 'published');
+
+    // tumakrguide(auth)는 삭제되지 않은 투어만 조회
+    if (source === 'auth') {
+      query = query.eq('delete_yn', false);
+    }
 
     if (category && source !== 'auth') {
       query = query.eq('category', category);
@@ -94,12 +143,19 @@ export class TourService {
       this.handleSupabaseError(error, '공개 투어 목록 조회');
     }
 
-    return createPaginatedResponse(
+    const result = createPaginatedResponse(
       toCamelCase<unknown[]>(data || []),
       count || 0,
       page,
       limit,
     );
+
+    // 검색어가 없는 경우만 캐싱
+    if (cacheKey) {
+      this.setCache(cacheKey, result);
+    }
+
+    return result;
   }
 
   // 투어 목록 조회 (관리자용) - admin 프로젝트 전용
@@ -148,6 +204,10 @@ export class TourService {
 
   // 투어 상세 조회 - source에 따라 다른 스키마 사용
   async getTour(id: number, source?: string) {
+    const cacheKey = `tour_${id}_${source || 'admin'}`;
+    const cached = this.getFromCache<unknown>(cacheKey);
+    if (cached) return cached;
+
     const supabase = this.getClient(source);
 
     // 둘 다 전체 필드 조회 (스키마가 다르므로 * 사용)
@@ -174,7 +234,9 @@ export class TourService {
         }
       });
 
-    return toCamelCase(tour);
+    const result = toCamelCase(tour);
+    this.setCache(cacheKey, result);
+    return result;
   }
 
   // 투어 생성 - admin 프로젝트 전용
@@ -192,6 +254,7 @@ export class TourService {
       this.handleSupabaseError(error, '투어 생성');
     }
 
+    this.invalidateCache();
     return toCamelCase(tour);
   }
 
@@ -248,6 +311,7 @@ export class TourService {
       this.handleSupabaseError(error, '투어 수정');
     }
 
+    this.invalidateCache();
     return toCamelCase(tour);
   }
 
@@ -261,11 +325,16 @@ export class TourService {
       this.handleSupabaseError(error, '투어 삭제');
     }
 
+    this.invalidateCache();
     return { success: true };
   }
 
-  // 카테고리 목록 조회 - admin 프로젝트 전용
+  // 카테고리 목록 조회 - admin 프로젝트 전용 (1시간 캐싱)
   async getCategories() {
+    const cacheKey = 'tour_categories';
+    const cached = this.getFromCache<string[]>(cacheKey);
+    if (cached) return cached;
+
     const supabase = this.supabaseService.getAdminClient();
 
     const { data, error } = await supabase
@@ -278,11 +347,16 @@ export class TourService {
     }
 
     const categories = [...new Set((data || []).map((t) => t.category))];
+    this.setCache(cacheKey, categories, this.STATIC_CACHE_TTL);
     return categories;
   }
 
-  // 태그 목록 조회
+  // 태그 목록 조회 (1시간 캐싱)
   async getTags() {
+    const cacheKey = 'tour_tags';
+    const cached = this.getFromCache<string[]>(cacheKey);
+    if (cached) return cached;
+
     const supabase = this.supabaseService.getAdminClient();
 
     const { data, error } = await supabase
@@ -295,6 +369,8 @@ export class TourService {
     }
 
     const allTags = (data || []).flatMap((t) => t.tags || []);
-    return [...new Set(allTags)];
+    const result = [...new Set(allTags)];
+    this.setCache(cacheKey, result, this.STATIC_CACHE_TTL);
+    return result;
   }
 }

@@ -66,7 +66,7 @@ export class BookingService {
         take: limit,
         include: {
           tour: { select: { title: true, thumbnailUrl: true } },
-          payments: true,
+          // payments 제외 - 목록에서 불필요, 상세 조회에서만 로드
         },
       }),
       this.prisma.booking.count({ where }),
@@ -85,9 +85,36 @@ export class BookingService {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
       include: {
-        tour: true,
-        payments: true,
-        reviews: true,
+        tour: {
+          select: {
+            id: true,
+            title: true,
+            thumbnailUrl: true,
+            price: true,
+            currency: true,
+            durationMinutes: true,
+            meetingPoint: true,
+          },
+        },
+        payments: {
+          select: {
+            id: true,
+            amount: true,
+            currency: true,
+            status: true,
+            paymentMethod: true,
+            paidAt: true,
+            createdAt: true,
+          },
+        },
+        reviews: {
+          select: {
+            id: true,
+            rating: true,
+            content: true,
+            createdAt: true,
+          },
+        },
       },
     });
 
