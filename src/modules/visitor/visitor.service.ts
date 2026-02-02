@@ -300,7 +300,7 @@ export class VisitorService {
   }
 
   /**
-   * 방문자 통계
+   * 방문자 통계 (Raw SQL로 최적화 - 3개 쿼리로 통합)
    */
   async getStats() {
     const today = new Date();
@@ -309,54 +309,58 @@ export class VisitorService {
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const [
-      totalSessions,
-      todaySessions,
-      weekSessions,
-      withChatbot,
-      withEstimate,
-      byCountry,
-      byDevice,
-      byUtmSource,
-    ] = await Promise.all([
-      this.prisma.visitorSession.count(),
-      this.prisma.visitorSession.count({
-        where: { createdAt: { gte: today } },
-      }),
-      this.prisma.visitorSession.count({
-        where: { createdAt: { gte: sevenDaysAgo } },
-      }),
-      this.prisma.visitorSession.count({
-        where: { hasChatbot: true },
-      }),
-      this.prisma.visitorSession.count({
-        where: { hasEstimate: true },
-      }),
-      this.prisma.visitorSession.groupBy({
-        by: ['country'],
-        _count: true,
-        where: { country: { not: null } },
-        orderBy: { _count: { country: 'desc' } },
-        take: 10,
-      }),
-      this.prisma.visitorSession.groupBy({
-        by: ['deviceType'],
-        _count: true,
-        where: { deviceType: { not: null } },
-      }),
-      this.prisma.visitorSession.groupBy({
-        by: ['utmSource'],
-        _count: true,
-        where: { utmSource: { not: null } },
-        orderBy: { _count: { utmSource: 'desc' } },
-        take: 10,
-      }),
+    // 1. 기본 통계를 단일 쿼리로 조회
+    const baseStats = await this.prisma.$queryRaw<[{
+      total: bigint;
+      today: bigint;
+      this_week: bigint;
+      with_chatbot: bigint;
+      with_estimate: bigint;
+    }]>`
+      SELECT
+        COUNT(*) as total,
+        COUNT(CASE WHEN created_at >= ${today} THEN 1 END) as today,
+        COUNT(CASE WHEN created_at >= ${sevenDaysAgo} THEN 1 END) as this_week,
+        COUNT(CASE WHEN has_chatbot = true THEN 1 END) as with_chatbot,
+        COUNT(CASE WHEN has_estimate = true THEN 1 END) as with_estimate
+      FROM visitor_sessions
+    `;
+
+    // 2. 그룹별 통계는 병렬로 조회 (각 그룹은 별도 인덱스 사용)
+    const [byCountry, byDevice, byUtmSource] = await Promise.all([
+      this.prisma.$queryRaw<{ country: string; count: bigint }[]>`
+        SELECT country, COUNT(*) as count
+        FROM visitor_sessions
+        WHERE country IS NOT NULL
+        GROUP BY country
+        ORDER BY count DESC
+        LIMIT 10
+      `,
+      this.prisma.$queryRaw<{ device_type: string; count: bigint }[]>`
+        SELECT device_type, COUNT(*) as count
+        FROM visitor_sessions
+        WHERE device_type IS NOT NULL
+        GROUP BY device_type
+      `,
+      this.prisma.$queryRaw<{ utm_source: string; count: bigint }[]>`
+        SELECT utm_source, COUNT(*) as count
+        FROM visitor_sessions
+        WHERE utm_source IS NOT NULL
+        GROUP BY utm_source
+        ORDER BY count DESC
+        LIMIT 10
+      `,
     ]);
+
+    const stats = baseStats[0];
+    const totalSessions = Number(stats.total);
+    const withChatbot = Number(stats.with_chatbot);
+    const withEstimate = Number(stats.with_estimate);
 
     return {
       total: totalSessions,
-      today: todaySessions,
-      thisWeek: weekSessions,
+      today: Number(stats.today),
+      thisWeek: Number(stats.this_week),
       conversions: {
         chatbot: withChatbot,
         chatbotRate: totalSessions > 0 ? ((withChatbot / totalSessions) * 100).toFixed(1) + '%' : '0%',
@@ -365,15 +369,15 @@ export class VisitorService {
       },
       byCountry: byCountry.map(item => ({
         country: item.country,
-        count: item._count,
+        count: Number(item.count),
       })),
       byDevice: byDevice.map(item => ({
-        device: item.deviceType,
-        count: item._count,
+        device: item.device_type,
+        count: Number(item.count),
       })),
       byUtmSource: byUtmSource.map(item => ({
-        source: item.utmSource,
-        count: item._count,
+        source: item.utm_source,
+        count: Number(item.count),
       })),
     };
   }
