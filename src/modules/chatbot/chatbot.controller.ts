@@ -9,6 +9,7 @@ import {
   Query,
   Req,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -154,6 +155,8 @@ export class ChatbotController {
   @ApiQuery({ name: 'startDate', required: false, description: '시작일 필터' })
   @ApiQuery({ name: 'endDate', required: false, description: '종료일 필터' })
   @ApiQuery({ name: 'utmSource', required: false, description: 'UTM 소스 필터' })
+  @ApiQuery({ name: 'sortColumn', required: false, description: '정렬 컬럼' })
+  @ApiQuery({ name: 'sortDirection', required: false, description: '정렬 방향 (asc/desc)' })
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getFlows(
     @Query('page') page?: string,
@@ -162,6 +165,8 @@ export class ChatbotController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('utmSource') utmSource?: string,
+    @Query('sortColumn') sortColumn?: string,
+    @Query('sortDirection') sortDirection?: string,
   ) {
     return this.chatbotService.getFlows({
       page: page ? parseInt(page) : undefined,
@@ -170,6 +175,8 @@ export class ChatbotController {
       startDate,
       endDate,
       utmSource,
+      sortColumn,
+      sortDirection,
     });
   }
 
@@ -241,6 +248,42 @@ export class ChatbotController {
   @ApiResponse({ status: 404, description: '플로우 없음', type: ErrorResponseDto })
   async getFlowAdmin(@Param('sessionId') sessionId: string) {
     return this.chatbotService.getFlow(sessionId, true);
+  }
+
+  @Post('admin/bulk-delete')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard)
+  @SkipThrottle()
+  @ApiOperation({
+    summary: '일괄 삭제 (관리자)',
+    description: '여러 챗봇 플로우를 일괄 삭제합니다.',
+  })
+  @ApiResponse({ status: 200, description: '삭제 성공' })
+  async bulkDeleteFlows(
+    @Body() body: { sessionIds: string[] },
+    @CurrentUser('role') userRole: string,
+  ) {
+    if (userRole !== 'admin') {
+      throw new ForbiddenException('관리자만 일괄 삭제할 수 있습니다.');
+    }
+    return this.chatbotService.bulkDelete(body.sessionIds);
+  }
+
+  @Patch('admin/flow/:sessionId/meta')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard)
+  @SkipThrottle()
+  @ApiOperation({
+    summary: '플로우 태그/메모 업데이트 (관리자)',
+    description: '관리자 태그와 내부 메모를 업데이트합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({ status: 200, description: '업데이트 성공' })
+  async updateFlowMeta(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { adminTags?: string[]; adminMemo?: string },
+  ) {
+    return this.chatbotService.updateFlowMeta(sessionId, body);
   }
 
   @Post(':sessionId/create-estimate')

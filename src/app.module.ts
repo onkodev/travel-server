@@ -27,6 +27,8 @@ import { GoodsModule } from './modules/goods/goods.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { GeoIpModule } from './modules/geoip/geoip.module';
+import { FaqModule } from './modules/faq/faq.module';
+import { GmailModule } from './modules/gmail/gmail.module';
 
 @Module({
   imports: [
@@ -76,6 +78,8 @@ import { GeoIpModule } from './modules/geoip/geoip.module';
     GoodsModule,
     NotificationModule,
     ContactModule,
+    FaqModule,
+    GmailModule,
   ],
   providers: [
     {

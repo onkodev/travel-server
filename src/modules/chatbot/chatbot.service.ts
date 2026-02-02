@@ -1574,6 +1574,8 @@ export class ChatbotService {
     startDate?: string;
     endDate?: string;
     utmSource?: string;
+    sortColumn?: string;
+    sortDirection?: string;
   }) {
     const {
       page = 1,
@@ -1582,6 +1584,8 @@ export class ChatbotService {
       startDate,
       endDate,
       utmSource,
+      sortColumn,
+      sortDirection,
     } = params;
     const skip = calculateSkip(page, limit);
 
@@ -1611,10 +1615,18 @@ export class ChatbotService {
       where.utmSource = utmSource;
     }
 
+    // 정렬 로직
+    const SORT_WHITELIST = ['createdAt', 'customerName', 'countryName', 'currentStep'];
+    let orderBy: Record<string, 'asc' | 'desc'> = { createdAt: 'desc' };
+    if (sortColumn && SORT_WHITELIST.includes(sortColumn)) {
+      const dir = sortDirection === 'asc' ? 'asc' : 'desc';
+      orderBy = { [sortColumn]: dir };
+    }
+
     const [flows, total] = await Promise.all([
       this.prisma.chatbotFlow.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: limit,
         // 목록 조회 시 큰 필드 제외 (pageVisits, userAgent)
@@ -1639,6 +1651,9 @@ export class ChatbotService {
           landingPage: true,
           isCompleted: true,
           estimateId: true,
+          // 태그/메모
+          adminTags: true,
+          adminMemo: true,
           createdAt: true,
         },
       }),
@@ -2219,6 +2234,58 @@ export class ChatbotService {
     });
 
     return { success: true };
+  }
+
+  // ============ 관리자용: 일괄 삭제 ============
+
+  async bulkDelete(sessionIds: string[]) {
+    if (!sessionIds || sessionIds.length === 0) {
+      throw new BadRequestException('삭제할 세션 ID가 없습니다.');
+    }
+
+    // ChatbotMessage는 onDelete: Cascade로 자동 삭제됨
+    const result = await this.prisma.chatbotFlow.deleteMany({
+      where: { sessionId: { in: sessionIds } },
+    });
+
+    return { deletedCount: result.count };
+  }
+
+  // ============ 관리자용: 태그/메모 업데이트 ============
+
+  async updateFlowMeta(
+    sessionId: string,
+    data: { adminTags?: string[]; adminMemo?: string },
+  ) {
+    if (!isValidUUID(sessionId)) {
+      throw new BadRequestException('Invalid session ID format');
+    }
+
+    const flow = await this.prisma.chatbotFlow.findUnique({
+      where: { sessionId },
+    });
+
+    if (!flow) {
+      throw new NotFoundException('Flow not found');
+    }
+
+    const updateData: { adminTags?: string[]; adminMemo?: string } = {};
+    if (data.adminTags !== undefined) {
+      updateData.adminTags = data.adminTags;
+    }
+    if (data.adminMemo !== undefined) {
+      updateData.adminMemo = data.adminMemo;
+    }
+
+    return this.prisma.chatbotFlow.update({
+      where: { sessionId },
+      data: updateData,
+      select: {
+        sessionId: true,
+        adminTags: true,
+        adminMemo: true,
+      },
+    });
   }
 
   // ============ 관리자용: 견적 생성 ============

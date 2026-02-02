@@ -1,11 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgvector(map: "vector")]
 }
 
 model Estimate {
@@ -338,6 +340,8 @@ model ChatbotFlow {
   timezone        String?
   visitorId       String?          @map("visitor_id") @db.Uuid
   ageRange        String?          @map("age_range")
+  adminTags       String[]         @default([]) @map("admin_tags")
+  adminMemo       String?          @map("admin_memo")
   visitor         VisitorSession?  @relation(fields: [visitorId], references: [id])
   messages        ChatbotMessage[]
 
@@ -469,4 +473,76 @@ model Contact {
   @@index([status], map: "idx_contacts_status")
   @@index([createdAt(sort: Desc)], map: "idx_contacts_created_at")
   @@map("contacts")
+}
+
+// ============================================================================
+// FAQ System
+// ============================================================================
+
+model Faq {
+  id                  Int          @id @default(autoincrement())
+  question            String
+  answer              String
+  questionKo          String?      @map("question_ko")
+  answerKo            String?      @map("answer_ko")
+  status              String       @default("pending") @db.VarChar(20) // pending, approved, rejected
+  source              String       @default("manual") @db.VarChar(20) // manual, gmail
+  sourceEmailId       String?      @map("source_email_id")
+  sourceEmailSubject  String?      @map("source_email_subject")
+  confidence          Decimal?     @db.Decimal(3, 2) // AI 신뢰도 0.00~1.00
+  sourceContext       Json?        @map("source_context") // { questionSource, answerSource }
+  tags                String[]
+  viewCount           Int          @default(0) @map("view_count")
+  helpfulCount        Int          @default(0) @map("helpful_count")
+  notHelpfulCount     Int          @default(0) @map("not_helpful_count")
+  approvedAt          DateTime?    @map("approved_at") @db.Timestamptz(6)
+  approvedBy          String?      @map("approved_by") @db.Uuid
+  rejectionReason     String?      @map("rejection_reason")
+  embedding           Unsupported("vector(768)")? @map("embedding")
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status], map: "idx_faqs_status")
+  @@index([source], map: "idx_faqs_source")
+  @@index([createdAt(sort: Desc)], map: "idx_faqs_created_at")
+  @@index([tags], map: "idx_faqs_tags", type: Gin)
+  @@map("faqs")
+}
+
+model GmailSyncState {
+  id                   Int       @id @default(autoincrement())
+  accountEmail         String    @unique @map("account_email") @db.VarChar(255)
+  lastSyncHistoryId    String?   @map("last_sync_history_id")
+  lastSyncAt           DateTime? @map("last_sync_at") @db.Timestamptz(6)
+  totalProcessed       Int       @default(0) @map("total_processed")
+  totalExtracted       Int       @default(0) @map("total_extracted")
+  totalAccountMessages Int       @default(0) @map("total_account_messages")
+  nextPageToken        String?   @map("next_page_token") // Gmail API 페이지네이션 토큰 (이어서 가져오기)
+  fullScanCompleted    Boolean   @default(false) @map("full_scan_completed") // 전체 이메일 스캔 완료 여부
+  syncStatus           String    @default("idle") @map("sync_status") @db.VarChar(20) // idle, syncing, error
+  syncProgress         Json?     @map("sync_progress") // { status, target, fetched, processed, extracted, skipped, startedAt, completedAt? }
+  lastError            String?   @map("last_error")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("gmail_sync_states")
+}
+
+model EmailThread {
+  id                Int       @id @default(autoincrement())
+  gmailThreadId     String    @unique @map("gmail_thread_id")
+  subject           String?
+  fromEmail         String?   @map("from_email") @db.VarChar(255)
+  lastMessageAt     DateTime? @map("last_message_at") @db.Timestamptz(6)
+  messageCount      Int       @default(0) @map("message_count")
+  isProcessed       Boolean   @default(false) @map("is_processed")
+  extractedFaqCount Int       @default(0) @map("extracted_faq_count")
+  processingError   String?   @map("processing_error")
+  rawData           Json?     @map("raw_data")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isProcessed], map: "idx_email_threads_is_processed")
+  @@index([createdAt(sort: Desc)], map: "idx_email_threads_created_at")
+  @@map("email_threads")
 }
