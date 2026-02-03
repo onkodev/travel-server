@@ -114,7 +114,7 @@ export class GmailSyncService implements OnModuleInit {
    */
   async refreshMessageCount() {
     const accountEmail = await this.gmailService.getAccountEmail();
-    const totalAccountMessages = await this.gmailService.getTotalMessages();
+    const totalAccountMessages = await this.gmailService.getInboxThreadCount();
 
     await this.prisma.gmailSyncState.upsert({
       where: { accountEmail },

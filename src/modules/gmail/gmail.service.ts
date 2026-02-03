@@ -69,10 +69,17 @@ export class GmailService {
     return this.accountEmail;
   }
 
-  async getTotalMessages(): Promise<number> {
+  /**
+   * 받은편지함의 스레드 수 조회 (labels.get 사용 — 정확한 값)
+   * getProfile().messagesTotal은 전체 메일함(보낸편지함, 스팸, 휴지통 포함)의 개별 메시지 수를 반환하므로 부정확
+   */
+  async getInboxThreadCount(): Promise<number> {
     const gmail = this.ensureInitialized();
-    const profile = await gmail.users.getProfile({ userId: 'me' });
-    return profile.data.messagesTotal || 0;
+    const label = await gmail.users.labels.get({
+      userId: 'me',
+      id: 'INBOX',
+    });
+    return label.data.threadsTotal || 0;
   }
 
   /**
