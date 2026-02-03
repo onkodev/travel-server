@@ -99,7 +99,7 @@ export class UserController {
   }
 
   @Get('me/tours')
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '내 구매 투어 목록',
     description: '현재 로그인한 사용자가 구매한 투어 목록을 조회합니다.',
@@ -115,7 +115,7 @@ export class UserController {
   }
 
   @Get('me/stats')
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '내 통계 조회',
     description: '현재 로그인한 사용자의 예약, 결제, 리뷰 통계를 조회합니다.',

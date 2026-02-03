@@ -37,7 +37,7 @@ import {
 @ApiBearerAuth('access-token')
 @UseGuards(RolesGuard)
 @Roles(UserRole.ADMIN, UserRole.AGENT)
-@SkipThrottle()
+@SkipThrottle({ default: true, strict: true })
 @Controller('faq')
 export class FaqController {
   constructor(private faqService: FaqService) {}

@@ -38,7 +38,7 @@ class TemplateListResponseDto {
 
 @ApiTags('일정 템플릿')
 @ApiBearerAuth('access-token')
-@SkipThrottle()
+@SkipThrottle({ default: true, strict: true })
 @Controller('itinerary-templates')
 export class ItineraryTemplateController {
   constructor(private templateService: ItineraryTemplateService) {}

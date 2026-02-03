@@ -57,7 +57,7 @@ class EstimateListResponseDto {
 @ApiBearerAuth('access-token')
 @UseGuards(RolesGuard)
 @Roles(UserRole.ADMIN, UserRole.AGENT)
-@SkipThrottle()
+@SkipThrottle({ default: true, strict: true })
 @Controller('estimates')
 export class EstimateController {
   constructor(

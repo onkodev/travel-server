@@ -57,7 +57,7 @@ export class VisitorController {
 
   @Post('session')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '방문자 세션 생성',
     description: '새 방문자 세션을 생성하거나 기존 세션을 반환합니다. 핑거프린트가 있으면 기존 세션을 찾습니다.',
@@ -94,7 +94,7 @@ export class VisitorController {
 
   @Post('track')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '페이지뷰 기록',
     description: '페이지 방문을 기록합니다. sendBeacon API를 지원합니다.',
@@ -122,7 +122,7 @@ export class VisitorController {
 
   @Patch('track/:id')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '페이지뷰 업데이트',
     description: '체류 시간, 스크롤 깊이, 클릭 수 등을 업데이트합니다.',
@@ -148,7 +148,7 @@ export class VisitorController {
 
   @Get('session/:id')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '세션 상세 조회',
     description: '방문자 세션의 상세 정보와 페이지뷰 목록을 조회합니다.',
@@ -173,7 +173,7 @@ export class VisitorController {
   @Get('admin/sessions')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '방문자 세션 목록 조회 (관리자)',
     description: '모든 방문자 세션 목록을 조회합니다. 필터링 및 페이지네이션을 지원합니다.',
@@ -202,7 +202,7 @@ export class VisitorController {
   @Get('admin/stats')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '방문자 통계 조회 (관리자)',
     description: '일별, 주별, 월별 방문자 통계와 국가별 분포를 조회합니다.',
@@ -223,7 +223,7 @@ export class VisitorController {
   @Get('admin/session/:id')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '세션 상세 조회 (관리자)',
     description: '방문자 세션의 상세 정보를 조회합니다. 페이지뷰 목록 및 사용자 행동 정보를 포함합니다.',

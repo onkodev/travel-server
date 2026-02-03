@@ -35,7 +35,7 @@ class ItemListResponseDto {
 
 @ApiTags('아이템')
 @ApiBearerAuth('access-token')
-@SkipThrottle()
+@SkipThrottle({ default: true, strict: true })
 @Controller('items')
 @Roles(UserRole.ADMIN, UserRole.AGENT)
 @UseGuards(RolesGuard)

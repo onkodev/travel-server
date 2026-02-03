@@ -23,7 +23,7 @@ import { BatchSyncDto, ThreadQueryDto } from './dto';
 @ApiBearerAuth('access-token')
 @UseGuards(RolesGuard)
 @Roles(UserRole.ADMIN)
-@SkipThrottle()
+@SkipThrottle({ default: true, strict: true })
 @Controller('gmail/admin')
 export class GmailController {
   constructor(private gmailSyncService: GmailSyncService) {}

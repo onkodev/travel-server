@@ -25,7 +25,7 @@ import { UnsplashService } from './unsplash.service';
 
 @ApiTags('파일 업로드')
 @ApiBearerAuth('access-token')
-@SkipThrottle()
+@SkipThrottle({ default: true, strict: true })
 @Controller('file-upload')
 export class FileUploadController {
   constructor(

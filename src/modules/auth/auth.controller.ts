@@ -37,7 +37,7 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @Post('signin')
   @ApiOperation({
     summary: '로그인',
@@ -83,7 +83,7 @@ export class AuthController {
   }
 
   @Post('signout')
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '로그아웃',
@@ -99,7 +99,7 @@ export class AuthController {
   }
 
   @Get('me')
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '내 정보 조회',
@@ -116,7 +116,7 @@ export class AuthController {
   }
 
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @Post('refresh')
   @ApiOperation({
     summary: '토큰 갱신',
@@ -318,7 +318,7 @@ export class AuthController {
   }
 
   @Post('sync-login')
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '로그인 시간 동기화',

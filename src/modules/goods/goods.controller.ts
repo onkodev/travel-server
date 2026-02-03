@@ -43,7 +43,7 @@ class GoodsListResponseDto {
 
 // ============ 공개 API ============
 @ApiTags('굿즈 (공개)')
-@SkipThrottle()
+@SkipThrottle({ default: true, strict: true })
 @Controller('goods')
 export class GoodsPublicController {
   constructor(private goodsService: GoodsService) {}
@@ -117,7 +117,7 @@ export class GoodsPublicController {
 // ============ 관리자 API ============
 @ApiTags('굿즈 (관리자)')
 @ApiBearerAuth('access-token')
-@SkipThrottle()
+@SkipThrottle({ default: true, strict: true })
 @Controller('admin/goods')
 @Roles(UserRole.ADMIN)
 @UseGuards(RolesGuard)

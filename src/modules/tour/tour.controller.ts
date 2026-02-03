@@ -38,7 +38,7 @@ class TourListResponseDto {
 }
 
 @ApiTags('투어')
-@SkipThrottle()
+@SkipThrottle({ default: true, strict: true })
 @Controller('tours')
 export class TourController {
   constructor(private tourService: TourService) {}

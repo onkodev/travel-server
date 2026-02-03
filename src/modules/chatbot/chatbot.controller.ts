@@ -75,7 +75,7 @@ export class ChatbotController {
 
   @Post('start')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '챗봇 플로우 시작',
     description: '새로운 챗봇 플로우를 시작하고 세션 ID를 반환합니다.',
@@ -111,7 +111,7 @@ export class ChatbotController {
 
   @Get('categories')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '카테고리 목록 조회',
     description: '투어 타입, 관심사, 지역 등 모든 카테고리 목록을 조회합니다.',
@@ -126,7 +126,7 @@ export class ChatbotController {
   @Get('sessions/user')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '사용자 세션 목록 조회',
     description: '로그인한 사용자의 챗봇 세션 목록을 조회합니다.',
@@ -140,7 +140,7 @@ export class ChatbotController {
   @Get('admin/flows')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '챗봇 플로우 목록 조회 (관리자)',
     description: '모든 챗봇 플로우 목록을 조회합니다.',
@@ -183,7 +183,7 @@ export class ChatbotController {
   @Get('admin/stats')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '챗봇 플로우 통계 (관리자)',
     description: '플로우 전환율, 투어타입별, UTM 소스별 통계를 조회합니다.',
@@ -196,7 +196,7 @@ export class ChatbotController {
   @Get('admin/funnel')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '퍼널 분석 (관리자)',
     description: '단계별 전환율과 이탈률을 분석합니다.',
@@ -210,7 +210,7 @@ export class ChatbotController {
   @Get('admin/leads')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '유망 리드 목록 (관리자)',
     description: '리드 스코어 기반으로 유망 고객을 분석합니다.',
@@ -224,7 +224,7 @@ export class ChatbotController {
   @Get('admin/countries')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '국가별 통계 (관리자)',
     description: '국가별 방문 및 전환율을 분석합니다.',
@@ -238,7 +238,7 @@ export class ChatbotController {
   @Get('admin/flow/:sessionId')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '플로우 상세 조회 (관리자)',
     description: '플로우 상세 정보와 방문자의 사이트 브라우징 기록을 조회합니다.',
@@ -253,7 +253,7 @@ export class ChatbotController {
   @Post('admin/bulk-delete')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '일괄 삭제 (관리자)',
     description: '여러 챗봇 플로우를 일괄 삭제합니다.',
@@ -272,7 +272,7 @@ export class ChatbotController {
   @Patch('admin/flow/:sessionId/meta')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '플로우 태그/메모 업데이트 (관리자)',
     description: '관리자 태그와 내부 메모를 업데이트합니다.',
@@ -289,7 +289,7 @@ export class ChatbotController {
   @Post(':sessionId/create-estimate')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '챗봇에서 견적 생성 (관리자)',
     description: '챗봇 상담 데이터를 기반으로 새 견적을 생성하고 세션에 연결합니다.',
@@ -309,7 +309,7 @@ export class ChatbotController {
 
   @Get('by-estimate/:estimateId')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: 'estimateId로 플로우 조회',
     description: '견적 ID로 연결된 챗봇 플로우를 조회합니다.',
@@ -326,7 +326,7 @@ export class ChatbotController {
 
   @Get(':sessionId')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '플로우 상태 조회',
     description: '현재 플로우의 전체 상태를 조회합니다.',
@@ -340,7 +340,7 @@ export class ChatbotController {
 
   @Get(':sessionId/step/:step')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '단계별 질문 조회',
     description: '특정 단계의 질문과 선택지를 조회합니다.',
@@ -363,7 +363,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/1')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({ summary: 'Step 1 업데이트', description: '투어 타입 선택' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
@@ -376,7 +376,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/2')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({ summary: 'Step 2 업데이트', description: '첫 방문 여부 선택' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
@@ -389,7 +389,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/3/main')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: 'Step 3 메인 관심사 업데이트',
     description: '메인 관심사 카테고리 선택',
@@ -405,7 +405,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/3/sub')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: 'Step 3 서브 관심사 업데이트',
     description: '세부 관심사 선택',
@@ -421,7 +421,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/4')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({ summary: 'Step 4 업데이트', description: '지역 선택' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
@@ -434,7 +434,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/plan')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({ summary: '계획유무 업데이트', description: '여행 계획 유무 및 상세 정보 저장' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
@@ -447,7 +447,7 @@ export class ChatbotController {
 
   @Patch(':sessionId/step/5')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({ summary: 'Step 5 업데이트', description: '명소 선택' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
@@ -461,7 +461,7 @@ export class ChatbotController {
   @Patch(':sessionId/step/6')
   @Public()
   @UseGuards(AuthGuard) // Public이지만 토큰이 있으면 사용자 정보 추출
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({ summary: 'Step 6 업데이트', description: '여행 정보 입력' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
@@ -476,7 +476,7 @@ export class ChatbotController {
   @Patch(':sessionId/step/7')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: 'Step 7 업데이트 (로그인 필수)',
     description: '연락처 정보 입력 - 로그인이 필요합니다.',
@@ -494,7 +494,7 @@ export class ChatbotController {
 
   @Post(':sessionId/track')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '페이지 방문 기록',
     description: '사용자의 페이지 이동을 기록합니다.',
@@ -571,7 +571,7 @@ export class ChatbotController {
 
   @Post(':sessionId/messages')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '메시지 저장',
     description: '챗봇 세션에 새 메시지를 저장합니다.',
@@ -588,7 +588,7 @@ export class ChatbotController {
 
   @Post(':sessionId/messages/batch')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '메시지 배치 저장',
     description: '여러 메시지를 한 번에 저장합니다. Rate limit 적용 제외.',
@@ -605,7 +605,7 @@ export class ChatbotController {
 
   @Get(':sessionId/messages')
   @Public()
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '메시지 목록 조회',
     description: '챗봇 세션의 모든 메시지를 조회합니다.',
@@ -620,7 +620,7 @@ export class ChatbotController {
   @Patch(':sessionId/title')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '세션 제목 업데이트',
     description: '챗봇 세션의 제목을 변경합니다.',
@@ -640,7 +640,7 @@ export class ChatbotController {
   @Patch(':sessionId/link-user')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '세션을 현재 사용자에게 연결',
     description: '비로그인 상태에서 생성된 세션을 현재 로그인한 사용자에게 연결합니다.',
@@ -658,7 +658,7 @@ export class ChatbotController {
   @Delete(':sessionId')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
-  @SkipThrottle()
+  @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '세션 삭제',
     description: '챗봇 세션과 관련 메시지를 삭제합니다.',

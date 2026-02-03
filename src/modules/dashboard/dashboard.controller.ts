@@ -15,7 +15,7 @@ import { ErrorResponseDto } from '../../common/dto';
 
 @ApiTags('대시보드')
 @ApiBearerAuth('access-token')
-@SkipThrottle()
+@SkipThrottle({ default: true, strict: true })
 @Controller('dashboard')
 @Roles(UserRole.ADMIN)
 @UseGuards(RolesGuard)
