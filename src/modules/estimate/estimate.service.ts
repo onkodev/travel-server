@@ -412,9 +412,19 @@ export class EstimateService {
     // 공유 해시 생성
     const shareHash = randomBytes(16).toString('hex');
 
+    // 유효기간 기본값: 오늘 + 10일 (명시적으로 제공되지 않은 경우)
+    let validDate: Date | undefined;
+    if (cleanData.validDate) {
+      validDate = new Date(cleanData.validDate);
+    } else {
+      validDate = new Date();
+      validDate.setDate(validDate.getDate() + 10);
+    }
+
     const prismaData = {
       ...cleanData,
       shareHash,
+      validDate,
       // JSON 필드들을 Prisma InputJsonValue로 변환
       items: (items ?? []) as unknown as Prisma.InputJsonValue,
       displayOptions: displayOptions as unknown as Prisma.InputJsonValue | undefined,
