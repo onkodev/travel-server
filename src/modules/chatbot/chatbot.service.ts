@@ -5,7 +5,7 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { isValidUUID } from '../../common/utils';
@@ -19,8 +19,8 @@ import { NotificationService } from '../notification/notification.service';
 import { EmailService } from '../email/email.service';
 import { chatbotInquiryAdminTemplate } from '../email/email-templates';
 import { EstimateItem } from '../../common/types';
-import { ESTIMATE_EVENTS } from '../../common/events';
-import type { EstimateSentEvent } from '../../common/events';
+import { ESTIMATE_EVENTS, CHATBOT_EVENTS } from '../../common/events';
+import type { EstimateSentEvent, ChatbotNewMessageEvent } from '../../common/events';
 import {
   calculateSkip,
   createPaginatedResponse,
@@ -62,6 +62,7 @@ export class ChatbotService {
     private notificationService: NotificationService,
     private emailService: EmailService,
     private configService: ConfigService,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   // 새 플로우 시작
@@ -113,6 +114,8 @@ export class ChatbotService {
         timezone: geoData.timezone,
         // visitorId 연결 (클라이언트에서 제공하는 경우)
         visitorId: dto.visitorId,
+        // 세션 제목 (선택사항)
+        title: dto.title || null,
         ...(hasTourType && {
           tourType: dto.tourType,
           currentStep: 2,
@@ -617,13 +620,20 @@ export class ChatbotService {
   async sendToExpert(sessionId: string) {
     const flow = await this.getFlow(sessionId);
 
+    // 알림/이메일 결과 추적
+    const notificationResults = {
+      pushNotification: { sent: false, error: null as string | null },
+      adminEmail: { sent: false, error: null as string | null },
+      customerEmail: { sent: false, error: null as string | null, skipped: false },
+    };
+
     // 플로우를 완료 상태로 변경 (견적 유무와 관계없이)
     await this.prisma.chatbotFlow.update({
       where: { sessionId },
       data: { isCompleted: true },
     });
 
-    // 관리자에게 알림 전송
+    // 관리자에게 푸시 알림 전송
     try {
       await this.notificationService.notifyNewEstimateRequest({
         estimateId: flow.estimateId ?? undefined,
@@ -631,38 +641,38 @@ export class ChatbotService {
         customerName: flow.customerName ?? undefined,
         tourType: flow.tourType ?? undefined,
       });
+      notificationResults.pushNotification.sent = true;
       this.logger.log(`Notification sent for session: ${sessionId}`);
     } catch (error) {
+      notificationResults.pushNotification.error = error.message;
       this.logger.error(`Failed to send notification: ${error.message}`);
-      // 알림 실패해도 요청은 성공으로 처리
     }
 
-    // 이메일 알림 발송
-    try {
-      // 방문자 브라우징 기록 조회
-      let visitedProducts: string[] = [];
-      if (flow.visitorId) {
-        try {
-          const visitorSession = await this.prisma.visitorSession.findUnique({
-            where: { id: flow.visitorId },
-            include: {
-              pageViews: {
-                orderBy: { createdAt: 'asc' },
-                select: { path: true, title: true },
-              },
+    // 방문자 브라우징 기록 조회 (이메일 내용용)
+    let visitedProducts: string[] = [];
+    if (flow.visitorId) {
+      try {
+        const visitorSession = await this.prisma.visitorSession.findUnique({
+          where: { id: flow.visitorId },
+          include: {
+            pageViews: {
+              orderBy: { createdAt: 'asc' },
+              select: { path: true, title: true },
             },
-          });
-          if (visitorSession?.pageViews) {
-            visitedProducts = visitorSession.pageViews
-              .filter((pv) => pv.title && pv.path?.startsWith('/tour'))
-              .map((pv) => pv.title!);
-          }
-        } catch (err) {
-          this.logger.warn(`Failed to fetch visitor browsing history: ${err.message}`);
+          },
+        });
+        if (visitorSession?.pageViews) {
+          visitedProducts = visitorSession.pageViews
+            .filter((pv) => pv.title && pv.path?.startsWith('/tour'))
+            .map((pv) => pv.title!);
         }
+      } catch (err) {
+        this.logger.warn(`Failed to fetch visitor browsing history: ${err.message}`);
       }
+    }
 
-      // 1) 관리자에게 새 상담 요청 알림 이메일
+    // 관리자 이메일 발송
+    try {
       const adminEmail = this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL')
         || this.configService.get<string>('ADMIN_EMAIL')
         || 'admin@tumakr.com';
@@ -711,44 +721,67 @@ export class ChatbotService {
           adminUrl,
         }),
       });
+      notificationResults.adminEmail.sent = true;
       this.logger.log(`Admin email sent for session: ${sessionId}`);
+    } catch (error) {
+      notificationResults.adminEmail.error = error.message;
+      this.logger.error(`Failed to send admin email: ${error.message}`);
+    }
 
-      // 2) 고객에게 접수 확인 이메일
-      if (flow.customerEmail) {
+    // 고객 확인 이메일 발송
+    if (flow.customerEmail) {
+      try {
         const surveySummary = this.stepResponseService.buildSurveySummary(flow as Parameters<ChatbotStepResponseService['buildSurveySummary']>[0]);
         await this.emailService.sendContactConfirmation({
           to: flow.customerEmail,
           customerName: flow.customerName || 'Customer',
           message: surveySummary,
         });
+        notificationResults.customerEmail.sent = true;
         this.logger.log(`Confirmation email sent to customer: ${flow.customerEmail}`);
+      } catch (error) {
+        notificationResults.customerEmail.error = error.message;
+        this.logger.error(`Failed to send customer email: ${error.message}`);
       }
-    } catch (error) {
-      this.logger.error(`Failed to send email notification: ${error.message}`);
-      // 이메일 실패해도 요청은 성공으로 처리
+    } else {
+      notificationResults.customerEmail.skipped = true;
     }
 
     // 견적이 있으면 상태 업데이트
+    let estimateStatus: string | null = ESTIMATE_STATUS.PENDING;
     if (flow.estimateId) {
       const estimate = await this.estimateService.updateAIStatus(
         flow.estimateId,
         ESTIMATE_STATUS.PENDING,
       );
-      return {
-        success: true,
-        message: 'Sent to expert for review.',
-        estimateId: flow.estimateId,
-        status: estimate.statusAi,
-      };
+      estimateStatus = estimate.statusAi || ESTIMATE_STATUS.PENDING;
     }
 
-    // 견적 없이 상담 요청만 전송
-    return {
-      success: true,
-      message: 'Inquiry submitted. Our expert will contact you soon.',
-      estimateId: null,
-      status: ESTIMATE_STATUS.PENDING,
+    // 알림 실패 여부 체크
+    const hasNotificationFailure = !notificationResults.pushNotification.sent
+      || !notificationResults.adminEmail.sent
+      || (!notificationResults.customerEmail.sent && !notificationResults.customerEmail.skipped);
+
+    // 응답 생성
+    const response = {
+      success: true, // 핵심 작업(플로우 완료)은 성공
+      message: flow.estimateId
+        ? 'Sent to expert for review.'
+        : 'Inquiry submitted. Our expert will contact you soon.',
+      estimateId: flow.estimateId ?? null,
+      status: estimateStatus,
+      notifications: notificationResults,
+      ...(hasNotificationFailure && {
+        warning: 'Some notifications could not be sent. Our team has been notified.',
+      }),
     };
+
+    // 알림 실패 시 관리자에게 경고 로그 (모니터링용)
+    if (hasNotificationFailure) {
+      this.logger.warn(`Partial notification failure for session ${sessionId}:`, notificationResults);
+    }
+
+    return response;
   }
 
   // 고객 응답 (승인/수정요청)
@@ -1039,6 +1072,20 @@ export class ChatbotService {
         }
       }
     }
+
+    // SSE 이벤트 발행 (모든 메시지 - 양방향 실시간 알림)
+    // admin/bot → customer, user → admin
+    const sseEvent: ChatbotNewMessageEvent = {
+      sessionId,
+      message: {
+        id: message.id,
+        role: data.role,
+        content: data.content,
+        createdAt: message.createdAt,
+      },
+    };
+    this.logger.log(`SSE event emitting for session ${sessionId}, role: ${data.role}`);
+    this.eventEmitter.emit(CHATBOT_EVENTS.NEW_MESSAGE, sseEvent);
 
     return message;
   }

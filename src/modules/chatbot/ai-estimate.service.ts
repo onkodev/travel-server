@@ -3,13 +3,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
-import { normalizeImages } from '../../common/utils';
+import { normalizeImages, calculateTotalPax, formatPaxString } from '../../common/utils';
 import { EstimateItem } from '../../common/types';
 
 // Re-export for backward compatibility
 export type { EstimateItem };
 
-// UUID 생성 헬퍼
+// UUID 생성 헬퍼 (레거시 호환 - generateEstimateItemId 사용 권장)
 function generateItemId(): string {
   return randomUUID();
 }
@@ -250,7 +250,7 @@ export class AiEstimateService {
    * 템플릿 아이템 복사 (인원수 반영)
    */
   private copyTemplateItems(templateItems: EstimateItem[], flow: ChatbotFlowData): EstimateItem[] {
-    const totalPax = (flow.adultsCount || 1) + (flow.childrenCount || 0) + (flow.infantsCount || 0);
+    const totalPax = calculateTotalPax(flow);
 
     return templateItems.map(item => ({
       ...item,
@@ -292,7 +292,7 @@ export class AiEstimateService {
       return items;
     }
 
-    const totalPax = (flow.adultsCount || 1) + (flow.childrenCount || 0) + (flow.infantsCount || 0);
+    const totalPax = calculateTotalPax(flow);
     const existingItemIds = new Set(items.filter(i => i.itemId).map(i => i.itemId));
 
     // attractions 이름으로 Item 조회
@@ -417,7 +417,7 @@ export class AiEstimateService {
     items: EstimateItem[],
     template: TemplateCandidate | null,
   ): Promise<{ id: number; shareHash: string }> {
-    const totalPax = (flow.adultsCount || 1) + (flow.childrenCount || 0) + (flow.infantsCount || 0);
+    const totalPax = calculateTotalPax(flow);
     const region = flow.region || 'unknown';
     const regionKor = this.REGION_MAP[region] || region;
     const duration = flow.duration || 3;

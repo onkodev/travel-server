@@ -8,9 +8,14 @@ import {
   Param,
   Query,
   Req,
+  Res,
   UseGuards,
   ForbiddenException,
+  Sse,
+  MessageEvent,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { Observable, interval, map, takeWhile, merge } from 'rxjs';
 import {
   ApiTags,
   ApiOperation,
@@ -24,6 +29,7 @@ import type { Request } from 'express';
 import { extractIpAddress, parseBooleanQuery } from '../../common/utils';
 import { ChatbotService } from './chatbot.service';
 import { ChatbotAnalyticsService } from './chatbot-analytics.service';
+import { ChatbotSseService } from './chatbot-sse.service';
 import { AiEstimateService } from './ai-estimate.service';
 import { ConversationalEstimateService } from './conversational-estimate.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -68,6 +74,7 @@ export class ChatbotController {
   constructor(
     private chatbotService: ChatbotService,
     private chatbotAnalyticsService: ChatbotAnalyticsService,
+    private chatbotSseService: ChatbotSseService,
     private aiEstimateService: AiEstimateService,
     private conversationalEstimateService: ConversationalEstimateService,
     private supabaseService: SupabaseService,
@@ -324,6 +331,74 @@ export class ChatbotController {
   async getFlowByEstimateId(@Param('estimateId') estimateId: string) {
     const id = parseInt(estimateId, 10);
     return this.chatbotService.getFlowByEstimateId(id);
+  }
+
+  // ============ SSE 실시간 이벤트 ============
+
+  @Get(':sessionId/events')
+  @Public()
+  @SkipThrottle({ default: true, strict: true })
+  @Sse()
+  @ApiOperation({
+    summary: 'SSE 이벤트 구독',
+    description: '세션의 실시간 이벤트(새 메시지, 견적 상태 변경)를 SSE로 구독합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({ status: 200, description: 'SSE 연결 성공' })
+  subscribeToEvents(
+    @Param('sessionId') sessionId: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Observable<MessageEvent> {
+    // Set headers for SSE (passthrough allows NestJS to still handle response)
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+
+    const subject = this.chatbotSseService.getOrCreateSubject(sessionId);
+
+    // Ping every 30 seconds to keep connection alive
+    const ping$ = interval(30000).pipe(
+      map(() => ({
+        type: 'ping',
+        data: JSON.stringify({ timestamp: Date.now() }),
+      } as MessageEvent)),
+    );
+
+    // Cleanup on disconnect
+    res.on('close', () => {
+      this.chatbotSseService.removeSubscriber(sessionId);
+    });
+
+    // Merge events and pings, complete when subject completes
+    return merge(
+      subject.asObservable(),
+      ping$,
+    ).pipe(
+      takeWhile(() => !subject.closed),
+      map((event) => ({
+        type: event.type,
+        data: event.data,
+      } as MessageEvent)),
+    );
+  }
+
+  @Get(':sessionId/events/missed')
+  @Public()
+  @SkipThrottle({ default: true, strict: true })
+  @ApiOperation({
+    summary: '누락된 SSE 이벤트 조회',
+    description: '재연결 시 누락된 이벤트를 조회합니다. since 파라미터로 특정 시점 이후 이벤트만 조회 가능.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiQuery({ name: 'since', required: false, description: '이 타임스탬프 이후의 이벤트만 조회 (밀리초)' })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  getMissedEvents(
+    @Param('sessionId') sessionId: string,
+    @Query('since') since?: string,
+  ): { events: import('./chatbot-sse.service').QueuedEvent[] } {
+    const sinceTimestamp = since ? parseInt(since, 10) : undefined;
+    const events = this.chatbotSseService.getMissedEvents(sessionId, sinceTimestamp);
+    return { events };
   }
 
   // ============ 동적 라우트 ============
