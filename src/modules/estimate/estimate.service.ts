@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, GoneException, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -362,25 +362,46 @@ export class EstimateService {
     return { ...estimate, items: enrichedItems };
   }
 
-  // 공유 해시로 견적 조회 (조회 + viewedAt 업데이트를 단일 쿼리로 최적화)
+  // 공유 해시로 견적 조회 (유효기간 체크 포함)
   async getEstimateByShareHash(shareHash: string) {
-    try {
-      // update는 조회 + 업데이트를 단일 쿼리로 처리하고 데이터 반환
-      const estimate = await this.prisma.estimate.update({
-        where: { shareHash },
-        data: { viewedAt: new Date() },
-      });
+    // 먼저 조회하여 유효기간 확인
+    const estimate = await this.prisma.estimate.findUnique({
+      where: { shareHash },
+    });
 
-      // 아이템 정보 보강 (itemInfo가 없는 경우)
-      const enrichedEstimate = await this.enrichEstimateItems(estimate);
-      return convertDecimalFields(enrichedEstimate);
-    } catch (error) {
-      // P2025: Record not found
-      if (error.code === 'P2025') {
-        throw new NotFoundException('견적을 찾을 수 없습니다');
-      }
-      throw error;
+    if (!estimate) {
+      throw new NotFoundException('견적을 찾을 수 없습니다');
     }
+
+    // 유효기간 체크 — KST 기준 날짜만 비교 (타임존/시간 이슈 방지)
+    if (estimate.validDate) {
+      const toDateStr = (d: Date) =>
+        d.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }); // "YYYY-MM-DD"
+
+      const todayKST = toDateStr(new Date());
+      const validDateKST = toDateStr(new Date(estimate.validDate));
+
+      this.logger.log(
+        `[유효기간 체크] today=${todayKST}, validDate=${validDateKST}, raw=${estimate.validDate}, expired=${todayKST > validDateKST}`,
+      );
+
+      if (todayKST > validDateKST) {
+        throw new GoneException({
+          message: '견적 유효기간이 만료되었습니다',
+          validDate: validDateKST,
+        });
+      }
+    }
+
+    // 유효한 경우에만 viewedAt 업데이트
+    const updated = await this.prisma.estimate.update({
+      where: { shareHash },
+      data: { viewedAt: new Date() },
+    });
+
+    // 아이템 정보 보강 (itemInfo가 없는 경우)
+    const enrichedEstimate = await this.enrichEstimateItems(updated);
+    return convertDecimalFields(enrichedEstimate);
   }
 
   // 견적 생성

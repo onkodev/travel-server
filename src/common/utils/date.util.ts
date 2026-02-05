@@ -28,18 +28,3 @@ export function omit<T extends Record<string, unknown>, K extends keyof T>(
   return result;
 }
 
-/**
- * 객체에서 특정 키들만 선택한 새 객체 반환
- */
-export function pick<T extends Record<string, unknown>, K extends keyof T>(
-  obj: T,
-  keys: K[],
-): Pick<T, K> {
-  const result = {} as Pick<T, K>;
-  keys.forEach((key) => {
-    if (key in obj) {
-      result[key] = obj[key];
-    }
-  });
-  return result;
-}

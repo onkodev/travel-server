@@ -4,33 +4,14 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { normalizeImages } from '../../common/utils';
+import { EstimateItem } from '../../common/types';
+
+// Re-export for backward compatibility
+export type { EstimateItem };
 
 // UUID 생성 헬퍼
 function generateItemId(): string {
   return randomUUID();
-}
-
-// 아이템 타입 (export for controller)
-export interface EstimateItem {
-  id: string;
-  dayNumber: number;
-  orderIndex: number;
-  type: string;
-  itemId?: number;
-  isTbd: boolean;
-  note?: string;
-  quantity: number;
-  unitPrice: number;
-  subtotal: number;
-  itemInfo?: {
-    nameKor?: string;
-    nameEng?: string;
-    descriptionEng?: string;
-    images?: { url: string; type?: string }[];
-    lat?: number;
-    lng?: number;
-    addressEnglish?: string;
-  };
 }
 
 // 템플릿 후보
@@ -275,7 +256,7 @@ export class AiEstimateService {
       ...item,
       id: generateItemId(),
       quantity: item.type === 'place' ? totalPax : item.quantity,
-      subtotal: item.type === 'place' ? item.unitPrice * totalPax : item.subtotal,
+      subtotal: item.type === 'place' ? (item.unitPrice ?? 0) * totalPax : item.subtotal,
     }));
   }
 
@@ -483,7 +464,7 @@ export class AiEstimateService {
         shareHash,
         internalMemo,
         requestContent,
-        totalAmount: items.reduce((sum, item) => sum + item.subtotal, 0),
+        totalAmount: items.reduce((sum, item) => sum + (item.subtotal ?? 0), 0),
         validDate,
         displayOptions: {
           place: true,

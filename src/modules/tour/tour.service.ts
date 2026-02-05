@@ -8,49 +8,19 @@ import { SupabaseService } from '../../supabase/supabase.service';
 import { toCamelCase, toSnakeCase } from '../../common/utils/case.util';
 import { SupabaseError, isSupabaseError } from '../../common/types';
 import { CreateTourDto, UpdateTourDto } from './dto';
+import { MemoryCache } from '../../common/utils';
 import {
   calculateSkip,
   createPaginatedResponse,
 } from '../../common/dto/pagination.dto';
 
-// 인메모리 캐시 (TTL 지원)
-interface CacheEntry<T> {
-  data: T;
-  expiresAt: number;
-}
-
 @Injectable()
 export class TourService {
   private readonly logger = new Logger(TourService.name);
-  private cache = new Map<string, CacheEntry<unknown>>();
-  private readonly CACHE_TTL = 10 * 60 * 1000; // 10분
+  private cache = new MemoryCache(10 * 60 * 1000); // 10분
   private readonly STATIC_CACHE_TTL = 60 * 60 * 1000; // 1시간 (카테고리, 태그)
 
   constructor(private supabaseService: SupabaseService) {}
-
-  // 캐시에서 가져오기 (만료되면 null 반환)
-  private getFromCache<T>(key: string): T | null {
-    const entry = this.cache.get(key);
-    if (!entry) return null;
-    if (Date.now() > entry.expiresAt) {
-      this.cache.delete(key);
-      return null;
-    }
-    return entry.data as T;
-  }
-
-  // 캐시에 저장
-  private setCache<T>(key: string, data: T, ttl?: number): void {
-    this.cache.set(key, {
-      data,
-      expiresAt: Date.now() + (ttl || this.CACHE_TTL),
-    });
-  }
-
-  // 캐시 무효화 (투어 생성/수정/삭제 시 호출)
-  private invalidateCache(): void {
-    this.cache.clear();
-  }
 
   // Supabase 에러를 NestJS 예외로 변환
   private handleSupabaseError(error: SupabaseError | unknown, context: string): never {
@@ -94,7 +64,7 @@ export class TourService {
       : null;
 
     if (cacheKey) {
-      const cached = this.getFromCache<ReturnType<typeof createPaginatedResponse>>(cacheKey);
+      const cached = this.cache.get<ReturnType<typeof createPaginatedResponse>>(cacheKey);
       if (cached) return cached;
     }
 
@@ -152,7 +122,7 @@ export class TourService {
 
     // 검색어가 없는 경우만 캐싱
     if (cacheKey) {
-      this.setCache(cacheKey, result);
+      this.cache.set(cacheKey, result);
     }
 
     return result;
@@ -205,7 +175,7 @@ export class TourService {
   // 투어 상세 조회 - source에 따라 다른 스키마 사용
   async getTour(id: number, source?: string) {
     const cacheKey = `tour_${id}_${source || 'admin'}`;
-    const cached = this.getFromCache<unknown>(cacheKey);
+    const cached = this.cache.get<unknown>(cacheKey);
     if (cached) return cached;
 
     const supabase = this.getClient(source);
@@ -235,7 +205,7 @@ export class TourService {
       });
 
     const result = toCamelCase(tour);
-    this.setCache(cacheKey, result);
+    this.cache.set(cacheKey, result);
     return result;
   }
 
@@ -254,7 +224,7 @@ export class TourService {
       this.handleSupabaseError(error, '투어 생성');
     }
 
-    this.invalidateCache();
+    this.cache.clear();
     return toCamelCase(tour);
   }
 
@@ -311,7 +281,7 @@ export class TourService {
       this.handleSupabaseError(error, '투어 수정');
     }
 
-    this.invalidateCache();
+    this.cache.clear();
     return toCamelCase(tour);
   }
 
@@ -325,14 +295,14 @@ export class TourService {
       this.handleSupabaseError(error, '투어 삭제');
     }
 
-    this.invalidateCache();
+    this.cache.clear();
     return { success: true };
   }
 
   // 카테고리 목록 조회 - admin 프로젝트 전용 (1시간 캐싱)
   async getCategories() {
     const cacheKey = 'tour_categories';
-    const cached = this.getFromCache<string[]>(cacheKey);
+    const cached = this.cache.get<string[]>(cacheKey);
     if (cached) return cached;
 
     const supabase = this.supabaseService.getAdminClient();
@@ -347,14 +317,14 @@ export class TourService {
     }
 
     const categories = [...new Set((data || []).map((t) => t.category))];
-    this.setCache(cacheKey, categories, this.STATIC_CACHE_TTL);
+    this.cache.set(cacheKey, categories, this.STATIC_CACHE_TTL);
     return categories;
   }
 
   // 태그 목록 조회 (1시간 캐싱)
   async getTags() {
     const cacheKey = 'tour_tags';
-    const cached = this.getFromCache<string[]>(cacheKey);
+    const cached = this.cache.get<string[]>(cacheKey);
     if (cached) return cached;
 
     const supabase = this.supabaseService.getAdminClient();
@@ -370,7 +340,7 @@ export class TourService {
 
     const allTags = (data || []).flatMap((t) => t.tags || []);
     const result = [...new Set(allTags)];
-    this.setCache(cacheKey, result, this.STATIC_CACHE_TTL);
+    this.cache.set(cacheKey, result, this.STATIC_CACHE_TTL);
     return result;
   }
 }

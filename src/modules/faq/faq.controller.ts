@@ -7,9 +7,12 @@ import {
   Body,
   Param,
   Query,
+  Req,
   UseGuards,
   ParseIntPipe,
 } from '@nestjs/common';
+import type { Request } from 'express';
+import { extractIpAddress, parseBooleanQuery } from '../../common/utils';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import {
   ApiTags,
@@ -31,6 +34,8 @@ import {
   RejectFaqDto,
   BulkActionDto,
   FaqSearchQueryDto,
+  FaqChatDto,
+  FaqChatLogQueryDto,
 } from './dto';
 
 @ApiTags('FAQ')
@@ -66,10 +71,51 @@ export class FaqController {
     return this.faqService.searchSimilar(query.q, query.limit);
   }
 
+  @Post('chat')
+  @Public()
+  @Throttle({ default: { limit: 15, ttl: 60000 } })
+  @ApiOperation({ summary: 'FAQ 기반 AI 채팅' })
+  async chatWithFaq(@Body() dto: FaqChatDto, @Req() req: Request) {
+    return this.faqService.chatWithFaq(dto.message, dto.history, {
+      ipAddress: extractIpAddress(req),
+      visitorId: dto.visitorId,
+    });
+  }
+
+  @Get('answer/:id')
+  @Public()
+  @Throttle({ default: { limit: 15, ttl: 60000 } })
+  @ApiOperation({ summary: 'FAQ 원문 답변 조회 (제안 질문 클릭용)' })
+  @ApiParam({ name: 'id', description: 'FAQ ID' })
+  async getDirectFaqAnswer(@Param('id', ParseIntPipe) id: number) {
+    return this.faqService.getDirectFaqAnswer(id);
+  }
+
   @Get('stats')
   @ApiOperation({ summary: 'FAQ 통계' })
   async getStats() {
     return this.faqService.getStats();
+  }
+
+  @Get('chat-logs')
+  @ApiOperation({ summary: 'FAQ 채팅 로그 목록 (관리자)' })
+  async getChatLogs(@Query() query: FaqChatLogQueryDto) {
+    return this.faqService.getFaqChatLogs({
+      page: query.page,
+      limit: query.limit,
+      noMatch: parseBooleanQuery(query.noMatch),
+      startDate: query.startDate,
+      endDate: query.endDate,
+      search: query.search,
+      responseTier: query.responseTier,
+      visitorId: query.visitorId,
+    });
+  }
+
+  @Get('chat-stats')
+  @ApiOperation({ summary: 'FAQ 채팅 통계 (관리자)' })
+  async getChatStats() {
+    return this.faqService.getFaqChatStats();
   }
 
   @Get(':id')
@@ -148,6 +194,12 @@ export class FaqController {
     @Body() body: BulkActionDto,
   ) {
     return this.faqService.bulkAction(body.ids, body.action, userId, body.reason);
+  }
+
+  @Post('regenerate-embeddings')
+  @ApiOperation({ summary: '승인된 FAQ 전체 임베딩 재생성 (한국어 포함)' })
+  async regenerateEmbeddings() {
+    return this.faqService.regenerateAllEmbeddings();
   }
 
 }

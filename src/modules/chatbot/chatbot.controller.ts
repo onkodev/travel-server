@@ -21,6 +21,7 @@ import {
 } from '@nestjs/swagger';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
+import { extractIpAddress, parseBooleanQuery } from '../../common/utils';
 import { ChatbotService } from './chatbot.service';
 import { ChatbotAnalyticsService } from './chatbot-analytics.service';
 import { AiEstimateService } from './ai-estimate.service';
@@ -86,10 +87,7 @@ export class ChatbotController {
     type: FlowStartResponseDto,
   })
   async startFlow(@Body() dto: StartFlowDto, @Req() req: Request) {
-    const ipAddress =
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0] ||
-      req.ip ||
-      req.socket.remoteAddress;
+    const ipAddress = extractIpAddress(req);
     const userAgent = req.headers['user-agent'];
     const referer = req.headers['referer'] as string;
 
@@ -157,6 +155,8 @@ export class ChatbotController {
   @ApiQuery({ name: 'utmSource', required: false, description: 'UTM 소스 필터' })
   @ApiQuery({ name: 'sortColumn', required: false, description: '정렬 컬럼' })
   @ApiQuery({ name: 'sortDirection', required: false, description: '정렬 방향 (asc/desc)' })
+  @ApiQuery({ name: 'estimateStatus', required: false, description: '견적 상태 필터' })
+  @ApiQuery({ name: 'hasEstimate', required: false, description: '견적 유무 필터' })
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getFlows(
     @Query('page') page?: string,
@@ -167,6 +167,8 @@ export class ChatbotController {
     @Query('utmSource') utmSource?: string,
     @Query('sortColumn') sortColumn?: string,
     @Query('sortDirection') sortDirection?: string,
+    @Query('estimateStatus') estimateStatus?: string,
+    @Query('hasEstimate') hasEstimate?: string,
   ) {
     return this.chatbotService.getFlows({
       page: page ? parseInt(page) : undefined,
@@ -177,6 +179,8 @@ export class ChatbotController {
       utmSource,
       sortColumn,
       sortDirection,
+      estimateStatus: estimateStatus || undefined,
+      hasEstimate: parseBooleanQuery(hasEstimate),
     });
   }
 
