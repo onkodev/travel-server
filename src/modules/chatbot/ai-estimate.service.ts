@@ -3,34 +3,15 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
-import { normalizeImages } from '../../common/utils';
+import { normalizeImages, calculateTotalPax, formatPaxString } from '../../common/utils';
+import { EstimateItem } from '../../common/types';
 
-// UUID 생성 헬퍼
+// Re-export for backward compatibility
+export type { EstimateItem };
+
+// UUID 생성 헬퍼 (레거시 호환 - generateEstimateItemId 사용 권장)
 function generateItemId(): string {
   return randomUUID();
-}
-
-// 아이템 타입 (export for controller)
-export interface EstimateItem {
-  id: string;
-  dayNumber: number;
-  orderIndex: number;
-  type: string;
-  itemId?: number;
-  isTbd: boolean;
-  note?: string;
-  quantity: number;
-  unitPrice: number;
-  subtotal: number;
-  itemInfo?: {
-    nameKor?: string;
-    nameEng?: string;
-    descriptionEng?: string;
-    images?: { url: string; type?: string }[];
-    lat?: number;
-    lng?: number;
-    addressEnglish?: string;
-  };
 }
 
 // 템플릿 후보
@@ -269,13 +250,13 @@ export class AiEstimateService {
    * 템플릿 아이템 복사 (인원수 반영)
    */
   private copyTemplateItems(templateItems: EstimateItem[], flow: ChatbotFlowData): EstimateItem[] {
-    const totalPax = (flow.adultsCount || 1) + (flow.childrenCount || 0) + (flow.infantsCount || 0);
+    const totalPax = calculateTotalPax(flow);
 
     return templateItems.map(item => ({
       ...item,
       id: generateItemId(),
       quantity: item.type === 'place' ? totalPax : item.quantity,
-      subtotal: item.type === 'place' ? item.unitPrice * totalPax : item.subtotal,
+      subtotal: item.type === 'place' ? (item.unitPrice ?? 0) * totalPax : item.subtotal,
     }));
   }
 
@@ -311,7 +292,7 @@ export class AiEstimateService {
       return items;
     }
 
-    const totalPax = (flow.adultsCount || 1) + (flow.childrenCount || 0) + (flow.infantsCount || 0);
+    const totalPax = calculateTotalPax(flow);
     const existingItemIds = new Set(items.filter(i => i.itemId).map(i => i.itemId));
 
     // attractions 이름으로 Item 조회
@@ -436,7 +417,7 @@ export class AiEstimateService {
     items: EstimateItem[],
     template: TemplateCandidate | null,
   ): Promise<{ id: number; shareHash: string }> {
-    const totalPax = (flow.adultsCount || 1) + (flow.childrenCount || 0) + (flow.infantsCount || 0);
+    const totalPax = calculateTotalPax(flow);
     const region = flow.region || 'unknown';
     const regionKor = this.REGION_MAP[region] || region;
     const duration = flow.duration || 3;
@@ -483,7 +464,7 @@ export class AiEstimateService {
         shareHash,
         internalMemo,
         requestContent,
-        totalAmount: items.reduce((sum, item) => sum + item.subtotal, 0),
+        totalAmount: items.reduce((sum, item) => sum + (item.subtotal ?? 0), 0),
         validDate,
         displayOptions: {
           place: true,

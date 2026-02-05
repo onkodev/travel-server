@@ -98,6 +98,11 @@ export interface ReviewData {
 // ============================================================================
 
 /**
+ * 아이템 타입 (place, accommodation, transportation, contents)
+ */
+export type EstimateItemType = 'place' | 'accommodation' | 'transportation' | 'contents';
+
+/**
  * 아이템 정보 (견적 아이템에 포함되는 상세 정보)
  */
 export interface EstimateItemInfo {
@@ -112,22 +117,60 @@ export interface EstimateItemInfo {
 
 /**
  * 견적 아이템 타입
+ *
+ * 두 가지 케이스:
+ * 1. DB 아이템 (isTbd=false 또는 undefined): itemId와 itemInfo가 있음
+ * 2. TBD 아이템 (isTbd=true): itemId 없이 itemName만 있음
+ *
+ * 타입 가드 사용 권장:
+ * - isTbdEstimateItem(item) - TBD 아이템 확인
+ * - isDbEstimateItem(item) - DB 아이템 확인
  */
 export interface EstimateItem {
   id: string;
-  type: string;
-  itemId?: number;
-  itemName?: string;
-  name?: string;
-  nameEng?: string;
+  type: EstimateItemType | string;
+  dayNumber: number;
+  orderIndex: number;
   quantity?: number;
   unitPrice?: number;
   subtotal?: number;
-  dayNumber: number;
-  orderIndex: number;
-  isTbd?: boolean;
   note?: string;
+  // DB 아이템 관련
+  itemId?: number;
   itemInfo?: EstimateItemInfo;
+  // TBD 또는 표시용
+  itemName?: string;
+  name?: string; // 레거시 호환
+  nameEng?: string; // 레거시 호환
+  // TBD 여부 (true면 플레이스홀더)
+  isTbd?: boolean;
+}
+
+/**
+ * TBD 아이템인지 확인하는 타입 가드
+ * TBD 아이템은 itemId가 없고 itemName만 있음
+ */
+export function isTbdEstimateItem(item: EstimateItem): boolean {
+  return item.isTbd === true || (!item.itemId && !!item.itemName);
+}
+
+/**
+ * DB 아이템인지 확인하는 타입 가드
+ * DB 아이템은 itemId와 itemInfo가 있음
+ */
+export function isDbEstimateItem(item: EstimateItem): boolean {
+  return !item.isTbd && typeof item.itemId === 'number';
+}
+
+/**
+ * 아이템 표시 이름 가져오기 (itemName > itemInfo.nameEng > name > nameEng)
+ */
+export function getEstimateItemDisplayName(item: EstimateItem): string {
+  return item.itemName
+    || item.itemInfo?.nameEng
+    || item.name
+    || item.nameEng
+    || 'Unknown Item';
 }
 
 // ============================================================================

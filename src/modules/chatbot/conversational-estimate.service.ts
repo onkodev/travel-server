@@ -3,34 +3,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ItineraryAiService, ModificationIntent } from '../ai/services/itinerary-ai.service';
 import { TravelAssistantService } from '../ai/services/travel-assistant.service';
 import { ItemService } from '../item/item.service';
-import { normalizeImages, type ImageObject } from '../../common/utils';
-
-export interface EstimateItem {
-  id: string;
-  type: string;
-  itemId?: number;
-  itemName?: string;
-  name?: string;
-  nameEng?: string;
-  quantity?: number;
-  unitPrice?: number;
-  subtotal?: number;
-  dayNumber: number;
-  orderIndex: number;
-  isTbd?: boolean;
-  note?: string;
-  itemInfo?: {
-    nameKor?: string;
-    nameEng?: string;
-    descriptionEng?: string;
-    images?: ImageObject[];
-    lat?: number;
-    lng?: number;
-    addressEnglish?: string;
-  };
-}
+import { normalizeImages } from '../../common/utils';
+import { EstimateItem } from '../../common/types';
 
 // Re-export for backward compatibility
+export type { EstimateItem };
 export type { ModificationIntent };
 
 @Injectable()

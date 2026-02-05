@@ -7,8 +7,10 @@ import {
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
   ParseIntPipe,
+  Header,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -148,6 +150,7 @@ export class EstimateController {
     description: '견적 없음',
     type: ErrorResponseDto,
   })
+  @Header('Cache-Control', 'no-store')
   async getEstimateByShareHash(@Param('shareHash') shareHash: string) {
     return this.estimateService.getEstimateByShareHash(shareHash);
   }

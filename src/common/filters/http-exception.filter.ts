@@ -16,6 +16,7 @@ interface ErrorResponse {
   details?: string[];
   timestamp: string;
   path: string;
+  [key: string]: unknown;
 }
 
 @Catch()
@@ -58,6 +59,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
 
       const responseBody = exceptionResponse as Record<string, unknown>;
+      const { message: _m, error: _e, statusCode: _s, ...extra } = responseBody;
       return {
         statusCode: status,
         message: this.extractMessage(responseBody),
@@ -65,6 +67,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         details: this.extractDetails(responseBody),
         timestamp,
         path,
+        ...extra,
       };
     }
 

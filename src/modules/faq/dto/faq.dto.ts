@@ -5,11 +5,14 @@ import {
   IsOptional,
   IsIn,
   IsArray,
+  IsUUID,
   MaxLength,
+  MinLength,
   Min,
   Max,
   ArrayMinSize,
   ArrayMaxSize,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/dto';
@@ -163,4 +166,74 @@ export class BulkActionDto {
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+// ============================================================================
+// FAQ Chat DTO
+// ============================================================================
+
+class FaqChatHistoryItem {
+  @IsIn(['user', 'assistant'])
+  role: 'user' | 'assistant';
+
+  @IsString()
+  content: string;
+}
+
+export class FaqChatDto {
+  @ApiProperty({ description: '사용자 메시지' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(1000)
+  message: string;
+
+  @ApiPropertyOptional({ description: '대화 이력 (멀티턴)' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => FaqChatHistoryItem)
+  history?: FaqChatHistoryItem[];
+
+  @ApiPropertyOptional({ description: '방문자 ID (UUID)' })
+  @IsOptional()
+  @IsUUID()
+  visitorId?: string;
+}
+
+// ============================================================================
+// FAQ Chat Log DTOs
+// ============================================================================
+
+export class FaqChatLogQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ description: 'No Match 필터' })
+  @IsOptional()
+  @IsString()
+  noMatch?: string;
+
+  @ApiPropertyOptional({ description: '시작일' })
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: '종료일' })
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+
+  @ApiPropertyOptional({ description: '검색어 (질문 내용)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  search?: string;
+
+  @ApiPropertyOptional({ description: '응답 유형', enum: ['direct', 'rag', 'no_match'] })
+  @IsOptional()
+  @IsIn(['direct', 'rag', 'no_match'])
+  responseTier?: string;
+
+  @ApiPropertyOptional({ description: '방문자 ID (UUID)' })
+  @IsOptional()
+  @IsUUID()
+  visitorId?: string;
 }

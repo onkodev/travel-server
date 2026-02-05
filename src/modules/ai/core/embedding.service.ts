@@ -9,7 +9,7 @@ export class EmbeddingService {
   private readonly logger = new Logger(EmbeddingService.name);
   private readonly apiKey: string;
   private readonly baseUrl =
-    'https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent';
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent';
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('GEMINI_API_KEY') || '';
@@ -40,8 +40,9 @@ export class EmbeddingService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'models/text-embedding-004',
+          model: 'models/gemini-embedding-001',
           content: { parts: [{ text }] },
+          outputDimensionality: 768,
         }),
         signal: controller.signal,
       });
@@ -81,7 +82,15 @@ export class EmbeddingService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  buildFaqText(question: string, answer: string): string {
-    return `Q: ${question}\nA: ${answer}`;
+  buildFaqText(
+    question: string,
+    answer: string,
+    questionKo?: string | null,
+    answerKo?: string | null,
+  ): string {
+    let text = `Q: ${question}\nA: ${answer}`;
+    if (questionKo) text += `\nQ(KO): ${questionKo}`;
+    if (answerKo) text += `\nA(KO): ${answerKo}`;
+    return text;
   }
 }

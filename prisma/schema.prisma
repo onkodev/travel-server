@@ -509,6 +509,27 @@ model Faq {
   @@map("faqs")
 }
 
+model FaqChatLog {
+  id              Int       @id @default(autoincrement())
+  message         String
+  answer          String
+  matchedFaqIds          Int[]     @default([]) @map("matched_faq_ids")
+  matchedSimilarities    Float[]   @default([]) @map("matched_similarities")
+  topSimilarity          Decimal?  @map("top_similarity") @db.Decimal(5, 4)
+  noMatch                Boolean   @default(false) @map("no_match")
+  responseTier           String?   @map("response_tier") @db.VarChar(20) // direct, rag, no_match
+  visitorId       String?   @map("visitor_id") @db.Uuid
+  ipAddress       String?   @map("ip_address")
+  country         String?   @db.VarChar(10)
+  countryName     String?   @map("country_name") @db.VarChar(100)
+  city            String?   @db.VarChar(100)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)], map: "idx_faq_chat_logs_created_at")
+  @@index([noMatch], map: "idx_faq_chat_logs_no_match")
+  @@map("faq_chat_logs")
+}
+
 model GmailSyncState {
   id                   Int       @id @default(autoincrement())
   accountEmail         String    @unique @map("account_email") @db.VarChar(255)

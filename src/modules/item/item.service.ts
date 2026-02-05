@@ -2,16 +2,11 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
+import { MemoryCache } from '../../common/utils';
 import {
   calculateSkip,
   createPaginatedResponse,
 } from '../../common/dto/pagination.dto';
-
-// 간단한 인메모리 캐시 (TTL 지원)
-interface CacheEntry<T> {
-  data: T;
-  expiresAt: number;
-}
 
 // 아이템 목록 조회용 타입
 export interface ItemListItem {
@@ -27,39 +22,11 @@ export interface ItemListItem {
   area: string | null;
 }
 
-// 캐시 데이터 타입
-type CacheData = { data: ItemListItem[] } | unknown;
-
 @Injectable()
 export class ItemService {
-  private cache = new Map<string, CacheEntry<CacheData>>();
-  private readonly CACHE_TTL = 60 * 60 * 1000; // 1시간
+  private cache = new MemoryCache(60 * 60 * 1000); // 1시간
 
   constructor(private prisma: PrismaService) {}
-
-  // 캐시에서 가져오기 (만료되면 null 반환)
-  private getFromCache<T>(key: string): T | null {
-    const entry = this.cache.get(key);
-    if (!entry) return null;
-    if (Date.now() > entry.expiresAt) {
-      this.cache.delete(key);
-      return null;
-    }
-    return entry.data as T;
-  }
-
-  // 캐시에 저장
-  private setCache<T>(key: string, data: T): void {
-    this.cache.set(key, {
-      data,
-      expiresAt: Date.now() + this.CACHE_TTL,
-    });
-  }
-
-  // 캐시 무효화 (아이템 생성/수정/삭제 시 호출)
-  private invalidateCache(): void {
-    this.cache.clear();
-  }
 
   // 아이템 목록 조회
   async getItems(params: {
@@ -127,7 +94,7 @@ export class ItemService {
   // 아이템 생성
   async createItem(data: Prisma.ItemCreateInput) {
     const item = await this.prisma.item.create({ data });
-    this.invalidateCache();
+    this.cache.clear();
     return item;
   }
 
@@ -137,7 +104,7 @@ export class ItemService {
       where: { id },
       data,
     });
-    this.invalidateCache();
+    this.cache.clear();
     return item;
   }
 
@@ -176,7 +143,7 @@ export class ItemService {
       },
     });
 
-    this.invalidateCache();
+    this.cache.clear();
     return convertDecimalFields(newItem);
   }
 
@@ -195,14 +162,14 @@ export class ItemService {
       where: { id },
     });
 
-    this.invalidateCache();
+    this.cache.clear();
     return { success: true, message: '삭제되었습니다' };
   }
 
   // 타입별 아이템 조회 (캐싱 적용)
   async getItemsByType(type: string) {
     const cacheKey = `items_type_${type}`;
-    const cached = this.getFromCache<{ data: ItemListItem[] }>(cacheKey);
+    const cached = this.cache.get<{ data: ItemListItem[] }>(cacheKey);
     if (cached) return cached;
 
     const items = await this.prisma.item.findMany({
@@ -224,14 +191,14 @@ export class ItemService {
       },
     });
     const result = { data: items.map(convertDecimalFields) };
-    this.setCache(cacheKey, result);
+    this.cache.set(cacheKey, result);
     return result;
   }
 
   // 지역별 아이템 조회 (캐싱 적용)
   async getItemsByRegion(region: string) {
     const cacheKey = `items_region_${region}`;
-    const cached = this.getFromCache<{ data: ItemListItem[] }>(cacheKey);
+    const cached = this.cache.get<{ data: ItemListItem[] }>(cacheKey);
     if (cached) return cached;
 
     const items = await this.prisma.item.findMany({
@@ -253,7 +220,7 @@ export class ItemService {
       },
     });
     const result = { data: items.map(convertDecimalFields) };
-    this.setCache(cacheKey, result);
+    this.cache.set(cacheKey, result);
     return result;
   }
 
