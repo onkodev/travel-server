@@ -750,13 +750,26 @@ Guidelines:
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const [totalChats, todayChats, noMatchCount, directCount, ragCount, generalCount, dailyTrend, topQuestions, unansweredQuestions] = await Promise.all([
-      this.prisma.faqChatLog.count(),
-      this.prisma.faqChatLog.count({ where: { createdAt: { gte: todayStart } } }),
-      this.prisma.faqChatLog.count({ where: { noMatch: true } }),
-      this.prisma.faqChatLog.count({ where: { responseTier: 'direct' } }),
-      this.prisma.faqChatLog.count({ where: { responseTier: 'rag' } }),
-      this.prisma.faqChatLog.count({ where: { responseTier: 'general' } }),
+    // 단일 쿼리로 모든 카운트 집계 (9개 쿼리 → 4개로 최적화)
+    const [counts, dailyTrend, topQuestions, unansweredQuestions] = await Promise.all([
+      // 모든 카운트를 한 번에 가져오기
+      this.prisma.$queryRaw<Array<{
+        total: bigint;
+        today: bigint;
+        no_match: bigint;
+        direct: bigint;
+        rag: bigint;
+        general: bigint;
+      }>>`
+        SELECT
+          COUNT(*)::bigint as total,
+          COUNT(*) FILTER (WHERE created_at >= ${todayStart})::bigint as today,
+          COUNT(*) FILTER (WHERE no_match = true)::bigint as no_match,
+          COUNT(*) FILTER (WHERE response_tier = 'direct')::bigint as direct,
+          COUNT(*) FILTER (WHERE response_tier = 'rag')::bigint as rag,
+          COUNT(*) FILTER (WHERE response_tier = 'general')::bigint as general
+        FROM faq_chat_logs
+      `,
       // 일별 추이 (30일)
       this.prisma.$queryRaw<Array<{ date: Date; count: bigint }>>`
         SELECT DATE(created_at AT TIME ZONE 'UTC') as date, COUNT(*)::bigint as count
@@ -784,15 +797,19 @@ Guidelines:
       `,
     ]);
 
+    const stats = counts[0] || { total: 0n, today: 0n, no_match: 0n, direct: 0n, rag: 0n, general: 0n };
+    const totalChats = Number(stats.total);
+    const noMatchCount = Number(stats.no_match);
+
     const result = {
       totalChats,
-      todayChats,
+      todayChats: Number(stats.today),
       noMatchCount,
       noMatchRate: totalChats > 0 ? ((noMatchCount / totalChats) * 100).toFixed(1) : '0.0',
       responseTierBreakdown: {
-        direct: directCount,
-        rag: ragCount,
-        general: generalCount,
+        direct: Number(stats.direct),
+        rag: Number(stats.rag),
+        general: Number(stats.general),
         noMatch: noMatchCount,
       },
       dailyTrend: dailyTrend.map((d) => ({

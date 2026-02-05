@@ -530,6 +530,7 @@ model FaqChatLog {
 
   @@index([createdAt(sort: Desc)], map: "idx_faq_chat_logs_created_at")
   @@index([noMatch], map: "idx_faq_chat_logs_no_match")
+  @@index([responseTier], map: "idx_faq_chat_logs_response_tier")
   @@map("faq_chat_logs")
 }
 
