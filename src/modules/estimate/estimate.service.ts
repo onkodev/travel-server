@@ -532,6 +532,14 @@ export class EstimateService {
         estimateId: estimate.id,
       };
       this.eventEmitter.emit(ESTIMATE_EVENTS.SENT, event);
+
+      // SSE로 상태 변경 알림 (클라이언트 UI 즉시 업데이트용)
+      const sseEvent: ChatbotEstimateStatusEvent = {
+        sessionId: estimate.chatSessionId,
+        estimateId: estimate.id,
+        status: ESTIMATE_STATUS.SENT,
+      };
+      this.eventEmitter.emit(CHATBOT_EVENTS.ESTIMATE_STATUS_CHANGED, sseEvent);
     }
 
     return convertDecimalFields(updatedEstimate);

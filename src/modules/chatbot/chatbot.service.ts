@@ -17,7 +17,7 @@ import { AiEstimateService } from './ai-estimate.service';
 import { ChatbotStepResponseService } from './chatbot-step-response.service';
 import { NotificationService } from '../notification/notification.service';
 import { EmailService } from '../email/email.service';
-import { chatbotInquiryAdminTemplate } from '../email/email-templates';
+import { chatbotInquiryAdminTemplate, modificationRequestTemplate } from '../email/email-templates';
 import { EstimateItem } from '../../common/types';
 import { ESTIMATE_EVENTS, CHATBOT_EVENTS } from '../../common/events';
 import type { EstimateSentEvent, ChatbotNewMessageEvent } from '../../common/events';
@@ -817,7 +817,7 @@ export class ChatbotService {
         },
       });
 
-      // 관리자에게 수정 요청 알림 전송
+      // 관리자에게 수정 요청 알림 전송 (DB 알림 + 이메일)
       try {
         await this.notificationService.notifyModificationRequest({
           estimateId: flow.estimateId,
@@ -828,6 +828,31 @@ export class ChatbotService {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         this.logger.error(`Failed to send modification request notification: ${errorMessage}`);
+      }
+
+      // 관리자 이메일 발송
+      try {
+        const adminEmail = this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL')
+          || this.configService.get<string>('ADMIN_EMAIL')
+          || 'admin@tumakr.com';
+        const adminUrl = this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
+
+        await this.emailService.sendEmail({
+          to: adminEmail,
+          subject: `[수정 요청] ${currentEstimate?.customerName || flow.customerName || '고객'}님 - 견적 #${flow.estimateId}`,
+          html: modificationRequestTemplate({
+            customerName: currentEstimate?.customerName || flow.customerName || '고객',
+            customerEmail: flow.customerEmail || '-',
+            estimateId: flow.estimateId,
+            requestContent: modificationRequest,
+            sessionId: sessionId,
+            adminUrl,
+          }),
+        });
+        this.logger.log(`Modification request email sent for estimate #${flow.estimateId}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Failed to send modification request email: ${errorMessage}`);
       }
 
       return {
