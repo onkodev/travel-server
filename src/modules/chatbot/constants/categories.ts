@@ -20,7 +20,7 @@ export const TOUR_TYPES = {
     labelKo: '챗AI에게 물어보기',
     description: "Got questions? Ask our AI!",
     descriptionKo: 'AI에게 한국 여행 관련 질문하기',
-    status: 'coming_soon', // TODO: 베타 테스트 완료 후 'available'로 변경
+    status: 'available', // 베타 테스트 중 (배포 시 'coming_soon'으로 변경)
     redirectUrl: null,
   },
 } as const;

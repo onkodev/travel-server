@@ -14,7 +14,7 @@ import {
   calculateSkip,
   createPaginatedResponse,
 } from '../../common/dto/pagination.dto';
-import { ESTIMATE_EVENTS, EstimateSentEvent } from '../../common/events';
+import { ESTIMATE_EVENTS, CHATBOT_EVENTS, EstimateSentEvent, ChatbotEstimateStatusEvent } from '../../common/events';
 
 // Item 캐시 타입 (Prisma 타입과 호환)
 interface ItemCacheEntry {
@@ -672,7 +672,20 @@ export class EstimateService {
     if (status === ESTIMATE_STATUS.SENT) updates.sentAt = new Date();
     if (status === ESTIMATE_STATUS.APPROVED) updates.respondedAt = new Date();
     if (status === ESTIMATE_STATUS.COMPLETED) updates.completedAt = new Date();
-    return this.prisma.estimate.update({ where: { id }, data: updates });
+
+    const estimate = await this.prisma.estimate.update({ where: { id }, data: updates });
+
+    // SSE 이벤트 발행 (채팅 세션이 연결된 경우)
+    if (estimate.chatSessionId) {
+      const sseEvent: ChatbotEstimateStatusEvent = {
+        sessionId: estimate.chatSessionId,
+        estimateId: id,
+        status,
+      };
+      this.eventEmitter.emit(CHATBOT_EVENTS.ESTIMATE_STATUS_CHANGED, sseEvent);
+    }
+
+    return estimate;
   }
 
   // 고정 토글

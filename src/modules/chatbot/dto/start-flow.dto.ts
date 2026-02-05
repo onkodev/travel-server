@@ -48,4 +48,9 @@ export class StartFlowDto {
   @IsOptional()
   @IsString()
   visitorId?: string;
+
+  @ApiPropertyOptional({ description: 'Session title (e.g., selected tour type label)' })
+  @IsOptional()
+  @IsString()
+  title?: string;
 }
