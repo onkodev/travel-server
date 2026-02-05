@@ -341,8 +341,12 @@ export function estimateTemplate(params: {
                 Hi ${customerName},
               </p>
 
-              <p style="margin: 0 0 32px; color: #334155; font-size: 16px; line-height: 1.7;">
+              <p style="margin: 0 0 20px; color: #334155; font-size: 16px; line-height: 1.7;">
                 Your travel quotation is ready! Click below to view the full details.
+              </p>
+
+              <p style="margin: 0 0 32px; color: #64748b; font-size: 14px; line-height: 1.7;">
+                Have questions or need changes? You can reply to this email directly or return to our chat to continue the conversation.
               </p>
 
               <!-- Summary Card -->
