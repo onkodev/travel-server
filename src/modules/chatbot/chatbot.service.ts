@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { isValidUUID } from '../../common/utils';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SupabaseService } from '../../supabase/supabase.service';
 import { EstimateService } from '../estimate/estimate.service';
 import { ESTIMATE_STATUS } from '../estimate/dto';
 import { GeoIpService } from '../geoip/geoip.service';
@@ -55,6 +56,7 @@ export class ChatbotService {
 
   constructor(
     private prisma: PrismaService,
+    private supabaseService: SupabaseService,
     private estimateService: EstimateService,
     private geoIpService: GeoIpService,
     private aiEstimateService: AiEstimateService,
@@ -1249,6 +1251,9 @@ export class ChatbotService {
       return { success: true, linked: false, message: 'Already linked' };
     }
 
+    // 사용자 프로필 조회
+    const userProfile = await this.supabaseService.getUserProfile(userId);
+
     // 세션을 사용자에게 연결
     await this.prisma.chatbotFlow.update({
       where: { sessionId },
@@ -1256,7 +1261,57 @@ export class ChatbotService {
     });
 
     this.logger.log(`Session ${sessionId} linked to user ${userId}`);
-    return { success: true, linked: true };
+
+    // 비회원 정보와 로그인한 사용자 정보 비교
+    const guestName = flow.customerName;
+    const guestEmail = flow.customerEmail;
+    const loggedInName = userProfile?.name || userProfile?.full_name;
+    const loggedInEmail = userProfile?.email;
+
+    const nameMismatch = guestName && loggedInName && guestName.toLowerCase() !== loggedInName.toLowerCase();
+    const emailMismatch = guestEmail && loggedInEmail && guestEmail.toLowerCase() !== loggedInEmail.toLowerCase();
+
+    if (nameMismatch || emailMismatch) {
+      // 채팅 메시지로 시스템 알림 저장 (어드민이 볼 수 있도록)
+      const mismatchDetails: string[] = [];
+      if (nameMismatch) {
+        mismatchDetails.push(`Name: "${guestName}" → "${loggedInName}"`);
+      }
+      if (emailMismatch) {
+        mismatchDetails.push(`Email: "${guestEmail}" → "${loggedInEmail}"`);
+      }
+
+      const systemMessage = `🔔 User logged in with different info:\n${mismatchDetails.join('\n')}\n\nGuest info was provided during the initial inquiry. Please verify with the customer.`;
+
+      // 시스템 메시지 저장 (봇 메시지로)
+      await this.saveMessage(sessionId, {
+        role: 'bot',
+        content: systemMessage,
+        messageType: 'text',
+      });
+
+      // 어드민에게 알림 생성
+      try {
+        await this.notificationService.notifyAdmins({
+          type: 'user_info_mismatch',
+          title: '사용자 정보 불일치',
+          message: `${guestName || '고객'}님이 다른 정보로 로그인했습니다. ${mismatchDetails.join(', ')}`,
+          relatedSessionId: sessionId,
+          relatedEstimateId: flow.estimateId || undefined,
+          metadata: {
+            guestName,
+            guestEmail,
+            loggedInName,
+            loggedInEmail,
+          },
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Failed to send user mismatch notification: ${errorMessage}`);
+      }
+    }
+
+    return { success: true, linked: true, infoMismatch: nameMismatch || emailMismatch };
   }
 
   // 세션 제목 업데이트

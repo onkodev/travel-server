@@ -11,9 +11,10 @@ import { NotificationModule } from '../notification/notification.module';
 import { AiModule } from '../ai/ai.module';
 import { ItemModule } from '../item/item.module';
 import { EmailModule } from '../email/email.module';
+import { SupabaseModule } from '../../supabase/supabase.module';
 
 @Module({
-  imports: [EstimateModule, NotificationModule, AiModule, ItemModule, EmailModule],
+  imports: [EstimateModule, NotificationModule, AiModule, ItemModule, EmailModule, SupabaseModule],
   controllers: [ChatbotController],
   providers: [ChatbotService, ChatbotAnalyticsService, ChatbotSseService, ChatbotStepResponseService, AiEstimateService, ConversationalEstimateService],
   exports: [ChatbotService, ChatbotAnalyticsService, ChatbotSseService, AiEstimateService, ConversationalEstimateService],

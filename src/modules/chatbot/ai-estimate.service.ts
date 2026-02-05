@@ -438,9 +438,9 @@ export class AiEstimateService {
     // 고객 요청사항 (requestContent)
     const requestContent = this.buildRequestContent(flow);
 
-    // 유효기간: 30일 후
+    // 유효기간: 10일 후
     const validDate = new Date();
-    validDate.setDate(validDate.getDate() + 30);
+    validDate.setDate(validDate.getDate() + 10);
 
     const estimate = await this.prisma.estimate.create({
       data: {
