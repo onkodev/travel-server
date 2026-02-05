@@ -399,11 +399,15 @@ export class FaqService {
   }
 
   // ============================================================================
-  // FAQ Chat (AI) — 3단계 응답 전략
+  // FAQ Chat (AI) — 하이브리드 응답 전략
+  // 1. FAQ 유사도 높음 → FAQ 답변 (회사 관련)
+  // 2. FAQ 유사도 낮음 → 의도 분류 후 분기
+  //    - company → FAQ RAG
+  //    - travel → Gemini 직접 (일반 한국 여행)
   // ============================================================================
 
-  private static readonly DIRECT_THRESHOLD = 0.75;
-  private static readonly RAG_THRESHOLD = 0.5;
+  private static readonly DIRECT_THRESHOLD = 0.70; // FAQ 직접 답변 임계값
+  private static readonly RAG_THRESHOLD = 0.50;    // FAQ RAG 임계값
 
   async chatWithFaq(
     message: string,
@@ -413,37 +417,46 @@ export class FaqService {
     answer: string;
     sources?: Array<{ question: string; id: number }>;
     noMatch: boolean;
-    responseTier: 'direct' | 'rag' | 'no_match';
+    responseTier: 'direct' | 'rag' | 'general' | 'no_match';
     suggestedQuestions?: Array<{ id: number; question: string }>;
   }> {
     // 1. 유사 FAQ 검색
     const similar = await this.searchSimilar(message, 5);
     const topSimilarity = similar.length > 0 ? similar[0].similarity : 0;
 
-    // 2. 3단계 분기
+    // 2. 하이브리드 분기
     let answer: string;
-    let responseTier: 'direct' | 'rag' | 'no_match';
+    let responseTier: 'direct' | 'rag' | 'general' | 'no_match';
     let suggestedQuestions: Array<{ id: number; question: string }> | undefined;
 
     if (topSimilarity >= FaqService.DIRECT_THRESHOLD) {
-      // === Direct: FAQ 원문 직접 반환 ===
+      // === Direct: FAQ 원문 직접 반환 (확실히 회사 관련) ===
       responseTier = 'direct';
       answer = similar[0].answer;
-    } else if (topSimilarity >= FaqService.RAG_THRESHOLD) {
-      // === RAG: Gemini + FAQ 컨텍스트 ===
-      responseTier = 'rag';
-      const relevant = similar.filter((f) => f.similarity >= FaqService.RAG_THRESHOLD);
-      answer = await this.generateRagAnswer(message, relevant, history);
     } else {
-      // === No Match: 폴백 + 유사 질문 제안 ===
-      responseTier = 'no_match';
-      answer = "I don't have specific information about that. You can start a tour inquiry for personalized help from our travel experts.";
-      // 유사도와 관계없이 상위 3개를 제안 질문으로 반환
-      if (similar.length > 0) {
-        suggestedQuestions = similar.slice(0, 3).map((f) => ({
-          id: f.id,
-          question: f.question,
-        }));
+      // === 유사도 낮음: 의도 분류 후 분기 ===
+      const intent = await this.classifyIntent(message);
+      this.logger.debug(`Intent classified: ${intent} for message: "${message.substring(0, 50)}..."`);
+
+      if (intent === 'company' && topSimilarity >= FaqService.RAG_THRESHOLD) {
+        // === RAG: 회사 관련이지만 정확한 FAQ 없음 → FAQ 컨텍스트로 생성 ===
+        responseTier = 'rag';
+        const relevant = similar.filter((f) => f.similarity >= FaqService.RAG_THRESHOLD);
+        answer = await this.generateRagAnswer(message, relevant, history);
+      } else if (intent === 'company') {
+        // === 회사 관련인데 매칭 FAQ 없음 → 문의 안내 ===
+        responseTier = 'no_match';
+        answer = "I don't have specific information about that in our FAQ. For questions about our tours, pricing, or bookings, please start a tour inquiry or contact us directly at info@tumakr.com.";
+        if (similar.length > 0) {
+          suggestedQuestions = similar.slice(0, 3).map((f) => ({
+            id: f.id,
+            question: f.question,
+          }));
+        }
+      } else {
+        // === General: 일반 한국 여행 질문 → Gemini 직접 답변 ===
+        responseTier = 'general';
+        answer = await this.generateGeneralTravelAnswer(message, history);
       }
     }
 
@@ -499,6 +512,71 @@ export class FaqService {
       responseTier,
       suggestedQuestions,
     };
+  }
+
+  /**
+   * 의도 분류: company (회사/투어 관련) vs travel (일반 여행 정보)
+   */
+  private async classifyIntent(message: string): Promise<'company' | 'travel'> {
+    const prompt = `Classify this question into ONE category:
+- "company": Questions about tours, bookings, reservations, prices, cancellations, refunds, policies, schedules, guides, pickup, itinerary changes, or contacting the travel agency
+- "travel": General Korea travel information (weather, transportation, food, attractions, visa, culture, tips, shopping, etc.)
+
+Question: "${message}"
+
+Reply with ONLY one word: company OR travel`;
+
+    try {
+      const result = await this.geminiCore.callGemini(prompt, {
+        temperature: 0,
+        maxOutputTokens: 10,
+      });
+      const intent = result.trim().toLowerCase();
+      return intent === 'company' ? 'company' : 'travel';
+    } catch (error) {
+      this.logger.error('Intent classification failed, defaulting to travel:', error);
+      return 'travel'; // 실패 시 일반 여행으로 처리
+    }
+  }
+
+  /**
+   * 일반 한국 여행 질문에 대한 Gemini 직접 답변
+   */
+  private async generateGeneralTravelAnswer(
+    message: string,
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  ): Promise<string> {
+    const systemPrompt = `You are a friendly and knowledgeable Korea travel assistant for Tumakr, a travel agency specializing in Korea tours.
+
+Your role is to answer general questions about traveling in Korea, such as:
+- Weather and best seasons to visit
+- Transportation (trains, buses, taxis, T-money cards)
+- Food and restaurants
+- Tourist attractions and activities
+- Visa and entry requirements
+- Culture and etiquette
+- Shopping and nightlife
+- Practical tips (SIM cards, money exchange, etc.)
+
+Guidelines:
+- Be helpful, accurate, and concise
+- Keep responses under 250 words
+- Use a friendly, conversational tone
+- You may use markdown formatting (bold, bullet points) for clarity
+- If asked about specific tour packages, prices, or bookings, politely mention that you can help with general travel info, and suggest they start a tour inquiry for personalized assistance
+- Base your answers on common, accurate knowledge about Korea`;
+
+    const geminiHistory = history?.map((h) => ({
+      role: h.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: h.content }],
+    }));
+
+    return this.geminiCore.callGemini(message, {
+      temperature: 0.7,
+      maxOutputTokens: 1024,
+      systemPrompt,
+      history: geminiHistory,
+    });
   }
 
   /**
