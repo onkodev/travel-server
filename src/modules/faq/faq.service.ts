@@ -9,10 +9,12 @@ import {
 import { EmbeddingService } from '../ai/core/embedding.service';
 import { GeminiCoreService } from '../ai/core/gemini-core.service';
 import { GeoIpService } from '../geoip/geoip.service';
+import { MemoryCache } from '../../common/utils';
 
 @Injectable()
 export class FaqService {
   private readonly logger = new Logger(FaqService.name);
+  private cache = new MemoryCache(5 * 60 * 1000); // 5분 캐시
 
   constructor(
     private prisma: PrismaService,
@@ -113,6 +115,7 @@ export class FaqService {
       }
     }
 
+    this.cache.clear();
     return faq;
   }
 
@@ -131,11 +134,14 @@ export class FaqService {
       }
     }
 
+    this.cache.clear();
     return faq;
   }
 
   async deleteFaq(id: number) {
-    return this.prisma.faq.delete({ where: { id } });
+    const result = await this.prisma.faq.delete({ where: { id } });
+    this.cache.clear();
+    return result;
   }
 
   async approveFaq(
@@ -167,6 +173,7 @@ export class FaqService {
       this.logger.error(`임베딩 생성 실패 (FAQ #${faq.id}):`, error);
     }
 
+    this.cache.clear();
     return faq;
   }
 
@@ -185,6 +192,7 @@ export class FaqService {
       await this.cleanupEmailRawData(faq.sourceEmailId);
     }
 
+    this.cache.clear();
     return faq;
   }
 
@@ -194,7 +202,7 @@ export class FaqService {
     userId: string,
     reason?: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       if (action === 'delete') {
         return tx.faq.deleteMany({ where: { id: { in: ids } } });
       }
@@ -234,9 +242,16 @@ export class FaqService {
 
       return result;
     });
+
+    this.cache.clear();
+    return result;
   }
 
   async getStats() {
+    const cacheKey = 'faq:stats';
+    const cached = this.cache.get<{ total: number; pending: number; approved: number; rejected: number; fromGmail: number }>(cacheKey);
+    if (cached) return cached;
+
     const [total, pending, approved, rejected, fromGmail] = await Promise.all([
       this.prisma.faq.count(),
       this.prisma.faq.count({ where: { status: 'pending' } }),
@@ -245,7 +260,9 @@ export class FaqService {
       this.prisma.faq.count({ where: { source: 'gmail' } }),
     ]);
 
-    return { total, pending, approved, rejected, fromGmail };
+    const result = { total, pending, approved, rejected, fromGmail };
+    this.cache.set(cacheKey, result, 60 * 1000); // 1분 캐시
+    return result;
   }
 
   // ============================================================================
@@ -725,6 +742,10 @@ Guidelines:
   }
 
   async getFaqChatStats() {
+    const cacheKey = 'faq:chatStats';
+    const cached = this.cache.get<ReturnType<typeof this.buildChatStatsResponse>>(cacheKey);
+    if (cached) return cached;
+
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -763,7 +784,7 @@ Guidelines:
       `,
     ]);
 
-    return {
+    const result = {
       totalChats,
       todayChats,
       noMatchCount,
@@ -788,5 +809,12 @@ Guidelines:
         count: Number(q.count),
       })),
     };
+
+    this.cache.set(cacheKey, result, 2 * 60 * 1000); // 2분 캐시
+    return result;
+  }
+
+  private buildChatStatsResponse(data: any) {
+    return data; // 타입 추론용 헬퍼
   }
 }
