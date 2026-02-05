@@ -729,12 +729,13 @@ Guidelines:
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const [totalChats, todayChats, noMatchCount, directCount, ragCount, dailyTrend, topFaqs] = await Promise.all([
+    const [totalChats, todayChats, noMatchCount, directCount, ragCount, generalCount, dailyTrend, topQuestions, unansweredQuestions] = await Promise.all([
       this.prisma.faqChatLog.count(),
       this.prisma.faqChatLog.count({ where: { createdAt: { gte: todayStart } } }),
       this.prisma.faqChatLog.count({ where: { noMatch: true } }),
       this.prisma.faqChatLog.count({ where: { responseTier: 'direct' } }),
       this.prisma.faqChatLog.count({ where: { responseTier: 'rag' } }),
+      this.prisma.faqChatLog.count({ where: { responseTier: 'general' } }),
       // 일별 추이 (30일)
       this.prisma.$queryRaw<Array<{ date: Date; count: bigint }>>`
         SELECT DATE(created_at AT TIME ZONE 'UTC') as date, COUNT(*)::bigint as count
@@ -743,44 +744,48 @@ Guidelines:
         GROUP BY DATE(created_at AT TIME ZONE 'UTC')
         ORDER BY date ASC
       `,
-      // 자주 매칭되는 FAQ Top 10
-      this.prisma.$queryRaw<Array<{ faq_id: number; match_count: bigint }>>`
-        SELECT unnest(matched_faq_ids) as faq_id, COUNT(*)::bigint as match_count
+      // 자주 묻는 질문 Top 10 (고객 실제 질문)
+      this.prisma.$queryRaw<Array<{ message: string; count: bigint; response_tier: string | null }>>`
+        SELECT message, COUNT(*)::bigint as count, response_tier
         FROM faq_chat_logs
-        WHERE array_length(matched_faq_ids, 1) > 0
-        GROUP BY faq_id
-        ORDER BY match_count DESC
+        GROUP BY message, response_tier
+        ORDER BY count DESC
+        LIMIT 10
+      `,
+      // 답변 못한 질문 Top 10 (FAQ 추가 필요)
+      this.prisma.$queryRaw<Array<{ message: string; count: bigint }>>`
+        SELECT message, COUNT(*)::bigint as count
+        FROM faq_chat_logs
+        WHERE no_match = true
+        GROUP BY message
+        ORDER BY count DESC
         LIMIT 10
       `,
     ]);
-
-    // Top FAQ 상세 정보 조회
-    const topFaqIds = topFaqs.map((f) => f.faq_id);
-    const faqDetails =
-      topFaqIds.length > 0
-        ? await this.prisma.faq.findMany({
-            where: { id: { in: topFaqIds } },
-            select: { id: true, question: true, viewCount: true },
-          })
-        : [];
-
-    const faqDetailMap = new Map(faqDetails.map((f) => [f.id, f]));
 
     return {
       totalChats,
       todayChats,
       noMatchCount,
       noMatchRate: totalChats > 0 ? ((noMatchCount / totalChats) * 100).toFixed(1) : '0.0',
-      directCount,
-      ragCount,
+      responseTierBreakdown: {
+        direct: directCount,
+        rag: ragCount,
+        general: generalCount,
+        noMatch: noMatchCount,
+      },
       dailyTrend: dailyTrend.map((d) => ({
         date: d.date,
         count: Number(d.count),
       })),
-      topMatchedFaqs: topFaqs.map((f) => ({
-        faqId: f.faq_id,
-        matchCount: Number(f.match_count),
-        question: faqDetailMap.get(f.faq_id)?.question || null,
+      topQuestions: topQuestions.map((q) => ({
+        question: q.message,
+        count: Number(q.count),
+        responseTier: q.response_tier,
+      })),
+      unansweredQuestions: unansweredQuestions.map((q) => ({
+        question: q.message,
+        count: Number(q.count),
       })),
     };
   }
