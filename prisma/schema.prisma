@@ -342,6 +342,9 @@ model ChatbotFlow {
   ageRange        String?          @map("age_range")
   adminTags       String[]         @default([]) @map("admin_tags")
   adminMemo       String?          @map("admin_memo")
+  infoMismatch    Boolean          @default(false) @map("info_mismatch")
+  guestName       String?          @map("guest_name")
+  guestEmail      String?          @map("guest_email")
   visitor         VisitorSession?  @relation(fields: [visitorId], references: [id])
   messages        ChatbotMessage[]
 

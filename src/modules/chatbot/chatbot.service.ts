@@ -979,6 +979,10 @@ export class ChatbotService {
           landingPage: true,
           isCompleted: true,
           estimateId: true,
+          // 정보 불일치
+          infoMismatch: true,
+          guestName: true,
+          guestEmail: true,
           // 태그/메모
           adminTags: true,
           adminMemo: true,
@@ -1254,14 +1258,6 @@ export class ChatbotService {
     // 사용자 프로필 조회
     const userProfile = await this.supabaseService.getUserProfile(userId);
 
-    // 세션을 사용자에게 연결
-    await this.prisma.chatbotFlow.update({
-      where: { sessionId },
-      data: { userId },
-    });
-
-    this.logger.log(`Session ${sessionId} linked to user ${userId}`);
-
     // 비회원 정보와 로그인한 사용자 정보 비교
     const guestName = flow.customerName;
     const guestEmail = flow.customerEmail;
@@ -1270,6 +1266,36 @@ export class ChatbotService {
 
     const nameMismatch = guestName && loggedInName && guestName.toLowerCase() !== loggedInName.toLowerCase();
     const emailMismatch = guestEmail && loggedInEmail && guestEmail.toLowerCase() !== loggedInEmail.toLowerCase();
+    const hasInfoMismatch = !!(nameMismatch || emailMismatch);
+
+    // 세션을 사용자에게 연결 + 정보 불일치 기록
+    await this.prisma.chatbotFlow.update({
+      where: { sessionId },
+      data: {
+        userId,
+        infoMismatch: hasInfoMismatch,
+        // 불일치 시 게스트 원본 정보 보존 (나중에 어드민이 확인용)
+        ...(hasInfoMismatch && guestName && { guestName }),
+        ...(hasInfoMismatch && guestEmail && { guestEmail }),
+        // 로그인 정보로 고객 정보 업데이트
+        ...(loggedInName && { customerName: loggedInName }),
+        ...(loggedInEmail && { customerEmail: loggedInEmail }),
+      },
+    });
+
+    this.logger.log(`Session ${sessionId} linked to user ${userId}${hasInfoMismatch ? ' (info mismatch detected)' : ''}`);
+
+    // Estimate도 로그인 정보로 업데이트
+    if (flow.estimateId && (loggedInName || loggedInEmail)) {
+      await this.prisma.estimate.update({
+        where: { id: flow.estimateId },
+        data: {
+          ...(loggedInName && { customerName: loggedInName }),
+          ...(loggedInEmail && { customerEmail: loggedInEmail }),
+        },
+      });
+      this.logger.log(`Estimate ${flow.estimateId} updated with logged-in user info`);
+    }
 
     if (nameMismatch || emailMismatch) {
       // 채팅 메시지로 시스템 알림 저장 (어드민이 볼 수 있도록)

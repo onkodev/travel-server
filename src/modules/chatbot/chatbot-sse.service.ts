@@ -144,7 +144,9 @@ export class ChatbotSseService implements OnModuleDestroy {
     if (!subject || subject.closed) {
       subject = new Subject<MessageEvent>();
       this.subscribers.set(sessionId, subject);
-      this.logger.debug(`SSE subscription created for session: ${sessionId}`);
+      this.logger.log(`SSE subscription created for session: ${sessionId}, totalSubscribers=${this.subscribers.size}`);
+    } else {
+      this.logger.debug(`SSE subscription reused for session: ${sessionId}`);
     }
 
     return subject;
@@ -158,7 +160,7 @@ export class ChatbotSseService implements OnModuleDestroy {
     if (subject) {
       subject.complete();
       this.subscribers.delete(sessionId);
-      this.logger.debug(`SSE subscription removed for session: ${sessionId}`);
+      this.logger.log(`SSE subscription removed for session: ${sessionId}, remainingSubscribers=${this.subscribers.size}`);
     }
   }
 
@@ -184,7 +186,8 @@ export class ChatbotSseService implements OnModuleDestroy {
    */
   @OnEvent(CHATBOT_EVENTS.NEW_MESSAGE)
   handleNewMessage(event: ChatbotNewMessageEvent): void {
-    this.logger.log(`SSE handleNewMessage: session=${event.sessionId}, role=${event.message.role}, subscribers=${this.subscribers.size}`);
+    const subscribersList = Array.from(this.subscribers.keys());
+    this.logger.log(`SSE handleNewMessage: session=${event.sessionId}, role=${event.message.role}, totalSubscribers=${this.subscribers.size}, subscribedSessions=[${subscribersList.join(', ')}]`);
 
     const eventData = JSON.stringify({
       id: event.message.id,
