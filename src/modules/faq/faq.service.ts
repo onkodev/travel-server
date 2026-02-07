@@ -340,14 +340,7 @@ export class FaqService {
       select: { id: true, question: true, answer: true, questionKo: true, answerKo: true },
     });
 
-    let failed = 0;
-    for (const faq of faqs) {
-      try {
-        await this.generateAndSaveEmbedding(faq.id, faq.question, faq.answer, faq.questionKo, faq.answerKo);
-      } catch {
-        failed++;
-      }
-    }
+    const { failed } = await this.processEmbeddingBatch(faqs);
 
     if (failed > 0) {
       this.logger.warn(`일괄 임베딩: ${faqs.length}건 중 ${failed}건 실패`);
@@ -357,25 +350,57 @@ export class FaqService {
   }
 
   async regenerateAllEmbeddings(): Promise<{ total: number; success: number; failed: number }> {
-    const faqs = await this.prisma.faq.findMany({
-      where: { status: 'approved' },
-      select: { id: true, question: true, answer: true, questionKo: true, answerKo: true },
-    });
+    const BATCH_SIZE = 100;
+    let success = 0;
+    let failed = 0;
+    let offset = 0;
+    let total = 0;
 
+    // 배치 단위로 처리 (OOM 방지)
+    while (true) {
+      const faqs = await this.prisma.faq.findMany({
+        where: { status: 'approved' },
+        select: { id: true, question: true, answer: true, questionKo: true, answerKo: true },
+        skip: offset,
+        take: BATCH_SIZE,
+        orderBy: { id: 'asc' },
+      });
+
+      if (faqs.length === 0) break;
+
+      total += faqs.length;
+      const result = await this.processEmbeddingBatch(faqs);
+      success += result.success;
+      failed += result.failed;
+      offset += BATCH_SIZE;
+    }
+
+    this.logger.log(`임베딩 전체 재생성: ${total}건 중 성공 ${success}, 실패 ${failed}`);
+    return { total, success, failed };
+  }
+
+  /** 임베딩 배치 처리 (동시 5개씩) */
+  private async processEmbeddingBatch(
+    faqs: Array<{ id: number; question: string; answer: string; questionKo: string | null; answerKo: string | null }>,
+  ): Promise<{ success: number; failed: number }> {
+    const CONCURRENCY = 5;
     let success = 0;
     let failed = 0;
 
-    for (const faq of faqs) {
-      try {
-        await this.generateAndSaveEmbedding(faq.id, faq.question, faq.answer, faq.questionKo, faq.answerKo);
-        success++;
-      } catch {
-        failed++;
+    for (let i = 0; i < faqs.length; i += CONCURRENCY) {
+      const batch = faqs.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map((faq) =>
+          this.generateAndSaveEmbedding(faq.id, faq.question, faq.answer, faq.questionKo, faq.answerKo),
+        ),
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') success++;
+        else failed++;
       }
     }
 
-    this.logger.log(`임베딩 전체 재생성: ${faqs.length}건 중 성공 ${success}, 실패 ${failed}`);
-    return { total: faqs.length, success, failed };
+    return { success, failed };
   }
 
   async searchSimilar(query: string, limit = 5) {
@@ -730,7 +755,7 @@ Guidelines:
 
     const enriched = logs.map((log) => ({
       ...convertDecimalFields(log),
-      responseTier: (log as any).responseTier ?? null,
+      responseTier: log.responseTier ?? null,
       matchedFaqs: log.matchedFaqIds.map((id, idx) => ({
         id,
         question: faqMap.get(id) || null,

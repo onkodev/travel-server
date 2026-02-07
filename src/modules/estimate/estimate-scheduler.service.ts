@@ -38,9 +38,6 @@ export class EstimateSchedulerService {
       }
 
       // 2. in_progress → completed: 여행 종료일이 지난 경우
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-
       const toCompleted = await this.prisma.estimate.updateMany({
         where: {
           statusManual: 'in_progress',

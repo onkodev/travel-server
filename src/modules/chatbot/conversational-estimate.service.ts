@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ItineraryAiService, ModificationIntent } from '../ai/services/itinerary-ai.service';
 import { TravelAssistantService } from '../ai/services/travel-assistant.service';
@@ -331,7 +332,7 @@ export class ConversationalEstimateService {
     // DB 업데이트
     await this.prisma.estimate.update({
       where: { id: flow.estimateId },
-      data: { items: updatedItems as any },
+      data: { items: updatedItems as unknown as Prisma.InputJsonValue },
     });
 
     this.logger.log(`handleRegenerateDay: success! updatedItems=${updatedItems.length}`);
@@ -558,7 +559,7 @@ export class ConversationalEstimateService {
 
     await this.prisma.estimate.update({
       where: { id: flow.estimateId },
-      data: { items: updatedItems as any },
+      data: { items: updatedItems as unknown as Prisma.InputJsonValue },
     });
 
     return {
@@ -607,7 +608,7 @@ export class ConversationalEstimateService {
 
     await this.prisma.estimate.update({
       where: { id: flow.estimateId },
-      data: { items: updatedItems as any },
+      data: { items: updatedItems as unknown as Prisma.InputJsonValue },
     });
 
     return {
@@ -675,7 +676,7 @@ export class ConversationalEstimateService {
 
     await this.prisma.estimate.update({
       where: { id: flow.estimateId },
-      data: { items: updatedItems as any },
+      data: { items: updatedItems as unknown as Prisma.InputJsonValue },
     });
 
     return {
@@ -792,7 +793,7 @@ export class ConversationalEstimateService {
 
     await this.prisma.estimate.update({
       where: { id: flow.estimateId },
-      data: { items: updatedItems as any },
+      data: { items: updatedItems as unknown as Prisma.InputJsonValue },
     });
 
     return {

@@ -53,9 +53,7 @@ export class RolesGuard implements CanActivate {
     );
 
     if (!hasRole) {
-      throw new ForbiddenException(
-        `이 작업을 수행할 권한이 없습니다. 필요한 역할: ${requiredRoles.join(', ')}`,
-      );
+      throw new ForbiddenException('이 작업을 수행할 권한이 없습니다.');
     }
 
     return true;

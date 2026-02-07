@@ -1,14 +1,13 @@
 import {
   Injectable,
   NotFoundException,
-  InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { toCamelCase, toSnakeCase } from '../../common/utils/case.util';
-import { SupabaseError, isSupabaseError } from '../../common/types';
+import { SupabaseError } from '../../common/types';
 import { CreateTourDto, UpdateTourDto } from './dto';
-import { MemoryCache } from '../../common/utils';
+import { MemoryCache, handleSupabaseError, sanitizeSearch } from '../../common/utils';
 import {
   calculateSkip,
   createPaginatedResponse,
@@ -24,10 +23,7 @@ export class TourService {
 
   // Supabase 에러를 NestJS 예외로 변환
   private handleSupabaseError(error: SupabaseError | unknown, context: string): never {
-    const message = isSupabaseError(error) ? error.message : 'Unknown error';
-    const stack = isSupabaseError(error) ? error.stack : undefined;
-    this.logger.error(`${context}: ${message}`, stack);
-    throw new InternalServerErrorException(`${context} 처리 중 오류가 발생했습니다`);
+    handleSupabaseError(this.logger, error, context);
   }
 
   // DB 선택 헬퍼 (auth = tumakrguide, admin = tumakr)
@@ -99,8 +95,9 @@ export class TourService {
       query = query.overlaps('tags', tags);
     }
 
-    if (search) {
-      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+    const sanitized = sanitizeSearch(search);
+    if (sanitized) {
+      query = query.or(`title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`);
     }
 
     query = query
@@ -150,8 +147,9 @@ export class TourService {
       query = query.eq('status', status);
     }
 
-    if (search) {
-      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+    const sanitized = sanitizeSearch(search);
+    if (sanitized) {
+      query = query.or(`title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`);
     }
 
     query = query

@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GmailService, GmailThread } from './gmail.service';
@@ -353,7 +353,7 @@ export class GmailSyncService implements OnModuleInit {
         },
       });
 
-      throw error;
+      throw new InternalServerErrorException('Gmail 동기화 처리 중 오류가 발생했습니다');
     } finally {
       this.isSyncRunning = false;
     }

@@ -37,7 +37,6 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Public()
-  @SkipThrottle({ default: true, strict: true })
   @Post('signin')
   @ApiOperation({
     summary: '로그인',

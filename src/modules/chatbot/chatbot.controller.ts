@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  ParseIntPipe,
   Query,
   Req,
   Res,
@@ -63,6 +64,7 @@ import {
   FinalizeItineraryResponseDto,
   TravelChatDto,
   TravelChatResponseDto,
+  AdminFlowQueryDto,
 } from './dto';
 import { StepResponseDto, FlowStartResponseDto } from './dto/step-response.dto';
 import { ChatbotFlowDto } from './dto/chatbot-flow.dto';
@@ -150,44 +152,19 @@ export class ChatbotController {
     summary: '챗봇 플로우 목록 조회 (관리자)',
     description: '모든 챗봇 플로우 목록을 조회합니다.',
   })
-  @ApiQuery({ name: 'page', required: false, description: '페이지 번호' })
-  @ApiQuery({ name: 'limit', required: false, description: '페이지당 개수' })
-  @ApiQuery({
-    name: 'isCompleted',
-    required: false,
-    description: '완료 여부 필터',
-  })
-  @ApiQuery({ name: 'startDate', required: false, description: '시작일 필터' })
-  @ApiQuery({ name: 'endDate', required: false, description: '종료일 필터' })
-  @ApiQuery({ name: 'utmSource', required: false, description: 'UTM 소스 필터' })
-  @ApiQuery({ name: 'sortColumn', required: false, description: '정렬 컬럼' })
-  @ApiQuery({ name: 'sortDirection', required: false, description: '정렬 방향 (asc/desc)' })
-  @ApiQuery({ name: 'estimateStatus', required: false, description: '견적 상태 필터' })
-  @ApiQuery({ name: 'hasEstimate', required: false, description: '견적 유무 필터' })
   @ApiResponse({ status: 200, description: '조회 성공' })
-  async getFlows(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('isCompleted') isCompleted?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('utmSource') utmSource?: string,
-    @Query('sortColumn') sortColumn?: string,
-    @Query('sortDirection') sortDirection?: string,
-    @Query('estimateStatus') estimateStatus?: string,
-    @Query('hasEstimate') hasEstimate?: string,
-  ) {
+  async getFlows(@Query() query: AdminFlowQueryDto) {
     return this.chatbotService.getFlows({
-      page: page ? parseInt(page) : undefined,
-      limit: limit ? parseInt(limit) : undefined,
-      isCompleted: isCompleted ? isCompleted === 'true' : undefined,
-      startDate,
-      endDate,
-      utmSource,
-      sortColumn,
-      sortDirection,
-      estimateStatus: estimateStatus || undefined,
-      hasEstimate: parseBooleanQuery(hasEstimate),
+      page: query.page,
+      limit: query.limit,
+      isCompleted: query.isCompleted,
+      startDate: query.startDate,
+      endDate: query.endDate,
+      utmSource: query.utmSource,
+      sortColumn: query.sortColumn,
+      sortDirection: query.sortDirection,
+      estimateStatus: query.estimateStatus || undefined,
+      hasEstimate: query.hasEstimate,
     });
   }
 
@@ -319,7 +296,7 @@ export class ChatbotController {
   }
 
   @Get('by-estimate/:estimateId')
-  @Public()
+  @ApiBearerAuth('access-token')
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: 'estimateId로 플로우 조회',
@@ -327,10 +304,10 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'estimateId', description: '견적 ID' })
   @ApiResponse({ status: 200, description: '조회 성공', type: ChatbotFlowDto })
+  @ApiResponse({ status: 401, description: '인증 필요' })
   @ApiResponse({ status: 404, description: '플로우 없음' })
-  async getFlowByEstimateId(@Param('estimateId') estimateId: string) {
-    const id = parseInt(estimateId, 10);
-    return this.chatbotService.getFlowByEstimateId(id);
+  async getFlowByEstimateId(@Param('estimateId', ParseIntPipe) estimateId: number) {
+    return this.chatbotService.getFlowByEstimateId(estimateId);
   }
 
   // ============ SSE 실시간 이벤트 ============
@@ -434,10 +411,10 @@ export class ChatbotController {
   @ApiResponse({ status: 200, description: '조회 성공', type: StepResponseDto })
   async getStep(
     @Param('sessionId') sessionId: string,
-    @Param('step') step: string,
+    @Param('step', ParseIntPipe) step: number,
     @Query('subStep') subStep?: string,
   ) {
-    return this.chatbotService.getStep(sessionId, parseInt(step), subStep);
+    return this.chatbotService.getStep(sessionId, step, subStep);
   }
 
   @Patch(':sessionId/step/1')
@@ -928,9 +905,9 @@ export class ChatbotController {
   @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
   async regenerateDay(
     @Param('sessionId') sessionId: string,
-    @Param('dayNumber') dayNumber: string,
+    @Param('dayNumber', ParseIntPipe) dayNumber: number,
   ) {
-    return this.conversationalEstimateService.regenerateDay(sessionId, parseInt(dayNumber, 10));
+    return this.conversationalEstimateService.regenerateDay(sessionId, dayNumber);
   }
 
   @Post(':sessionId/itinerary/finalize')

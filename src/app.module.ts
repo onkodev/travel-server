@@ -29,6 +29,7 @@ import { ContactModule } from './modules/contact/contact.module';
 import { GeoIpModule } from './modules/geoip/geoip.module';
 import { FaqModule } from './modules/faq/faq.module';
 import { GmailModule } from './modules/gmail/gmail.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { GmailModule } from './modules/gmail/gmail.module';
     ContactModule,
     FaqModule,
     GmailModule,
+    HealthModule,
   ],
   providers: [
     {

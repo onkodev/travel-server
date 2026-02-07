@@ -26,12 +26,11 @@ async function bootstrap() {
             process.env.CLIENT_URL,
           ].filter(Boolean);
 
-          // Vercel 프리뷰 및 localhost 허용
+          // Vercel 프리뷰 허용
           if (
             !origin ||
             allowedOrigins.includes(origin) ||
-            origin.endsWith('.vercel.app') ||
-            origin.startsWith('http://localhost:')
+            origin.endsWith('.vercel.app')
           ) {
             callback(null, true);
           } else {

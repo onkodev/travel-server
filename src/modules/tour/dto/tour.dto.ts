@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsArray, IsIn, ValidateNested } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsArray, IsIn, ValidateNested, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/dto';
 
@@ -91,9 +91,10 @@ export class PublicTourQueryDto extends PaginationQueryDto {
   @IsString()
   tags?: string;
 
-  @ApiPropertyOptional({ description: '검색어' })
+  @ApiPropertyOptional({ description: '검색어', maxLength: 200 })
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   search?: string;
 
   @ApiPropertyOptional({
@@ -115,9 +116,10 @@ export class AdminTourQueryDto extends PaginationQueryDto {
   @IsString()
   status?: string;
 
-  @ApiPropertyOptional({ description: '검색어' })
+  @ApiPropertyOptional({ description: '검색어', maxLength: 200 })
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   search?: string;
 }
 

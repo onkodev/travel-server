@@ -5,7 +5,7 @@ import { EmailService } from '../email/email.service';
 import { NotificationService } from '../notification/notification.service';
 import { Prisma, Estimate } from '@prisma/client';
 import { randomBytes } from 'crypto';
-import { convertDecimalFields, toDateTime, omit } from '../../common/utils';
+import { convertDecimalFields, toDateTime, omit, sanitizeSearch } from '../../common/utils';
 import { CreateEstimateDto } from './dto/estimate-create.dto';
 import { UpdateEstimateDto } from './dto/estimate-update.dto';
 import { EstimateItemDto, ESTIMATE_STATUS } from './dto/estimate.dto';
@@ -141,11 +141,12 @@ export class EstimateService {
     }
 
     // 검색
-    if (search) {
+    const sanitized = sanitizeSearch(search);
+    if (sanitized) {
       where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { customerName: { contains: search, mode: 'insensitive' } },
-        { customerEmail: { contains: search, mode: 'insensitive' } },
+        { title: { contains: sanitized, mode: 'insensitive' } },
+        { customerName: { contains: sanitized, mode: 'insensitive' } },
+        { customerEmail: { contains: sanitized, mode: 'insensitive' } },
       ];
     }
 

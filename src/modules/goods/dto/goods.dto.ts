@@ -6,6 +6,7 @@ import {
   IsArray,
   IsIn,
   IsBoolean,
+  MaxLength,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto';
 
@@ -102,6 +103,7 @@ export class GoodsQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ description: '검색어 (이름, 설명)' })
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   search?: string;
 }
 

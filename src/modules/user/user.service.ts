@@ -1,16 +1,15 @@
 import {
   Injectable,
   NotFoundException,
-  InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
 import { SupabaseService } from '../../supabase/supabase.service';
 import {
   SupabaseError,
-  isSupabaseError,
   UserTourData,
   ReviewData,
 } from '../../common/types';
+import { handleSupabaseError, sanitizeSearch } from '../../common/utils';
 import {
   calculateSkip,
   createPaginatedResponse,
@@ -68,10 +67,7 @@ export class UserService {
 
   // Supabase 에러를 NestJS 예외로 변환
   private handleSupabaseError(error: SupabaseError | unknown, context: string): never {
-    const message = isSupabaseError(error) ? error.message : 'Unknown error';
-    const stack = isSupabaseError(error) ? error.stack : undefined;
-    this.logger.error(`${context}: ${message}`, stack);
-    throw new InternalServerErrorException(`${context} 처리 중 오류가 발생했습니다`);
+    handleSupabaseError(this.logger, error, context);
   }
 
   async getUserList(params: UserListParams) {
@@ -83,9 +79,10 @@ export class UserService {
     let query = supabase.from('users').select('*', { count: 'exact' });
 
     // 키워드 검색
-    if (params.keyword) {
+    const keyword = sanitizeSearch(params.keyword);
+    if (keyword) {
       query = query.or(
-        `name.ilike.%${params.keyword}%,email.ilike.%${params.keyword}%`,
+        `name.ilike.%${keyword}%,email.ilike.%${keyword}%`,
       );
     }
 

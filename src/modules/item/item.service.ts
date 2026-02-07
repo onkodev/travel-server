@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
-import { MemoryCache } from '../../common/utils';
+import { MemoryCache, sanitizeSearch } from '../../common/utils';
 import {
   calculateSkip,
   createPaginatedResponse,
@@ -49,11 +49,12 @@ export class ItemService {
       where.region = region;
     }
 
-    if (search) {
+    const sanitized = sanitizeSearch(search);
+    if (sanitized) {
       where.OR = [
-        { nameKor: { contains: search, mode: 'insensitive' } },
-        { nameEng: { contains: search, mode: 'insensitive' } },
-        { keyword: { contains: search, mode: 'insensitive' } },
+        { nameKor: { contains: sanitized, mode: 'insensitive' } },
+        { nameEng: { contains: sanitized, mode: 'insensitive' } },
+        { keyword: { contains: sanitized, mode: 'insensitive' } },
       ];
     }
 
@@ -491,18 +492,6 @@ export class ItemService {
         images: true,
       },
     });
-
-    // 디버그: 모든 단계에서 0이면 baseWhere 조건 자체가 문제
-    if (fallbackResults.length === 0) {
-      // 지역 조건 없이 전체 아이템 수 확인
-      const totalCount = await this.prisma.item.count({
-        where: { type, ...(excludeIds.length > 0 && { id: { notIn: excludeIds } }) },
-      });
-      const regionCount = await this.prisma.item.count({
-        where: { type, region: { contains: region || '', mode: 'insensitive' } },
-      });
-      console.log(`[findSimilarItems] DEBUG: type=${type}, region=${region}, excludeIds=${excludeIds.length}, totalWithoutRegion=${totalCount}, withRegion=${regionCount}`);
-    }
 
     return fallbackResults.map(convertDecimalFields);
   }

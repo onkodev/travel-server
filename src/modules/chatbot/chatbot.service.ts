@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
@@ -614,7 +615,7 @@ export class ChatbotService {
       };
     } catch (error) {
       this.logger.error(`Failed to complete flow: sessionId=${sessionId}`, error.stack);
-      throw error;
+      throw new InternalServerErrorException('견적 생성 처리 중 오류가 발생했습니다');
     }
   }
 

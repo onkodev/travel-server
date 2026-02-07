@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, IsNumber } from 'class-validator';
+import { IsOptional, IsString, IsNumber, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/dto';
 
@@ -25,5 +25,6 @@ export class ThreadQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ description: '검색어' })
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   search?: string;
 }

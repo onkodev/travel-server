@@ -1,12 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
+import { sanitizeSearch } from '../../common/utils/validation.util';
 import {
   calculateSkip,
   createPaginatedResponse,
 } from '../../common/dto/pagination.dto';
+
+const VALID_BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'] as const;
 
 @Injectable()
 export class BookingService {
@@ -36,6 +39,9 @@ export class BookingService {
     const where: Prisma.BookingWhereInput = {};
 
     if (status) {
+      if (!VALID_BOOKING_STATUSES.includes(status as typeof VALID_BOOKING_STATUSES[number])) {
+        throw new BadRequestException(`유효하지 않은 예약 상태: ${status}`);
+      }
       where.status = status;
     }
 
@@ -43,12 +49,13 @@ export class BookingService {
       where.tourId = tourId;
     }
 
-    if (search) {
+    const sanitized = sanitizeSearch(search);
+    if (sanitized) {
       where.OR = [
-        { confirmationCode: { contains: search, mode: 'insensitive' } },
-        { customerEmail: { contains: search, mode: 'insensitive' } },
-        { customerFirstName: { contains: search, mode: 'insensitive' } },
-        { customerLastName: { contains: search, mode: 'insensitive' } },
+        { confirmationCode: { contains: sanitized, mode: 'insensitive' } },
+        { customerEmail: { contains: sanitized, mode: 'insensitive' } },
+        { customerFirstName: { contains: sanitized, mode: 'insensitive' } },
+        { customerLastName: { contains: sanitized, mode: 'insensitive' } },
       ];
     }
 
@@ -167,6 +174,9 @@ export class BookingService {
 
   // 예약 상태 변경
   async updateBookingStatus(id: number, status: string, reason?: string) {
+    if (!VALID_BOOKING_STATUSES.includes(status as typeof VALID_BOOKING_STATUSES[number])) {
+      throw new BadRequestException(`유효하지 않은 예약 상태: ${status}`);
+    }
     const data: Prisma.BookingUpdateInput = { status };
 
     if (status === 'cancelled') {

@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiOperation,
@@ -22,8 +23,12 @@ import {
   ApiForbiddenResponse,
   ApiNotFoundResponse,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/user.decorator';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { UserRole } from '../../common/types';
 import { ContactService } from './contact.service';
 import {
   CreateContactDto,
@@ -45,6 +50,7 @@ export class ContactController {
 
   @Post()
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '문의 제출',
@@ -69,6 +75,8 @@ export class ContactController {
   // ==================== 관리자 API ====================
 
   @Get()
+  @Roles(UserRole.ADMIN)
+  @UseGuards(RolesGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '문의 목록 조회',
@@ -88,16 +96,14 @@ export class ContactController {
     type: ErrorResponseDto,
   })
   async getContacts(
-    @CurrentUser('role') role: string,
     @Query() query: ContactQueryDto,
   ): Promise<ContactListDto> {
-    if (role !== 'admin') {
-      return { contacts: [], total: 0 };
-    }
     return this.contactService.getContacts(query);
   }
 
   @Get(':id')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(RolesGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '문의 상세 조회',
@@ -123,16 +129,14 @@ export class ContactController {
     type: ErrorResponseDto,
   })
   async getContact(
-    @CurrentUser('role') role: string,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<ContactDto | null> {
-    if (role !== 'admin') {
-      return null;
-    }
     return this.contactService.getContact(id);
   }
 
   @Patch(':id/reply')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(RolesGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '문의 답변 작성',
@@ -159,19 +163,17 @@ export class ContactController {
     type: ErrorResponseDto,
   })
   async replyToContact(
-    @CurrentUser('role') role: string,
     @CurrentUser('id') userId: string,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ReplyContactDto,
   ): Promise<ContactSuccessDto> {
-    if (role !== 'admin') {
-      return { success: false };
-    }
     await this.contactService.replyToContact(id, dto.reply, userId);
     return { success: true };
   }
 
   @Patch(':id/status')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(RolesGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '문의 상태 변경',
@@ -194,18 +196,16 @@ export class ContactController {
     type: ErrorResponseDto,
   })
   async updateStatus(
-    @CurrentUser('role') role: string,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateContactStatusDto,
   ): Promise<ContactSuccessDto> {
-    if (role !== 'admin') {
-      return { success: false };
-    }
     await this.contactService.updateStatus(id, dto.status);
     return { success: true };
   }
 
   @Delete(':id')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(RolesGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '문의 삭제',
@@ -227,12 +227,8 @@ export class ContactController {
     type: ErrorResponseDto,
   })
   async deleteContact(
-    @CurrentUser('role') role: string,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<ContactSuccessDto> {
-    if (role !== 'admin') {
-      return { success: false };
-    }
     await this.contactService.deleteContact(id);
     return { success: true };
   }
