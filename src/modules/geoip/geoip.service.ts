@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 export interface GeoIpData {
-  country: string | null;      // 국가 코드 (KR, US, JP)
-  countryName: string | null;  // 국가명
+  country: string | null; // 국가 코드 (KR, US, JP)
+  countryName: string | null; // 국가명
   city: string | null;
-  region: string | null;       // 지역/주
+  region: string | null; // 지역/주
   timezone: string | null;
-  isp: string | null;          // 인터넷 서비스 제공자
+  isp: string | null; // 인터넷 서비스 제공자
   lat?: number;
   lon?: number;
 }
@@ -39,7 +39,9 @@ export class GeoIpService {
       );
 
       if (!response.ok) {
-        this.logger.warn(`GeoIP lookup failed for ${ip}: HTTP ${response.status}`);
+        this.logger.warn(
+          `GeoIP lookup failed for ${ip}: HTTP ${response.status}`,
+        );
         return this.getEmptyData();
       }
 
@@ -66,7 +68,8 @@ export class GeoIpService {
 
       return result;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       this.logger.error(`GeoIP lookup error for ${ip}: ${errorMessage}`);
       return this.getEmptyData();
     }
@@ -97,10 +100,13 @@ export class GeoIpService {
     // 캐시 안된 것들 배치 조회 (ip-api.com 배치 API)
     if (uncachedIps.length > 0) {
       try {
-        const response = await fetch('http://ip-api.com/batch?fields=status,query,country,countryCode,region,regionName,city,timezone,isp', {
-          method: 'POST',
-          body: JSON.stringify(uncachedIps),
-        });
+        const response = await fetch(
+          'http://ip-api.com/batch?fields=status,query,country,countryCode,region,regionName,city,timezone,isp',
+          {
+            method: 'POST',
+            body: JSON.stringify(uncachedIps),
+          },
+        );
 
         if (response.ok) {
           const data = await response.json();
@@ -118,7 +124,8 @@ export class GeoIpService {
           }
         }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
         this.logger.error(`GeoIP batch lookup error: ${errorMessage}`);
         // 실패한 IP들은 빈 데이터로
         for (const ip of uncachedIps) {
@@ -143,7 +150,7 @@ export class GeoIpService {
       /^192\.168\./,
     ];
 
-    return privateRanges.some(range => range.test(ip));
+    return privateRanges.some((range) => range.test(ip));
   }
 
   private getEmptyData(): GeoIpData {
@@ -163,7 +170,7 @@ export class GeoIpService {
   getCountryFlag(countryCode: string | null): string {
     if (!countryCode || countryCode.length !== 2) return '';
     const codePoints = [...countryCode.toUpperCase()].map(
-      char => 0x1F1E6 - 65 + char.charCodeAt(0),
+      (char) => 0x1f1e6 - 65 + char.charCodeAt(0),
     );
     return String.fromCodePoint(...codePoints);
   }

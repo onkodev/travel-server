@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { randomBytes } from 'crypto';
@@ -9,7 +13,12 @@ import {
   createPaginatedResponse,
 } from '../../common/dto/pagination.dto';
 
-const VALID_BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed'] as const;
+const VALID_BOOKING_STATUSES = [
+  'pending',
+  'confirmed',
+  'cancelled',
+  'completed',
+] as const;
 
 @Injectable()
 export class BookingService {
@@ -39,7 +48,11 @@ export class BookingService {
     const where: Prisma.BookingWhereInput = {};
 
     if (status) {
-      if (!VALID_BOOKING_STATUSES.includes(status as typeof VALID_BOOKING_STATUSES[number])) {
+      if (
+        !VALID_BOOKING_STATUSES.includes(
+          status as (typeof VALID_BOOKING_STATUSES)[number],
+        )
+      ) {
         throw new BadRequestException(`유효하지 않은 예약 상태: ${status}`);
       }
       where.status = status;
@@ -174,7 +187,11 @@ export class BookingService {
 
   // 예약 상태 변경
   async updateBookingStatus(id: number, status: string, reason?: string) {
-    if (!VALID_BOOKING_STATUSES.includes(status as typeof VALID_BOOKING_STATUSES[number])) {
+    if (
+      !VALID_BOOKING_STATUSES.includes(
+        status as (typeof VALID_BOOKING_STATUSES)[number],
+      )
+    ) {
       throw new BadRequestException(`유효하지 않은 예약 상태: ${status}`);
     }
     const data: Prisma.BookingUpdateInput = { status };

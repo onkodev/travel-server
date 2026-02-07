@@ -7,7 +7,9 @@ export interface FaqExtractionParams {
   emailBody: string;
 }
 
-export const FAQ_EXTRACTION_PROMPT = (params: FaqExtractionParams): string => `You are a customer service analyst for a Korean travel company.
+export const FAQ_EXTRACTION_PROMPT = (
+  params: FaqExtractionParams,
+): string => `You are a customer service analyst for a Korean travel company.
 Extract FAQ Q&A pairs from the email thread below.
 
 ## Email Subject:

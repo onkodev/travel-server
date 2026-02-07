@@ -14,9 +14,29 @@ import { EmailModule } from '../email/email.module';
 import { SupabaseModule } from '../../supabase/supabase.module';
 
 @Module({
-  imports: [EstimateModule, NotificationModule, AiModule, ItemModule, EmailModule, SupabaseModule],
+  imports: [
+    EstimateModule,
+    NotificationModule,
+    AiModule,
+    ItemModule,
+    EmailModule,
+    SupabaseModule,
+  ],
   controllers: [ChatbotController],
-  providers: [ChatbotService, ChatbotAnalyticsService, ChatbotSseService, ChatbotStepResponseService, AiEstimateService, ConversationalEstimateService],
-  exports: [ChatbotService, ChatbotAnalyticsService, ChatbotSseService, AiEstimateService, ConversationalEstimateService],
+  providers: [
+    ChatbotService,
+    ChatbotAnalyticsService,
+    ChatbotSseService,
+    ChatbotStepResponseService,
+    AiEstimateService,
+    ConversationalEstimateService,
+  ],
+  exports: [
+    ChatbotService,
+    ChatbotAnalyticsService,
+    ChatbotSseService,
+    AiEstimateService,
+    ConversationalEstimateService,
+  ],
 })
 export class ChatbotModule {}

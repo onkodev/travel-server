@@ -1,17 +1,37 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsOptional, IsInt, Min, Max, IsIn, IsString, MaxLength, IsBoolean } from 'class-validator';
+import {
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  IsIn,
+  IsString,
+  MaxLength,
+  IsBoolean,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class AdminFlowQueryDto {
-  @ApiPropertyOptional({ description: '페이지 번호', example: 1, minimum: 1, default: 1 })
+  @ApiPropertyOptional({
+    description: '페이지 번호',
+    example: 1,
+    minimum: 1,
+    default: 1,
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   page?: number = 1;
 
-  @ApiPropertyOptional({ description: '페이지당 개수', example: 20, minimum: 1, maximum: 100, default: 20 })
+  @ApiPropertyOptional({
+    description: '페이지당 개수',
+    example: 20,
+    minimum: 1,
+    maximum: 100,
+    default: 20,
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -21,7 +41,9 @@ export class AdminFlowQueryDto {
 
   @ApiPropertyOptional({ description: '완료 여부 필터' })
   @IsOptional()
-  @Transform(({ value }) => value === 'true' ? true : value === 'false' ? false : undefined)
+  @Transform(({ value }) =>
+    value === 'true' ? true : value === 'false' ? false : undefined,
+  )
   @IsBoolean()
   isCompleted?: boolean;
 
@@ -63,7 +85,9 @@ export class AdminFlowQueryDto {
 
   @ApiPropertyOptional({ description: '견적 유무 필터' })
   @IsOptional()
-  @Transform(({ value }) => value === 'true' ? true : value === 'false' ? false : undefined)
+  @Transform(({ value }) =>
+    value === 'true' ? true : value === 'false' ? false : undefined,
+  )
   @IsBoolean()
   hasEstimate?: boolean;
 }

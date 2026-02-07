@@ -7,7 +7,9 @@ export interface EstimateAnalysisParams {
   itemsSummary: string;
 }
 
-export const ESTIMATE_ANALYSIS_PROMPT = (params: EstimateAnalysisParams): string => `당신은 한국 인바운드 여행 전문가입니다. 고객의 여행 요청 내용과 견적 아이템을 분석해서 여행 정보를 추출해주세요.
+export const ESTIMATE_ANALYSIS_PROMPT = (
+  params: EstimateAnalysisParams,
+): string => `당신은 한국 인바운드 여행 전문가입니다. 고객의 여행 요청 내용과 견적 아이템을 분석해서 여행 정보를 추출해주세요.
 
 ## 고객 요청 내용:
 ${params.requestContent || '내용 없음'}

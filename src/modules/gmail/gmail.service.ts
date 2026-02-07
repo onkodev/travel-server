@@ -159,7 +159,8 @@ export class GmailService {
   private parseMessage(msg: gmail_v1.Schema$Message): GmailMessage {
     const headers = msg.payload?.headers || [];
     const getHeader = (name: string): string =>
-      headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
+      headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())
+        ?.value || '';
 
     return {
       id: msg.id || '',
@@ -191,7 +192,9 @@ export class GmailService {
       // text/html 차선
       const htmlPart = payload.parts.find((p) => p.mimeType === 'text/html');
       if (htmlPart?.body?.data) {
-        const html = Buffer.from(htmlPart.body.data, 'base64').toString('utf-8');
+        const html = Buffer.from(htmlPart.body.data, 'base64').toString(
+          'utf-8',
+        );
         return this.stripHtml(html);
       }
 
@@ -212,35 +215,39 @@ export class GmailService {
   }
 
   private stripHtml(html: string): string {
-    return html
-      // style/script 태그 전체 제거
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      // 줄바꿈이 되어야 하는 태그
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n')
-      .replace(/<\/div>/gi, '\n')
-      .replace(/<\/tr>/gi, '\n')
-      .replace(/<\/li>/gi, '\n')
-      .replace(/<\/h[1-6]>/gi, '\n')
-      .replace(/<\/blockquote>/gi, '\n')
-      .replace(/<hr\s*\/?>/gi, '\n---\n')
-      // 나머지 태그 제거
-      .replace(/<[^>]*>/g, '')
-      // HTML 엔티티 디코딩
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/&quot;/gi, '"')
-      .replace(/&#39;/gi, "'")
-      .replace(/&apos;/gi, "'")
-      .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
-      .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-      // 공백/줄바꿈 정리
-      .replace(/[ \t]+/g, ' ')
-      .replace(/\n /g, '\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
+    return (
+      html
+        // style/script 태그 전체 제거
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        // 줄바꿈이 되어야 하는 태그
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<\/tr>/gi, '\n')
+        .replace(/<\/li>/gi, '\n')
+        .replace(/<\/h[1-6]>/gi, '\n')
+        .replace(/<\/blockquote>/gi, '\n')
+        .replace(/<hr\s*\/?>/gi, '\n---\n')
+        // 나머지 태그 제거
+        .replace(/<[^>]*>/g, '')
+        // HTML 엔티티 디코딩
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/&apos;/gi, "'")
+        .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+        .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+          String.fromCharCode(parseInt(hex, 16)),
+        )
+        // 공백/줄바꿈 정리
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n /g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+    );
   }
 }

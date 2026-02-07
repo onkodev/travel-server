@@ -46,7 +46,10 @@ export class NotificationDto {
   @ApiProperty({ description: '생성일시', example: '2024-01-15T10:30:00Z' })
   createdAt: Date;
 
-  @ApiPropertyOptional({ description: '읽은 일시', example: '2024-01-15T11:00:00Z' })
+  @ApiPropertyOptional({
+    description: '읽은 일시',
+    example: '2024-01-15T11:00:00Z',
+  })
   readAt?: Date;
 }
 

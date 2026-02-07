@@ -19,7 +19,10 @@ export class ModifyItineraryResponseDto {
   @ApiProperty({ description: 'Operation success status' })
   success: boolean;
 
-  @ApiProperty({ description: 'Updated estimate items', type: [EstimateItemExtendedDto] })
+  @ApiProperty({
+    description: 'Updated estimate items',
+    type: [EstimateItemExtendedDto],
+  })
   updatedItems: EstimateItemExtendedDto[];
 
   @ApiProperty({ description: 'Bot response message' })
@@ -30,7 +33,12 @@ export class ModifyItineraryResponseDto {
     required: false,
   })
   intent?: {
-    action: 'regenerate_day' | 'add_item' | 'remove_item' | 'replace_item' | 'general_feedback';
+    action:
+      | 'regenerate_day'
+      | 'add_item'
+      | 'remove_item'
+      | 'replace_item'
+      | 'general_feedback';
     dayNumber?: number;
     itemName?: string;
     category?: string;
@@ -42,7 +50,10 @@ export class RegenerateDayResponseDto {
   @ApiProperty({ description: 'Operation success status' })
   success: boolean;
 
-  @ApiProperty({ description: 'Updated estimate items', type: [EstimateItemExtendedDto] })
+  @ApiProperty({
+    description: 'Updated estimate items',
+    type: [EstimateItemExtendedDto],
+  })
   updatedItems: EstimateItemExtendedDto[];
 
   @ApiProperty({ description: 'Bot response message' })
@@ -92,7 +103,8 @@ export class TravelChatResponseDto {
   updatedItems?: EstimateItemExtendedDto[];
 
   @ApiProperty({
-    description: 'Whether modification was successful (only for modification intent)',
+    description:
+      'Whether modification was successful (only for modification intent)',
     required: false,
   })
   modificationSuccess?: boolean;

@@ -1,4 +1,9 @@
-import { Injectable, InternalServerErrorException, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GmailService, GmailThread } from './gmail.service';
@@ -166,8 +171,7 @@ export class GmailSyncService implements OnModuleInit {
         data: {
           syncStatus: 'syncing',
           lastError: null,
-          syncProgress:
-            initialProgress as unknown as Prisma.InputJsonValue,
+          syncProgress: initialProgress as unknown as Prisma.InputJsonValue,
         },
       });
 
@@ -184,8 +188,7 @@ export class GmailSyncService implements OnModuleInit {
           data: {
             accountEmail,
             syncStatus: 'syncing',
-            syncProgress:
-              initialProgress as unknown as Prisma.InputJsonValue,
+            syncProgress: initialProgress as unknown as Prisma.InputJsonValue,
           },
         });
       }
@@ -193,7 +196,10 @@ export class GmailSyncService implements OnModuleInit {
       this.isSyncRunning = true;
     } catch {
       this.isSyncRunning = false;
-      return { started: false, message: 'Gmail 계정 정보를 가져올 수 없습니다' };
+      return {
+        started: false,
+        message: 'Gmail 계정 정보를 가져올 수 없습니다',
+      };
     }
 
     // 백그라운드에서 실행 (HTTP 응답 후 계속 실행됨)
@@ -208,10 +214,7 @@ export class GmailSyncService implements OnModuleInit {
   // 실제 동기화 로직 (백그라운드)
   // ============================================================================
 
-  private async runBatchSync(params: {
-    maxResults?: number;
-    query?: string;
-  }) {
+  private async runBatchSync(params: { maxResults?: number; query?: string }) {
     const accountEmail = await this.gmailService.getAccountEmail();
     const targetCount = params.maxResults || 50;
 
@@ -247,7 +250,9 @@ export class GmailSyncService implements OnModuleInit {
         const afterDate = `${since.getFullYear()}/${String(since.getMonth() + 1).padStart(2, '0')}/${String(since.getDate()).padStart(2, '0')}`;
         const afterFilter = `after:${afterDate}`;
         query = query ? `${query} ${afterFilter}` : afterFilter;
-        this.logger.log(`전체 스캔 완료 → ${afterDate} 이후 새 이메일만 가져오기`);
+        this.logger.log(
+          `전체 스캔 완료 → ${afterDate} 이후 새 이메일만 가져오기`,
+        );
       } else {
         this.logger.log('처음부터 가져오기 시작');
       }
@@ -270,9 +275,7 @@ export class GmailSyncService implements OnModuleInit {
 
         await this.updateProgress(accountEmail, progress);
 
-        this.logger.log(
-          `이메일 가져오기: ${progress.fetched}/${targetCount}`,
-        );
+        this.logger.log(`이메일 가져오기: ${progress.fetched}/${targetCount}`);
 
         if (!nextPageToken || threads.length === 0) break;
       }
@@ -338,7 +341,9 @@ export class GmailSyncService implements OnModuleInit {
 
       this.logger.log(
         `동기화 완료: ${progress.processed} 처리, ${progress.extracted} FAQ 추출, ${progress.skipped} 건너뜀` +
-          (isFullScanDone ? ' (전체 스캔 완료!)' : ' (이어서 가져올 이메일 있음)'),
+          (isFullScanDone
+            ? ' (전체 스캔 완료!)'
+            : ' (이어서 가져올 이메일 있음)'),
       );
     } catch (error) {
       const errorMessage =
@@ -353,16 +358,15 @@ export class GmailSyncService implements OnModuleInit {
         },
       });
 
-      throw new InternalServerErrorException('Gmail 동기화 처리 중 오류가 발생했습니다');
+      throw new InternalServerErrorException(
+        'Gmail 동기화 처리 중 오류가 발생했습니다',
+      );
     } finally {
       this.isSyncRunning = false;
     }
   }
 
-  private async updateProgress(
-    accountEmail: string,
-    progress: SyncProgress,
-  ) {
+  private async updateProgress(accountEmail: string, progress: SyncProgress) {
     await this.prisma.gmailSyncState.update({
       where: { accountEmail },
       data: {
@@ -410,8 +414,8 @@ export class GmailSyncService implements OnModuleInit {
     const hasCustomerMsg = thread.messages.some(
       (msg) => !msg.from.toLowerCase().includes(emailLower),
     );
-    const hasStaffReply = thread.messages.some(
-      (msg) => msg.from.toLowerCase().includes(emailLower),
+    const hasStaffReply = thread.messages.some((msg) =>
+      msg.from.toLowerCase().includes(emailLower),
     );
 
     if (!hasCustomerMsg || !hasStaffReply) {
@@ -455,10 +459,7 @@ export class GmailSyncService implements OnModuleInit {
 
     // 이메일 본문 합치기 (최대 길이 제한)
     const emailBody = thread.messages
-      .map(
-        (msg) =>
-          `[From: ${msg.from}]\n[Date: ${msg.date}]\n${msg.body}`,
-      )
+      .map((msg) => `[From: ${msg.from}]\n[Date: ${msg.date}]\n${msg.body}`)
       .join('\n\n---\n\n')
       .substring(0, 10000);
 
@@ -470,19 +471,14 @@ export class GmailSyncService implements OnModuleInit {
         emailBody,
       });
     } catch (error) {
-      this.logger.error(
-        `스레드 ${thread.id} FAQ 추출 실패:`,
-        error,
-      );
+      this.logger.error(`스레드 ${thread.id} FAQ 추출 실패:`, error);
 
       await this.prisma.emailThread.update({
         where: { id: emailThread.id },
         data: {
           isProcessed: true,
           processingError:
-            error instanceof Error
-              ? error.message
-              : 'AI extraction failed',
+            error instanceof Error ? error.message : 'AI extraction failed',
         },
       });
 

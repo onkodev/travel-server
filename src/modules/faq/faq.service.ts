@@ -109,7 +109,13 @@ export class FaqService {
     // manual 소스는 바로 approved → 임베딩 생성 (실패해도 FAQ 생성은 유지)
     if (faq.status === 'approved') {
       try {
-        await this.generateAndSaveEmbedding(faq.id, faq.question, faq.answer, faq.questionKo, faq.answerKo);
+        await this.generateAndSaveEmbedding(
+          faq.id,
+          faq.question,
+          faq.answer,
+          faq.questionKo,
+          faq.answerKo,
+        );
       } catch (error) {
         this.logger.error(`임베딩 생성 실패 (FAQ #${faq.id}):`, error);
       }
@@ -126,9 +132,18 @@ export class FaqService {
     });
 
     // approved 상태에서 question/answer/ko 변경 시 임베딩 재생성 (실패해도 업데이트는 유지)
-    if (faq.status === 'approved' && (data.question || data.answer || data.questionKo || data.answerKo)) {
+    if (
+      faq.status === 'approved' &&
+      (data.question || data.answer || data.questionKo || data.answerKo)
+    ) {
       try {
-        await this.generateAndSaveEmbedding(faq.id, faq.question, faq.answer, faq.questionKo, faq.answerKo);
+        await this.generateAndSaveEmbedding(
+          faq.id,
+          faq.question,
+          faq.answer,
+          faq.questionKo,
+          faq.answerKo,
+        );
       } catch (error) {
         this.logger.error(`임베딩 재생성 실패 (FAQ #${faq.id}):`, error);
       }
@@ -147,7 +162,12 @@ export class FaqService {
   async approveFaq(
     id: number,
     userId: string,
-    updates?: { question?: string; answer?: string; questionKo?: string; answerKo?: string },
+    updates?: {
+      question?: string;
+      answer?: string;
+      questionKo?: string;
+      answerKo?: string;
+    },
   ) {
     const data: Prisma.FaqUpdateInput = {
       status: 'approved',
@@ -168,7 +188,13 @@ export class FaqService {
 
     // 승인 시 임베딩 생성 (실패해도 승인은 유지)
     try {
-      await this.generateAndSaveEmbedding(faq.id, faq.question, faq.answer, faq.questionKo, faq.answerKo);
+      await this.generateAndSaveEmbedding(
+        faq.id,
+        faq.question,
+        faq.answer,
+        faq.questionKo,
+        faq.answerKo,
+      );
     } catch (error) {
       this.logger.error(`임베딩 생성 실패 (FAQ #${faq.id}):`, error);
     }
@@ -249,7 +275,13 @@ export class FaqService {
 
   async getStats() {
     const cacheKey = 'faq:stats';
-    const cached = this.cache.get<{ total: number; pending: number; approved: number; rejected: number; fromGmail: number }>(cacheKey);
+    const cached = this.cache.get<{
+      total: number;
+      pending: number;
+      approved: number;
+      rejected: number;
+      fromGmail: number;
+    }>(cacheKey);
     if (cached) return cached;
 
     const [total, pending, approved, rejected, fromGmail] = await Promise.all([
@@ -293,7 +325,11 @@ export class FaqService {
    */
   private async cleanupBulkEmailRawData(faqIds: number[]): Promise<void> {
     const gmailFaqs = await this.prisma.faq.findMany({
-      where: { id: { in: faqIds }, source: 'gmail', sourceEmailId: { not: null } },
+      where: {
+        id: { in: faqIds },
+        source: 'gmail',
+        sourceEmailId: { not: null },
+      },
       select: { sourceEmailId: true },
     });
 
@@ -316,7 +352,12 @@ export class FaqService {
     answerKo?: string | null,
   ): Promise<void> {
     try {
-      const text = this.embeddingService.buildFaqText(question, answer, questionKo, answerKo);
+      const text = this.embeddingService.buildFaqText(
+        question,
+        answer,
+        questionKo,
+        answerKo,
+      );
       const embedding = await this.embeddingService.generateEmbedding(text);
 
       if (!embedding) {
@@ -337,7 +378,13 @@ export class FaqService {
   private async generateBulkEmbeddings(ids: number[]): Promise<void> {
     const faqs = await this.prisma.faq.findMany({
       where: { id: { in: ids } },
-      select: { id: true, question: true, answer: true, questionKo: true, answerKo: true },
+      select: {
+        id: true,
+        question: true,
+        answer: true,
+        questionKo: true,
+        answerKo: true,
+      },
     });
 
     const { failed } = await this.processEmbeddingBatch(faqs);
@@ -349,7 +396,11 @@ export class FaqService {
     }
   }
 
-  async regenerateAllEmbeddings(): Promise<{ total: number; success: number; failed: number }> {
+  async regenerateAllEmbeddings(): Promise<{
+    total: number;
+    success: number;
+    failed: number;
+  }> {
     const BATCH_SIZE = 100;
     let success = 0;
     let failed = 0;
@@ -360,7 +411,13 @@ export class FaqService {
     while (true) {
       const faqs = await this.prisma.faq.findMany({
         where: { status: 'approved' },
-        select: { id: true, question: true, answer: true, questionKo: true, answerKo: true },
+        select: {
+          id: true,
+          question: true,
+          answer: true,
+          questionKo: true,
+          answerKo: true,
+        },
         skip: offset,
         take: BATCH_SIZE,
         orderBy: { id: 'asc' },
@@ -375,13 +432,21 @@ export class FaqService {
       offset += BATCH_SIZE;
     }
 
-    this.logger.log(`임베딩 전체 재생성: ${total}건 중 성공 ${success}, 실패 ${failed}`);
+    this.logger.log(
+      `임베딩 전체 재생성: ${total}건 중 성공 ${success}, 실패 ${failed}`,
+    );
     return { total, success, failed };
   }
 
   /** 임베딩 배치 처리 (동시 5개씩) */
   private async processEmbeddingBatch(
-    faqs: Array<{ id: number; question: string; answer: string; questionKo: string | null; answerKo: string | null }>,
+    faqs: Array<{
+      id: number;
+      question: string;
+      answer: string;
+      questionKo: string | null;
+      answerKo: string | null;
+    }>,
   ): Promise<{ success: number; failed: number }> {
     const CONCURRENCY = 5;
     let success = 0;
@@ -391,7 +456,13 @@ export class FaqService {
       const batch = faqs.slice(i, i + CONCURRENCY);
       const results = await Promise.allSettled(
         batch.map((faq) =>
-          this.generateAndSaveEmbedding(faq.id, faq.question, faq.answer, faq.questionKo, faq.answerKo),
+          this.generateAndSaveEmbedding(
+            faq.id,
+            faq.question,
+            faq.answer,
+            faq.questionKo,
+            faq.answerKo,
+          ),
         ),
       );
       for (const r of results) {
@@ -448,8 +519,8 @@ export class FaqService {
   //    - travel → Gemini 직접 (일반 한국 여행)
   // ============================================================================
 
-  private static readonly DIRECT_THRESHOLD = 0.70; // FAQ 직접 답변 임계값
-  private static readonly RAG_THRESHOLD = 0.50;    // FAQ RAG 임계값
+  private static readonly DIRECT_THRESHOLD = 0.7; // FAQ 직접 답변 임계값
+  private static readonly RAG_THRESHOLD = 0.5; // FAQ RAG 임계값
 
   async chatWithFaq(
     message: string,
@@ -478,17 +549,22 @@ export class FaqService {
     } else {
       // === 유사도 낮음: 의도 분류 후 분기 ===
       const intent = await this.classifyIntent(message);
-      this.logger.debug(`Intent classified: ${intent} for message: "${message.substring(0, 50)}..."`);
+      this.logger.debug(
+        `Intent classified: ${intent} for message: "${message.substring(0, 50)}..."`,
+      );
 
       if (intent === 'company' && topSimilarity >= FaqService.RAG_THRESHOLD) {
         // === RAG: 회사 관련이지만 정확한 FAQ 없음 → FAQ 컨텍스트로 생성 ===
         responseTier = 'rag';
-        const relevant = similar.filter((f) => f.similarity >= FaqService.RAG_THRESHOLD);
+        const relevant = similar.filter(
+          (f) => f.similarity >= FaqService.RAG_THRESHOLD,
+        );
         answer = await this.generateRagAnswer(message, relevant, history);
       } else if (intent === 'company') {
         // === 회사 관련인데 매칭 FAQ 없음 → 문의 안내 ===
         responseTier = 'no_match';
-        answer = "I don't have specific information about that in our FAQ. For questions about our tours, pricing, or bookings, please start a tour inquiry or contact us directly at info@tumakr.com.";
+        answer =
+          "I don't have specific information about that in our FAQ. For questions about our tours, pricing, or bookings, please start a tour inquiry or contact us directly at info@tumakr.com.";
         if (similar.length > 0) {
           suggestedQuestions = similar.slice(0, 3).map((f) => ({
             id: f.id,
@@ -503,7 +579,9 @@ export class FaqService {
     }
 
     // 3. 매칭된 FAQ 정보
-    const relevant = similar.filter((f) => f.similarity >= FaqService.RAG_THRESHOLD);
+    const relevant = similar.filter(
+      (f) => f.similarity >= FaqService.RAG_THRESHOLD,
+    );
     const noMatch = relevant.length === 0;
     const matchedFaqIds = relevant.map((f) => f.id);
     const matchedSimilarities = relevant.map((f) => f.similarity);
@@ -511,10 +589,18 @@ export class FaqService {
     // 4. 로그 저장 (fire-and-forget)
     const logAnswer = answer;
     const saveLog = async () => {
-      let geo = { country: null as string | null, countryName: null as string | null, city: null as string | null };
+      let geo = {
+        country: null as string | null,
+        countryName: null as string | null,
+        city: null as string | null,
+      };
       if (meta?.ipAddress) {
         const geoData = await this.geoIpService.lookup(meta.ipAddress);
-        geo = { country: geoData.country, countryName: geoData.countryName, city: geoData.city };
+        geo = {
+          country: geoData.country,
+          countryName: geoData.countryName,
+          city: geoData.city,
+        };
       }
       await this.prisma.faqChatLog.create({
         data: {
@@ -533,7 +619,9 @@ export class FaqService {
         },
       });
     };
-    saveLog().catch((err) => this.logger.error('FAQ 채팅 로그 저장 실패:', err));
+    saveLog().catch((err) =>
+      this.logger.error('FAQ 채팅 로그 저장 실패:', err),
+    );
 
     // 5. 매칭된 FAQ viewCount 증가 (fire-and-forget)
     if (matchedFaqIds.length > 0) {
@@ -547,9 +635,10 @@ export class FaqService {
 
     return {
       answer,
-      sources: relevant.length > 0
-        ? relevant.map((f) => ({ question: f.question, id: f.id }))
-        : undefined,
+      sources:
+        relevant.length > 0
+          ? relevant.map((f) => ({ question: f.question, id: f.id }))
+          : undefined,
       noMatch,
       responseTier,
       suggestedQuestions,
@@ -576,7 +665,10 @@ Reply with ONLY one word: company OR travel`;
       const intent = result.trim().toLowerCase();
       return intent === 'company' ? 'company' : 'travel';
     } catch (error) {
-      this.logger.error('Intent classification failed, defaulting to travel:', error);
+      this.logger.error(
+        'Intent classification failed, defaulting to travel:',
+        error,
+      );
       return 'travel'; // 실패 시 일반 여행으로 처리
     }
   }
@@ -626,7 +718,12 @@ Guidelines:
    */
   private async generateRagAnswer(
     message: string,
-    relevant: Array<{ id: number; question: string; answer: string; similarity: number }>,
+    relevant: Array<{
+      id: number;
+      question: string;
+      answer: string;
+      similarity: number;
+    }>,
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
   ): Promise<string> {
     const faqContext = relevant
@@ -667,7 +764,9 @@ Guidelines:
   /**
    * FAQ 원문 직접 반환 (제안 질문 클릭 시 사용)
    */
-  async getDirectFaqAnswer(faqId: number): Promise<{ question: string; answer: string }> {
+  async getDirectFaqAnswer(
+    faqId: number,
+  ): Promise<{ question: string; answer: string }> {
     const faq = await this.prisma.faq.findUnique({
       where: { id: faqId },
       select: { id: true, question: true, answer: true },
@@ -699,7 +798,16 @@ Guidelines:
     responseTier?: string;
     visitorId?: string;
   }) {
-    const { page = 1, limit = 20, noMatch, startDate, endDate, search, responseTier, visitorId } = params;
+    const {
+      page = 1,
+      limit = 20,
+      noMatch,
+      startDate,
+      endDate,
+      search,
+      responseTier,
+      visitorId,
+    } = params;
     const skip = calculateSkip(page, limit);
 
     const where: Prisma.FaqChatLogWhereInput = {};
@@ -768,24 +876,32 @@ Guidelines:
 
   async getFaqChatStats() {
     const cacheKey = 'faq:chatStats';
-    const cached = this.cache.get<ReturnType<typeof this.buildChatStatsResponse>>(cacheKey);
+    const cached =
+      this.cache.get<ReturnType<typeof this.buildChatStatsResponse>>(cacheKey);
     if (cached) return cached;
 
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     // 단일 쿼리로 모든 카운트 집계 (9개 쿼리 → 4개로 최적화)
-    const [counts, dailyTrend, topQuestions, unansweredQuestions] = await Promise.all([
-      // 모든 카운트를 한 번에 가져오기
-      this.prisma.$queryRaw<Array<{
-        total: bigint;
-        today: bigint;
-        no_match: bigint;
-        direct: bigint;
-        rag: bigint;
-        general: bigint;
-      }>>`
+    const [counts, dailyTrend, topQuestions, unansweredQuestions] =
+      await Promise.all([
+        // 모든 카운트를 한 번에 가져오기
+        this.prisma.$queryRaw<
+          Array<{
+            total: bigint;
+            today: bigint;
+            no_match: bigint;
+            direct: bigint;
+            rag: bigint;
+            general: bigint;
+          }>
+        >`
         SELECT
           COUNT(*)::bigint as total,
           COUNT(*) FILTER (WHERE created_at >= ${todayStart})::bigint as today,
@@ -795,24 +911,30 @@ Guidelines:
           COUNT(*) FILTER (WHERE response_tier = 'general')::bigint as general
         FROM faq_chat_logs
       `,
-      // 일별 추이 (30일)
-      this.prisma.$queryRaw<Array<{ date: Date; count: bigint }>>`
+        // 일별 추이 (30일)
+        this.prisma.$queryRaw<Array<{ date: Date; count: bigint }>>`
         SELECT DATE(created_at AT TIME ZONE 'UTC') as date, COUNT(*)::bigint as count
         FROM faq_chat_logs
         WHERE created_at >= ${thirtyDaysAgo}
         GROUP BY DATE(created_at AT TIME ZONE 'UTC')
         ORDER BY date ASC
       `,
-      // 자주 묻는 질문 Top 10 (고객 실제 질문)
-      this.prisma.$queryRaw<Array<{ message: string; count: bigint; response_tier: string | null }>>`
+        // 자주 묻는 질문 Top 10 (고객 실제 질문)
+        this.prisma.$queryRaw<
+          Array<{
+            message: string;
+            count: bigint;
+            response_tier: string | null;
+          }>
+        >`
         SELECT message, COUNT(*)::bigint as count, response_tier
         FROM faq_chat_logs
         GROUP BY message, response_tier
         ORDER BY count DESC
         LIMIT 10
       `,
-      // 답변 못한 질문 Top 10 (FAQ 추가 필요)
-      this.prisma.$queryRaw<Array<{ message: string; count: bigint }>>`
+        // 답변 못한 질문 Top 10 (FAQ 추가 필요)
+        this.prisma.$queryRaw<Array<{ message: string; count: bigint }>>`
         SELECT message, COUNT(*)::bigint as count
         FROM faq_chat_logs
         WHERE no_match = true
@@ -820,9 +942,16 @@ Guidelines:
         ORDER BY count DESC
         LIMIT 10
       `,
-    ]);
+      ]);
 
-    const stats = counts[0] || { total: 0n, today: 0n, no_match: 0n, direct: 0n, rag: 0n, general: 0n };
+    const stats = counts[0] || {
+      total: 0n,
+      today: 0n,
+      no_match: 0n,
+      direct: 0n,
+      rag: 0n,
+      general: 0n,
+    };
     const totalChats = Number(stats.total);
     const noMatchCount = Number(stats.no_match);
 
@@ -830,7 +959,8 @@ Guidelines:
       totalChats,
       todayChats: Number(stats.today),
       noMatchCount,
-      noMatchRate: totalChats > 0 ? ((noMatchCount / totalChats) * 100).toFixed(1) : '0.0',
+      noMatchRate:
+        totalChats > 0 ? ((noMatchCount / totalChats) * 100).toFixed(1) : '0.0',
       responseTierBreakdown: {
         direct: Number(stats.direct),
         rag: Number(stats.rag),

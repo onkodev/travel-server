@@ -193,7 +193,12 @@ export class FaqController {
     @CurrentUser('id') userId: string,
     @Body() body: BulkActionDto,
   ) {
-    return this.faqService.bulkAction(body.ids, body.action, userId, body.reason);
+    return this.faqService.bulkAction(
+      body.ids,
+      body.action,
+      userId,
+      body.reason,
+    );
   }
 
   @Post('regenerate-embeddings')
@@ -201,5 +206,4 @@ export class FaqController {
   async regenerateEmbeddings() {
     return this.faqService.regenerateAllEmbeddings();
   }
-
 }

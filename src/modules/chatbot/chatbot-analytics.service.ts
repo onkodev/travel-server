@@ -22,22 +22,29 @@ export class ChatbotAnalyticsService {
       completed,
     ] = await Promise.all([
       this.prisma.chatbotFlow.count(),
-      this.prisma.estimate.count({ where: { source: 'ai', statusAi: 'pending' } }),
+      this.prisma.estimate.count({
+        where: { source: 'ai', statusAi: 'pending' },
+      }),
       this.prisma.estimate.count({ where: { source: 'ai', statusAi: 'sent' } }),
-      this.prisma.estimate.count({ where: { source: 'ai', statusAi: 'approved' } }),
-      this.prisma.estimate.count({ where: { source: 'ai', statusAi: 'completed' } }),
+      this.prisma.estimate.count({
+        where: { source: 'ai', statusAi: 'approved' },
+      }),
+      this.prisma.estimate.count({
+        where: { source: 'ai', statusAi: 'completed' },
+      }),
     ]);
 
     const successCount = approved + completed;
     const totalProcessed = sent + approved + completed;
-    const approvalRate = totalProcessed > 0
-      ? ((successCount / totalProcessed) * 100).toFixed(1)
-      : '0';
+    const approvalRate =
+      totalProcessed > 0
+        ? ((successCount / totalProcessed) * 100).toFixed(1)
+        : '0';
 
     return {
-      total,           // 전체 상담
-      pending,         // 검토 대기
-      sent,            // 고객 대기
+      total, // 전체 상담
+      pending, // 검토 대기
+      sent, // 고객 대기
       success: successCount, // 승인 완료 (approved + completed)
       approvalRate: `${approvalRate}%`, // 승인율
     };
@@ -63,46 +70,108 @@ export class ChatbotAnalyticsService {
       estimateSent, // 전문가에게 발송
       estimateAccepted, // 고객 수락
     ] = await Promise.all([
-      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate } } }),
-      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 2 } } }),
-      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 3 } } }),
-      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 4 } } }),
-      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 5 } } }),
-      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 6 } } }),
-      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, currentStep: { gte: 7 } } }),
-      this.prisma.chatbotFlow.count({ where: { createdAt: { gte: startDate }, isCompleted: true } }),
-      this.prisma.estimate.count({
-        where: {
-          createdAt: { gte: startDate },
-          statusAi: { in: ['sent', 'approved'] }
-        }
+      this.prisma.chatbotFlow.count({
+        where: { createdAt: { gte: startDate } },
+      }),
+      this.prisma.chatbotFlow.count({
+        where: { createdAt: { gte: startDate }, currentStep: { gte: 2 } },
+      }),
+      this.prisma.chatbotFlow.count({
+        where: { createdAt: { gte: startDate }, currentStep: { gte: 3 } },
+      }),
+      this.prisma.chatbotFlow.count({
+        where: { createdAt: { gte: startDate }, currentStep: { gte: 4 } },
+      }),
+      this.prisma.chatbotFlow.count({
+        where: { createdAt: { gte: startDate }, currentStep: { gte: 5 } },
+      }),
+      this.prisma.chatbotFlow.count({
+        where: { createdAt: { gte: startDate }, currentStep: { gte: 6 } },
+      }),
+      this.prisma.chatbotFlow.count({
+        where: { createdAt: { gte: startDate }, currentStep: { gte: 7 } },
+      }),
+      this.prisma.chatbotFlow.count({
+        where: { createdAt: { gte: startDate }, isCompleted: true },
       }),
       this.prisma.estimate.count({
         where: {
           createdAt: { gte: startDate },
-          statusAi: 'approved'
-        }
+          statusAi: { in: ['sent', 'approved'] },
+        },
+      }),
+      this.prisma.estimate.count({
+        where: {
+          createdAt: { gte: startDate },
+          statusAi: 'approved',
+        },
       }),
     ]);
 
     const funnel = [
       { step: 1, name: '챗봇 시작', count: step1, rate: 100 },
-      { step: 2, name: '투어 타입 선택', count: step2, rate: step1 > 0 ? Math.round((step2 / step1) * 100) : 0 },
-      { step: 3, name: '첫 방문 여부', count: step3, rate: step1 > 0 ? Math.round((step3 / step1) * 100) : 0 },
-      { step: 4, name: '관심사 선택', count: step4, rate: step1 > 0 ? Math.round((step4 / step1) * 100) : 0 },
-      { step: 5, name: '지역 선택', count: step5, rate: step1 > 0 ? Math.round((step5 / step1) * 100) : 0 },
-      { step: 6, name: '명소 선택', count: step6, rate: step1 > 0 ? Math.round((step6 / step1) * 100) : 0 },
-      { step: 7, name: '여행 정보 입력', count: step7, rate: step1 > 0 ? Math.round((step7 / step1) * 100) : 0 },
-      { step: 8, name: '견적 생성', count: completed, rate: step1 > 0 ? Math.round((completed / step1) * 100) : 0 },
-      { step: 9, name: '전문가 발송', count: estimateSent, rate: step1 > 0 ? Math.round((estimateSent / step1) * 100) : 0 },
-      { step: 10, name: '고객 수락', count: estimateAccepted, rate: step1 > 0 ? Math.round((estimateAccepted / step1) * 100) : 0 },
+      {
+        step: 2,
+        name: '투어 타입 선택',
+        count: step2,
+        rate: step1 > 0 ? Math.round((step2 / step1) * 100) : 0,
+      },
+      {
+        step: 3,
+        name: '첫 방문 여부',
+        count: step3,
+        rate: step1 > 0 ? Math.round((step3 / step1) * 100) : 0,
+      },
+      {
+        step: 4,
+        name: '관심사 선택',
+        count: step4,
+        rate: step1 > 0 ? Math.round((step4 / step1) * 100) : 0,
+      },
+      {
+        step: 5,
+        name: '지역 선택',
+        count: step5,
+        rate: step1 > 0 ? Math.round((step5 / step1) * 100) : 0,
+      },
+      {
+        step: 6,
+        name: '명소 선택',
+        count: step6,
+        rate: step1 > 0 ? Math.round((step6 / step1) * 100) : 0,
+      },
+      {
+        step: 7,
+        name: '여행 정보 입력',
+        count: step7,
+        rate: step1 > 0 ? Math.round((step7 / step1) * 100) : 0,
+      },
+      {
+        step: 8,
+        name: '견적 생성',
+        count: completed,
+        rate: step1 > 0 ? Math.round((completed / step1) * 100) : 0,
+      },
+      {
+        step: 9,
+        name: '전문가 발송',
+        count: estimateSent,
+        rate: step1 > 0 ? Math.round((estimateSent / step1) * 100) : 0,
+      },
+      {
+        step: 10,
+        name: '고객 수락',
+        count: estimateAccepted,
+        rate: step1 > 0 ? Math.round((estimateAccepted / step1) * 100) : 0,
+      },
     ];
 
     // 이탈률 계산 (다음 단계로 넘어가지 않은 비율)
     const dropoff = funnel.slice(0, -1).map((item, idx) => {
       const nextCount = funnel[idx + 1].count;
       const dropoffCount = item.count - nextCount;
-      const dropoffRate = item.count > 0 ? Math.round((dropoffCount / item.count) * 100) : 0;
+      const dropoffRate =
+        item.count > 0 ? Math.round((dropoffCount / item.count) * 100) : 0;
       return {
         step: item.step,
         name: item.name,
@@ -124,8 +193,12 @@ export class ChatbotAnalyticsService {
       summary: {
         totalStarted: step1,
         totalCompleted: completed,
-        overallConversion: step1 > 0 ? `${Math.round((completed / step1) * 100)}%` : '0%',
-        acceptanceRate: estimateSent > 0 ? `${Math.round((estimateAccepted / estimateSent) * 100)}%` : '0%',
+        overallConversion:
+          step1 > 0 ? `${Math.round((completed / step1) * 100)}%` : '0%',
+        acceptanceRate:
+          estimateSent > 0
+            ? `${Math.round((estimateAccepted / estimateSent) * 100)}%`
+            : '0%',
       },
     };
   }
@@ -163,18 +236,21 @@ export class ChatbotAnalyticsService {
     });
 
     // 리드 스코어 계산
-    const scoredLeads = flows.map(flow => {
+    const scoredLeads = flows.map((flow) => {
       let score = 0;
       const factors: string[] = [];
 
       // 진행 단계 점수 (최대 35점)
       score += flow.currentStep * 5;
-      factors.push(`진행도: Step ${flow.currentStep} (+${flow.currentStep * 5})`);
+      factors.push(
+        `진행도: Step ${flow.currentStep} (+${flow.currentStep * 5})`,
+      );
 
       // 여행 날짜가 가까우면 가산점 (최대 20점)
       if (flow.travelDate) {
         const daysUntilTravel = Math.ceil(
-          (new Date(flow.travelDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+          (new Date(flow.travelDate).getTime() - Date.now()) /
+            (1000 * 60 * 60 * 24),
         );
         if (daysUntilTravel > 0 && daysUntilTravel <= 30) {
           const dateScore = Math.max(0, 20 - Math.floor(daysUntilTravel / 2));
@@ -220,7 +296,8 @@ export class ChatbotAnalyticsService {
       }
 
       // 최근 활동 보너스 (최대 10점)
-      const hoursSinceUpdate = (Date.now() - new Date(flow.updatedAt).getTime()) / (1000 * 60 * 60);
+      const hoursSinceUpdate =
+        (Date.now() - new Date(flow.updatedAt).getTime()) / (1000 * 60 * 60);
       if (hoursSinceUpdate < 1) {
         score += 10;
         factors.push(`방금 활동: +10`);
@@ -243,9 +320,9 @@ export class ChatbotAnalyticsService {
       .slice(0, limit);
 
     const summary = {
-      hot: topLeads.filter(l => l.grade === 'HOT').length,
-      warm: topLeads.filter(l => l.grade === 'WARM').length,
-      cold: topLeads.filter(l => l.grade === 'COLD').length,
+      hot: topLeads.filter((l) => l.grade === 'HOT').length,
+      warm: topLeads.filter((l) => l.grade === 'WARM').length,
+      cold: topLeads.filter((l) => l.grade === 'COLD').length,
     };
 
     return {
@@ -263,12 +340,14 @@ export class ChatbotAnalyticsService {
     startDate.setDate(startDate.getDate() - days);
 
     // 단일 Raw SQL로 국가별 총 건수와 완료 건수를 한번에 조회
-    const countryStats = await this.prisma.$queryRaw<Array<{
-      country: string;
-      country_name: string | null;
-      total_count: bigint;
-      completed_count: bigint;
-    }>>`
+    const countryStats = await this.prisma.$queryRaw<
+      Array<{
+        country: string;
+        country_name: string | null;
+        total_count: bigint;
+        completed_count: bigint;
+      }>
+    >`
       SELECT
         country,
         country_name,
@@ -290,9 +369,8 @@ export class ChatbotAnalyticsService {
         countryName: item.country_name,
         count: total,
         completed,
-        conversionRate: total > 0
-          ? `${Math.round((completed / total) * 100)}%`
-          : '0%',
+        conversionRate:
+          total > 0 ? `${Math.round((completed / total) * 100)}%` : '0%',
       };
     });
 

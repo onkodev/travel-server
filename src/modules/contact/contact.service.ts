@@ -2,7 +2,11 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { EmailService } from '../email/email.service';
-import { CreateContactDto, ContactQueryDto, ContactListDto } from './dto/contact.dto';
+import {
+  CreateContactDto,
+  ContactQueryDto,
+  ContactListDto,
+} from './dto/contact.dto';
 import { calculateSkip } from '../../common/dto/pagination.dto';
 
 @Injectable()

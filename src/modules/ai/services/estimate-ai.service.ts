@@ -53,7 +53,10 @@ export class EstimateAiService {
 
     const prompt = ESTIMATE_ANALYSIS_PROMPT(promptParams);
 
-    const text = await this.geminiCore.callGemini(prompt, ESTIMATE_ANALYSIS_CONFIG);
+    const text = await this.geminiCore.callGemini(
+      prompt,
+      ESTIMATE_ANALYSIS_CONFIG,
+    );
 
     interface ParsedResult {
       regions?: string[];

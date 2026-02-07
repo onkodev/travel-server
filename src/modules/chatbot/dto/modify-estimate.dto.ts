@@ -49,6 +49,9 @@ export class ModifyEstimateResponseDto {
   @ApiProperty({ description: '성공 여부' })
   success: boolean;
 
-  @ApiProperty({ description: '업데이트된 아이템 목록', type: [EstimateItemExtendedDto] })
+  @ApiProperty({
+    description: '업데이트된 아이템 목록',
+    type: [EstimateItemExtendedDto],
+  })
   items: EstimateItemExtendedDto[];
 }

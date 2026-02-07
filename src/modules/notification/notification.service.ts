@@ -16,7 +16,8 @@ export const NOTIFICATION_TYPES = {
   CUSTOMER_MESSAGE: 'customer_message',
 } as const;
 
-export type NotificationType = (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];
+export type NotificationType =
+  (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];
 
 @Injectable()
 export class NotificationService {
@@ -93,7 +94,10 @@ export class NotificationService {
     });
   }
 
-  async deleteNotification(agentId: number, notificationId: number): Promise<void> {
+  async deleteNotification(
+    agentId: number,
+    notificationId: number,
+  ): Promise<void> {
     await this.prisma.notification.deleteMany({
       where: {
         id: notificationId,
@@ -102,7 +106,10 @@ export class NotificationService {
     });
   }
 
-  async deleteNotifications(agentId: number, notificationIds: number[]): Promise<number> {
+  async deleteNotifications(
+    agentId: number,
+    notificationIds: number[],
+  ): Promise<number> {
     const result = await this.prisma.notification.deleteMany({
       where: {
         id: { in: notificationIds },
@@ -283,9 +290,9 @@ export class NotificationService {
     const tourTypeMap: Record<string, string> = {
       'ai-custom': 'AI 맞춤 투어',
       'history-group': '역사/그룹 투어',
-      'online': '온라인 투어',
-      'private': '프라이빗 투어',
-      'custom': '맞춤 투어',
+      online: '온라인 투어',
+      private: '프라이빗 투어',
+      custom: '맞춤 투어',
     };
     return tourTypeMap[tourType || ''] || '맞춤 투어';
   }

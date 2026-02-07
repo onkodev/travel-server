@@ -133,32 +133,34 @@ export class DashboardService {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     // 단일 Raw SQL로 모든 핵심 통계 조회 (연결 1개만 사용)
-    const [statsResult] = await this.prisma.$queryRaw<Array<{
-      // 견적 통계
-      total_estimates: bigint;
-      manual_estimates: bigint;
-      ai_estimates: bigint;
-      recent_estimates: bigint;
-      // 예약 통계
-      total_bookings: bigint;
-      pending_bookings: bigint;
-      confirmed_bookings: bigint;
-      upcoming_bookings: bigint;
-      // 채팅 통계
-      total_chats: bigint;
-      completed_chats: bigint;
-      // 아이템 통계
-      total_items: bigint;
-      place_count: bigint;
-      accommodation_count: bigint;
-      transportation_count: bigint;
-      contents_count: bigint;
-      // 전환 퍼널
-      funnel_chatbot: bigint;
-      funnel_estimate: bigint;
-      funnel_booking: bigint;
-      funnel_confirmed: bigint;
-    }>>`
+    const [statsResult] = await this.prisma.$queryRaw<
+      Array<{
+        // 견적 통계
+        total_estimates: bigint;
+        manual_estimates: bigint;
+        ai_estimates: bigint;
+        recent_estimates: bigint;
+        // 예약 통계
+        total_bookings: bigint;
+        pending_bookings: bigint;
+        confirmed_bookings: bigint;
+        upcoming_bookings: bigint;
+        // 채팅 통계
+        total_chats: bigint;
+        completed_chats: bigint;
+        // 아이템 통계
+        total_items: bigint;
+        place_count: bigint;
+        accommodation_count: bigint;
+        transportation_count: bigint;
+        contents_count: bigint;
+        // 전환 퍼널
+        funnel_chatbot: bigint;
+        funnel_estimate: bigint;
+        funnel_booking: bigint;
+        funnel_confirmed: bigint;
+      }>
+    >`
       SELECT
         -- 견적 통계
         (SELECT COUNT(*) FROM estimates) as total_estimates,
@@ -188,40 +190,42 @@ export class DashboardService {
     this.logger.debug(`핵심 통계: ${Date.now() - startTime}ms`);
 
     // 나머지 데이터는 3개씩 병렬 (연결 수 제한)
-    const [upcomingBookings, recentEstimates, monthlyRevenue] = await Promise.all([
-      this.prisma.booking.findMany({
-        where: {
-          bookingDate: { gte: today, lte: sevenDaysLater },
-          status: { not: 'cancelled' },
-        },
-        orderBy: { bookingDate: 'asc' },
-        take: 10,
-      }),
-      this.prisma.estimate.findMany({
-        select: {
-          id: true,
-          title: true,
-          customerName: true,
-          source: true,
-          statusManual: true,
-          statusAi: true,
-          updatedAt: true,
-          startDate: true,
-          totalAmount: true,
-        },
-        orderBy: { updatedAt: 'desc' },
-        take: 10,
-      }),
-      this.getMonthlyRevenue(),
-    ]);
+    const [upcomingBookings, recentEstimates, monthlyRevenue] =
+      await Promise.all([
+        this.prisma.booking.findMany({
+          where: {
+            bookingDate: { gte: today, lte: sevenDaysLater },
+            status: { not: 'cancelled' },
+          },
+          orderBy: { bookingDate: 'asc' },
+          take: 10,
+        }),
+        this.prisma.estimate.findMany({
+          select: {
+            id: true,
+            title: true,
+            customerName: true,
+            source: true,
+            statusManual: true,
+            statusAi: true,
+            updatedAt: true,
+            startDate: true,
+            totalAmount: true,
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 10,
+        }),
+        this.getMonthlyRevenue(),
+      ]);
     this.logger.debug(`리스트 데이터: ${Date.now() - startTime}ms`);
 
-    const [dailyTrends, countryStats, popularTours, tourTypeStats] = await Promise.all([
-      this.getDailyTrends(),
-      this.getCountryStats(),
-      this.getPopularTours(),
-      this.getTourTypeStats(),
-    ]);
+    const [dailyTrends, countryStats, popularTours, tourTypeStats] =
+      await Promise.all([
+        this.getDailyTrends(),
+        this.getCountryStats(),
+        this.getPopularTours(),
+        this.getTourTypeStats(),
+      ]);
     this.logger.debug(`차트 데이터: ${Date.now() - startTime}ms`);
 
     // 통계 매핑
@@ -249,9 +253,18 @@ export class DashboardService {
       estimateCreated: funnelEstimate,
       bookingCreated: funnelBooking,
       bookingConfirmed: funnelConfirmed,
-      chatToEstimateRate: funnelChatbot > 0 ? ((funnelEstimate / funnelChatbot) * 100).toFixed(1) + '%' : '0%',
-      estimateToBookingRate: funnelEstimate > 0 ? ((funnelBooking / funnelEstimate) * 100).toFixed(1) + '%' : '0%',
-      overallConversionRate: funnelChatbot > 0 ? ((funnelConfirmed / funnelChatbot) * 100).toFixed(1) + '%' : '0%',
+      chatToEstimateRate:
+        funnelChatbot > 0
+          ? ((funnelEstimate / funnelChatbot) * 100).toFixed(1) + '%'
+          : '0%',
+      estimateToBookingRate:
+        funnelEstimate > 0
+          ? ((funnelBooking / funnelEstimate) * 100).toFixed(1) + '%'
+          : '0%',
+      overallConversionRate:
+        funnelChatbot > 0
+          ? ((funnelConfirmed / funnelChatbot) * 100).toFixed(1) + '%'
+          : '0%',
     };
 
     const chatStats = {
@@ -423,11 +436,13 @@ export class DashboardService {
   private async getCountryStats(): Promise<CountryStats[]> {
     const start = Date.now();
 
-    const countryData = await this.prisma.$queryRaw<Array<{
-      country: string;
-      country_name: string;
-      count: bigint;
-    }>>`
+    const countryData = await this.prisma.$queryRaw<
+      Array<{
+        country: string;
+        country_name: string;
+        count: bigint;
+      }>
+    >`
       SELECT country, country_name, COUNT(*) as count
       FROM chatbot_flows
       WHERE country IS NOT NULL
@@ -452,14 +467,16 @@ export class DashboardService {
   private async getPopularTours(): Promise<PopularTour[]> {
     const start = Date.now();
 
-    const result = await this.prisma.$queryRaw<Array<{
-      id: number;
-      title: string;
-      thumbnail_url: string | null;
-      view_count: number;
-      booking_count: bigint;
-      revenue: number | null;
-    }>>`
+    const result = await this.prisma.$queryRaw<
+      Array<{
+        id: number;
+        title: string;
+        thumbnail_url: string | null;
+        view_count: number;
+        booking_count: bigint;
+        revenue: number | null;
+      }>
+    >`
       SELECT
         t.id,
         t.title,
@@ -493,12 +510,14 @@ export class DashboardService {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     // 단일 쿼리로 모든 통계 조회
-    const [funnelData] = await this.prisma.$queryRaw<Array<{
-      chatbot_started: bigint;
-      estimate_created: bigint;
-      booking_created: bigint;
-      booking_confirmed: bigint;
-    }>>`
+    const [funnelData] = await this.prisma.$queryRaw<
+      Array<{
+        chatbot_started: bigint;
+        estimate_created: bigint;
+        booking_created: bigint;
+        booking_confirmed: bigint;
+      }>
+    >`
       SELECT
         (SELECT COUNT(*) FROM chatbot_flows WHERE created_at >= ${thirtyDaysAgo}) as chatbot_started,
         (SELECT COUNT(*) FROM chatbot_flows WHERE created_at >= ${thirtyDaysAgo} AND estimate_id IS NOT NULL) as estimate_created,
@@ -542,10 +561,12 @@ export class DashboardService {
   > {
     const start = Date.now();
 
-    const typeData = await this.prisma.$queryRaw<Array<{
-      tour_type: string;
-      count: bigint;
-    }>>`
+    const typeData = await this.prisma.$queryRaw<
+      Array<{
+        tour_type: string;
+        count: bigint;
+      }>
+    >`
       SELECT tour_type, COUNT(*) as count
       FROM chatbot_flows
       WHERE tour_type IS NOT NULL

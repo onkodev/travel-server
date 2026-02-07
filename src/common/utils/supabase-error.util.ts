@@ -9,5 +9,7 @@ export function handleSupabaseError(
   const message = isSupabaseError(error) ? error.message : 'Unknown error';
   const stack = isSupabaseError(error) ? error.stack : undefined;
   logger.error(`${context}: ${message}`, stack);
-  throw new InternalServerErrorException(`${context} 처리 중 오류가 발생했습니다`);
+  throw new InternalServerErrorException(
+    `${context} 처리 중 오류가 발생했습니다`,
+  );
 }

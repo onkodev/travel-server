@@ -119,7 +119,10 @@ export class EstimateItemExtendedDto {
   @IsString()
   note?: string;
 
-  @ApiPropertyOptional({ description: '아이템 상세 정보', type: EstimateItemInfoDto })
+  @ApiPropertyOptional({
+    description: '아이템 상세 정보',
+    type: EstimateItemInfoDto,
+  })
   @IsOptional()
   itemInfo?: EstimateItemInfoDto;
 }

@@ -1,7 +1,15 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ItineraryAiService, ModificationIntent } from '../ai/services/itinerary-ai.service';
+import {
+  ItineraryAiService,
+  ModificationIntent,
+} from '../ai/services/itinerary-ai.service';
 import { TravelAssistantService } from '../ai/services/travel-assistant.service';
 import { ItemService } from '../item/item.service';
 import { normalizeImages } from '../../common/utils';
@@ -57,7 +65,10 @@ export class ConversationalEstimateService {
       type: item.type,
     }));
 
-    const interests = [...(flow.interestMain || []), ...(flow.interestSub || [])];
+    const interests = [
+      ...(flow.interestMain || []),
+      ...(flow.interestSub || []),
+    ];
 
     return this.itineraryAiService.parseModificationIntent({
       userMessage,
@@ -88,7 +99,8 @@ export class ConversationalEstimateService {
       return {
         success: false,
         updatedItems: [],
-        botMessage: "I'm not sure what you'd like to change. Could you be more specific? For example:\n- \"Change Day 2\"\n- \"Add Namsan Tower\"\n- \"Remove shopping places\"",
+        botMessage:
+          'I\'m not sure what you\'d like to change. Could you be more specific? For example:\n- "Change Day 2"\n- "Add Namsan Tower"\n- "Remove shopping places"',
         intent,
       };
     }
@@ -204,7 +216,8 @@ export class ConversationalEstimateService {
 
     return {
       success: true,
-      message: 'Your itinerary has been sent to our travel expert for review. They will contact you soon!',
+      message:
+        'Your itinerary has been sent to our travel expert for review. They will contact you soon!',
       estimateId: flow.estimateId,
     };
   }
@@ -225,20 +238,26 @@ export class ConversationalEstimateService {
       return {
         success: false,
         updatedItems: [],
-        botMessage: 'Which day would you like me to regenerate? Please specify the day number.',
+        botMessage:
+          'Which day would you like me to regenerate? Please specify the day number.',
         intent,
       };
     }
 
     const items = (flow.estimate.items as EstimateItem[]) || [];
     // 실제 일정의 최대 일차 (flow.duration보다 신뢰성 있음)
-    const maxDayInItems = items.length > 0 ? Math.max(...items.map((i) => i.dayNumber || 1)) : 1;
+    const maxDayInItems =
+      items.length > 0 ? Math.max(...items.map((i) => i.dayNumber || 1)) : 1;
     const duration = Math.max(flow.duration || 1, maxDayInItems);
 
-    this.logger.log(`handleRegenerateDay: dayNumber=${dayNumber}, duration=${duration}, maxDayInItems=${maxDayInItems}, itemCount=${items.length}`);
+    this.logger.log(
+      `handleRegenerateDay: dayNumber=${dayNumber}, duration=${duration}, maxDayInItems=${maxDayInItems}, itemCount=${items.length}`,
+    );
 
     if (dayNumber < 1 || dayNumber > duration) {
-      this.logger.warn(`handleRegenerateDay: Invalid day number! dayNumber=${dayNumber}, duration=${duration}`);
+      this.logger.warn(
+        `handleRegenerateDay: Invalid day number! dayNumber=${dayNumber}, duration=${duration}`,
+      );
       return {
         success: false,
         updatedItems: items,
@@ -247,14 +266,19 @@ export class ConversationalEstimateService {
       };
     }
 
-    const interests = [...(flow.interestMain || []), ...(flow.interestSub || [])];
+    const interests = [
+      ...(flow.interestMain || []),
+      ...(flow.interestSub || []),
+    ];
 
     // 기존 일정의 itemId 목록 (중복 방지)
     const existingItemIds = items
       .filter((i) => i.dayNumber !== dayNumber && i.itemId)
       .map((i) => i.itemId as number);
 
-    this.logger.log(`handleRegenerateDay: searching items - interests=${interests.join(',')}, region=${flow.region}, excludeIds=${existingItemIds.length}`);
+    this.logger.log(
+      `handleRegenerateDay: searching items - interests=${interests.join(',')}, region=${flow.region}, excludeIds=${existingItemIds.length}`,
+    );
 
     // DB에서 후보 아이템 조회 (최소 10개 필요)
     let candidateItems = await this.itemService.findSimilarItems({
@@ -267,7 +291,9 @@ export class ConversationalEstimateService {
 
     // 후보가 부족하면 지역 조건 없이 재검색
     if (candidateItems.length < 10) {
-      this.logger.log(`handleRegenerateDay: only ${candidateItems.length} items found, searching without region constraint`);
+      this.logger.log(
+        `handleRegenerateDay: only ${candidateItems.length} items found, searching without region constraint`,
+      );
       const moreItems = await this.itemService.findSimilarItems({
         interests,
         type: 'place',
@@ -277,19 +303,24 @@ export class ConversationalEstimateService {
       candidateItems = [...candidateItems, ...moreItems];
     }
 
-    this.logger.log(`handleRegenerateDay: found ${candidateItems.length} candidate items`);
+    this.logger.log(
+      `handleRegenerateDay: found ${candidateItems.length} candidate items`,
+    );
 
     if (candidateItems.length === 0) {
       return {
         success: false,
         updatedItems: items,
-        botMessage: 'I could not find suitable places in our database. Please try with different preferences.',
+        botMessage:
+          'I could not find suitable places in our database. Please try with different preferences.',
         intent,
       };
     }
 
     // AI로 최적의 아이템 선택 (3-5개)
-    this.logger.log(`handleRegenerateDay: candidateItems=${candidateItems.length}, interests=${interests.join(',')}`);
+    this.logger.log(
+      `handleRegenerateDay: candidateItems=${candidateItems.length}, interests=${interests.join(',')}`,
+    );
     const selectedItems = await this.itineraryAiService.selectMultipleItems({
       availableItems: candidateItems,
       count: Math.min(4, candidateItems.length),
@@ -297,32 +328,38 @@ export class ConversationalEstimateService {
       dayNumber,
       region: flow.region || 'Seoul',
     });
-    this.logger.log(`handleRegenerateDay: selectedItems=${selectedItems.length}`);
+    this.logger.log(
+      `handleRegenerateDay: selectedItems=${selectedItems.length}`,
+    );
 
     // 선택된 아이템으로 일정 구성
     const otherDayItems = items.filter((i) => i.dayNumber !== dayNumber);
-    const newItems: EstimateItem[] = selectedItems.map((selection, idx) => {
-      const dbItem = candidateItems.find((c) => c.id === selection.selectedId);
-      if (!dbItem) return null;
+    const newItems: EstimateItem[] = selectedItems
+      .map((selection, idx) => {
+        const dbItem = candidateItems.find(
+          (c) => c.id === selection.selectedId,
+        );
+        if (!dbItem) return null;
 
-      return {
-        id: `ai-day${dayNumber}-${idx + 1}`,
-        type: dbItem.type || 'place',
-        itemId: dbItem.id,
-        itemName: dbItem.nameEng,
-        name: dbItem.nameEng,
-        nameEng: dbItem.nameEng,
-        dayNumber,
-        orderIndex: idx,
-        note: selection.reason,
-        itemInfo: {
-          nameKor: dbItem.nameKor,
+        return {
+          id: `ai-day${dayNumber}-${idx + 1}`,
+          type: dbItem.type || 'place',
+          itemId: dbItem.id,
+          itemName: dbItem.nameEng,
+          name: dbItem.nameEng,
           nameEng: dbItem.nameEng,
-          descriptionEng: dbItem.descriptionEng || undefined,
-          images: normalizeImages(dbItem.images),
-        },
-      };
-    }).filter(Boolean) as EstimateItem[];
+          dayNumber,
+          orderIndex: idx,
+          note: selection.reason,
+          itemInfo: {
+            nameKor: dbItem.nameKor,
+            nameEng: dbItem.nameEng,
+            descriptionEng: dbItem.descriptionEng || undefined,
+            images: normalizeImages(dbItem.images),
+          },
+        };
+      })
+      .filter(Boolean) as EstimateItem[];
 
     const updatedItems = [...otherDayItems, ...newItems].sort((a, b) => {
       if (a.dayNumber !== b.dayNumber) return a.dayNumber - b.dayNumber;
@@ -335,7 +372,9 @@ export class ConversationalEstimateService {
       data: { items: updatedItems as unknown as Prisma.InputJsonValue },
     });
 
-    this.logger.log(`handleRegenerateDay: success! updatedItems=${updatedItems.length}`);
+    this.logger.log(
+      `handleRegenerateDay: success! updatedItems=${updatedItems.length}`,
+    );
     return {
       success: true,
       updatedItems,
@@ -359,17 +398,25 @@ export class ConversationalEstimateService {
       return {
         success: false,
         updatedItems: items,
-        botMessage: 'What would you like to add? Please tell me the name of a place or a category (like "food", "shopping", "culture").',
+        botMessage:
+          'What would you like to add? Please tell me the name of a place or a category (like "food", "shopping", "culture").',
         intent,
       };
     }
 
-    const interests = [...(flow.interestMain || []), ...(flow.interestSub || [])];
-    const existingItemIds = items.filter((i) => i.itemId).map((i) => i.itemId as number);
+    const interests = [
+      ...(flow.interestMain || []),
+      ...(flow.interestSub || []),
+    ];
+    const existingItemIds = items
+      .filter((i) => i.itemId)
+      .map((i) => i.itemId as number);
 
     // 사용자가 특정 장소명을 요청한 경우, 먼저 정확한 이름 매칭 시도 (excludeIds 없이)
     if (intent.itemName && intent.itemName.length > 3) {
-      this.logger.log(`Searching for exact match: query="${intent.itemName}", region="${flow.region}"`);
+      this.logger.log(
+        `Searching for exact match: query="${intent.itemName}", region="${flow.region}"`,
+      );
 
       const exactMatch = await this.itemService.findSimilarItems({
         query: intent.itemName,
@@ -380,7 +427,9 @@ export class ConversationalEstimateService {
 
       this.logger.log(`Exact match results: ${exactMatch.length} items found`);
       if (exactMatch.length > 0) {
-        this.logger.log(`First result: ${exactMatch[0].nameEng} (ID: ${exactMatch[0].id})`);
+        this.logger.log(
+          `First result: ${exactMatch[0].nameEng} (ID: ${exactMatch[0].id})`,
+        );
       }
 
       // 정확히 매칭되는 아이템이 있으면 바로 사용
@@ -397,7 +446,9 @@ export class ConversationalEstimateService {
       });
 
       if (foundItem) {
-        this.logger.log(`Exact match found for "${intent.itemName}": ${foundItem.nameEng} (ID: ${foundItem.id})`);
+        this.logger.log(
+          `Exact match found for "${intent.itemName}": ${foundItem.nameEng} (ID: ${foundItem.id})`,
+        );
         const reason = `I found "${foundItem.nameEng}" in our curated list. It's a great choice!`;
         return this.addItemToItinerary(flow, items, foundItem, intent, reason);
       } else {
@@ -431,7 +482,8 @@ export class ConversationalEstimateService {
     }
 
     // AI로 최적의 아이템 선택
-    const userRequest = intent.itemName || intent.category || 'a good place to visit';
+    const userRequest =
+      intent.itemName || intent.category || 'a good place to visit';
     const selection = await this.itineraryAiService.selectBestItem({
       availableItems: candidateItems,
       userRequest,
@@ -442,14 +494,28 @@ export class ConversationalEstimateService {
     if (!selection) {
       // AI 선택 실패 시 첫 번째 후보 사용
       const fallbackItem = candidateItems[0];
-      return this.addItemToItinerary(flow, items, fallbackItem, intent, `I couldn't find "${intent.itemName}" exactly, but here's a similar place I recommend`);
+      return this.addItemToItinerary(
+        flow,
+        items,
+        fallbackItem,
+        intent,
+        `I couldn't find "${intent.itemName}" exactly, but here's a similar place I recommend`,
+      );
     }
 
-    const selectedDbItem = candidateItems.find((c) => c.id === selection.selectedId);
+    const selectedDbItem = candidateItems.find(
+      (c) => c.id === selection.selectedId,
+    );
     if (!selectedDbItem) {
       // 선택된 ID가 없으면 첫 번째 후보 사용
       const fallbackItem = candidateItems[0];
-      return this.addItemToItinerary(flow, items, fallbackItem, intent, `I couldn't find "${intent.itemName}" exactly, but here's a similar place`);
+      return this.addItemToItinerary(
+        flow,
+        items,
+        fallbackItem,
+        intent,
+        `I couldn't find "${intent.itemName}" exactly, but here's a similar place`,
+      );
     }
 
     // 요청한 이름과 다른 아이템을 선택한 경우 처리
@@ -506,7 +572,9 @@ export class ConversationalEstimateService {
 
     // 정확히 일치하지 않고 사용자가 특정 장소명을 요청한 경우 → TBD로 저장
     if (!isExactMatch && intent.itemName && intent.itemName.length > 3) {
-      this.logger.log(`No exact match for "${intent.itemName}", creating TBD item`);
+      this.logger.log(
+        `No exact match for "${intent.itemName}", creating TBD item`,
+      );
       return this.addTbdItemToItinerary(flow, items, intent.itemName, intent);
     }
 
@@ -514,7 +582,13 @@ export class ConversationalEstimateService {
       ? ''
       : `I couldn't find "${intent.itemName}" in our curated list, but I found a similar place: `;
 
-    return this.addItemToItinerary(flow, items, selectedDbItem, intent, messagePrefix + selection.reason);
+    return this.addItemToItinerary(
+      flow,
+      items,
+      selectedDbItem,
+      intent,
+      messagePrefix + selection.reason,
+    );
   }
 
   /**
@@ -533,7 +607,8 @@ export class ConversationalEstimateService {
     intent: ModificationIntent;
   }> {
     // 지정된 일차 또는 마지막 일차에 추가
-    const targetDay = intent.dayNumber || Math.max(...items.map((i) => i.dayNumber), 1);
+    const targetDay =
+      intent.dayNumber || Math.max(...items.map((i) => i.dayNumber), 1);
     const dayItems = items.filter((i) => i.dayNumber === targetDay);
     const maxOrder = Math.max(...dayItems.map((i) => i.orderIndex), -1);
 
@@ -587,7 +662,8 @@ export class ConversationalEstimateService {
     intent: ModificationIntent;
   }> {
     // 지정된 일차 또는 마지막 일차에 추가
-    const targetDay = intent.dayNumber || Math.max(...items.map((i) => i.dayNumber), 1);
+    const targetDay =
+      intent.dayNumber || Math.max(...items.map((i) => i.dayNumber), 1);
     const dayItems = items.filter((i) => i.dayNumber === targetDay);
     const maxOrder = Math.max(...dayItems.map((i) => i.orderIndex), -1);
 
@@ -634,7 +710,8 @@ export class ConversationalEstimateService {
       return {
         success: false,
         updatedItems: items,
-        botMessage: 'What would you like to remove? Please specify the place name or category.',
+        botMessage:
+          'What would you like to remove? Please specify the place name or category.',
         intent,
       };
     }
@@ -657,7 +734,8 @@ export class ConversationalEstimateService {
       updatedItems = items.filter((i) => {
         const type = (i.type || '').toLowerCase();
         const name = (i.itemName || i.name || '').toLowerCase();
-        const shouldRemove = type.includes(categoryLower) || name.includes(categoryLower);
+        const shouldRemove =
+          type.includes(categoryLower) || name.includes(categoryLower);
         if (shouldRemove) removedCount++;
         return !shouldRemove;
       });
@@ -702,7 +780,8 @@ export class ConversationalEstimateService {
       return {
         success: false,
         updatedItems: items,
-        botMessage: 'Which place would you like to replace? Please tell me the name.',
+        botMessage:
+          'Which place would you like to replace? Please tell me the name.',
         intent,
       };
     }
@@ -724,8 +803,13 @@ export class ConversationalEstimateService {
     }
 
     const itemToReplace = items[itemIndex];
-    const interests = [...(flow.interestMain || []), ...(flow.interestSub || [])];
-    const existingItemIds = items.filter((i) => i.itemId).map((i) => i.itemId as number);
+    const interests = [
+      ...(flow.interestMain || []),
+      ...(flow.interestSub || []),
+    ];
+    const existingItemIds = items
+      .filter((i) => i.itemId)
+      .map((i) => i.itemId as number);
 
     // DB에서 대체 후보 아이템 검색
     const candidateItems = await this.itemService.findSimilarItems({
@@ -751,7 +835,9 @@ export class ConversationalEstimateService {
       availableItems: candidateItems,
       userRequest: `Replace "${itemToReplace.itemName || itemToReplace.name}" with something similar or better`,
       interests,
-      context: intent.category ? `User prefers ${intent.category} category` : undefined,
+      context: intent.category
+        ? `User prefers ${intent.category} category`
+        : undefined,
     });
 
     if (!selection) {
@@ -763,7 +849,9 @@ export class ConversationalEstimateService {
       };
     }
 
-    const selectedDbItem = candidateItems.find((c) => c.id === selection.selectedId);
+    const selectedDbItem = candidateItems.find(
+      (c) => c.id === selection.selectedId,
+    );
     if (!selectedDbItem) {
       return {
         success: false,
@@ -819,7 +907,10 @@ export class ConversationalEstimateService {
   async chat(
     sessionId: string,
     userMessage: string,
-    conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>,
+    conversationHistory?: Array<{
+      role: 'user' | 'assistant';
+      content: string;
+    }>,
   ): Promise<{
     response: string;
     intent: 'question' | 'modification' | 'feedback' | 'other';
@@ -839,7 +930,11 @@ export class ConversationalEstimateService {
       tripDates?: { start: string; end: string };
       region?: string;
       interests?: string[];
-      currentItinerary?: Array<{ dayNumber: number; name: string; type: string }>;
+      currentItinerary?: Array<{
+        dayNumber: number;
+        name: string;
+        type: string;
+      }>;
     } = {};
 
     if (flow.travelDate && flow.duration) {
@@ -854,7 +949,10 @@ export class ConversationalEstimateService {
     if (flow.region) {
       context.region = flow.region;
     }
-    const interests = [...(flow.interestMain || []), ...(flow.interestSub || [])];
+    const interests = [
+      ...(flow.interestMain || []),
+      ...(flow.interestSub || []),
+    ];
     if (interests.length > 0) {
       context.interests = interests;
     }
@@ -884,10 +982,16 @@ export class ConversationalEstimateService {
     });
 
     // 수정 의도가 감지되면 실제 수정 수행
-    if (aiResult.intent === 'modification' && flow.estimateId && aiResult.modificationData) {
+    if (
+      aiResult.intent === 'modification' &&
+      flow.estimateId &&
+      aiResult.modificationData
+    ) {
       try {
         const modResult = await this.modifyItinerary(sessionId, userMessage);
-        this.logger.log(`Modification result: success=${modResult.success}, itemCount=${modResult.updatedItems?.length}`);
+        this.logger.log(
+          `Modification result: success=${modResult.success}, itemCount=${modResult.updatedItems?.length}`,
+        );
         return {
           response: modResult.botMessage,
           intent: 'modification',

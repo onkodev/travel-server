@@ -132,7 +132,10 @@ export class ItineraryTemplateController {
     description: '템플릿 없음',
     type: ErrorResponseDto,
   })
-  async duplicateTemplate(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  async duplicateTemplate(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.templateService.duplicateTemplate(parseInt(id), user?.id);
   }
 

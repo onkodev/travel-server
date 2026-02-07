@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsArray, IsIn, ValidateNested, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsArray,
+  IsIn,
+  ValidateNested,
+  MaxLength,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/dto';
 
@@ -252,7 +260,10 @@ export class UpdateTourDto {
   @IsString()
   notes?: string;
 
-  @ApiPropertyOptional({ description: '일정 목록', type: [TourItineraryItemDto] })
+  @ApiPropertyOptional({
+    description: '일정 목록',
+    type: [TourItineraryItemDto],
+  })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

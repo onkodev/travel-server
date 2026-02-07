@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GeminiCoreService } from '../core/gemini-core.service';
-import { parseJsonResponse, extractJsonAndText } from '../core/response-parser.util';
+import {
+  parseJsonResponse,
+  extractJsonAndText,
+} from '../core/response-parser.util';
 import {
   TRAVEL_ASSISTANT_SYSTEM_PROMPT,
   TRAVEL_ASSISTANT_CONFIG,
@@ -41,7 +44,10 @@ export class TravelAssistantService {
   async chat(params: {
     userMessage: string;
     context?: TravelAssistantContext;
-    conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+    conversationHistory?: Array<{
+      role: 'user' | 'assistant';
+      content: string;
+    }>;
   }): Promise<ChatResponse> {
     const { userMessage, context, conversationHistory } = params;
 
@@ -63,7 +69,7 @@ export class TravelAssistantService {
     // 응답과 JSON 분리
     const { textContent, jsonContent } = extractJsonAndText(text);
 
-    let response = textContent || text;
+    const response = textContent || text;
     let intent: 'question' | 'modification' | 'feedback' | 'other' = 'other';
     let modificationData: ChatResponse['modificationData'] = undefined;
 

@@ -105,7 +105,10 @@ export class UpdatePlanDto {
   @IsBoolean()
   hasPlan: boolean;
 
-  @ApiPropertyOptional({ description: 'Plan details (if hasPlan is true)', maxLength: 2000 })
+  @ApiPropertyOptional({
+    description: 'Plan details (if hasPlan is true)',
+    maxLength: 2000,
+  })
   @IsOptional()
   @IsString()
   @MaxLength(2000, { message: 'Plan details cannot exceed 2000 characters.' })
@@ -163,35 +166,60 @@ export class UpdateStep6Dto {
   @IsDateString({}, { message: 'Please enter a valid date (YYYY-MM-DD).' })
   travelDate: string;
 
-  @ApiProperty({ description: 'Duration in days', example: 3, minimum: 1, maximum: 30 })
+  @ApiProperty({
+    description: 'Duration in days',
+    example: 3,
+    minimum: 1,
+    maximum: 30,
+  })
   @IsNumber()
   @Min(1, { message: 'Duration must be at least 1 day.' })
   @Max(30, { message: 'Duration cannot exceed 30 days.' })
   duration: number;
 
   // Group Info
-  @ApiPropertyOptional({ description: 'Adults count (13-64)', default: 1, minimum: 1, maximum: 50 })
+  @ApiPropertyOptional({
+    description: 'Adults count (13-64)',
+    default: 1,
+    minimum: 1,
+    maximum: 50,
+  })
   @IsOptional()
   @IsNumber()
   @Min(1, { message: 'At least 1 adult is required.' })
   @Max(50, { message: 'Group size cannot exceed 50 people.' })
   adultsCount?: number;
 
-  @ApiPropertyOptional({ description: 'Children count (3-12)', default: 0, minimum: 0, maximum: 50 })
+  @ApiPropertyOptional({
+    description: 'Children count (3-12)',
+    default: 0,
+    minimum: 0,
+    maximum: 50,
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)
   @Max(50, { message: 'Group size cannot exceed 50 people.' })
   childrenCount?: number;
 
-  @ApiPropertyOptional({ description: 'Infants count (0-2)', default: 0, minimum: 0, maximum: 50 })
+  @ApiPropertyOptional({
+    description: 'Infants count (0-2)',
+    default: 0,
+    minimum: 0,
+    maximum: 50,
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)
   @Max(50, { message: 'Group size cannot exceed 50 people.' })
   infantsCount?: number;
 
-  @ApiPropertyOptional({ description: 'Seniors count (65+)', default: 0, minimum: 0, maximum: 50 })
+  @ApiPropertyOptional({
+    description: 'Seniors count (65+)',
+    default: 0,
+    minimum: 0,
+    maximum: 50,
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)
@@ -230,7 +258,9 @@ export class UpdateStep6Dto {
   @ApiPropertyOptional({ description: 'Additional notes', maxLength: 2000 })
   @IsOptional()
   @IsString()
-  @MaxLength(2000, { message: 'Additional notes cannot exceed 2000 characters.' })
+  @MaxLength(2000, {
+    message: 'Additional notes cannot exceed 2000 characters.',
+  })
   additionalNotes?: string;
 }
 
@@ -271,7 +301,9 @@ export class UpdateStep7Dto {
   @ApiPropertyOptional({ description: 'Additional notes', maxLength: 2000 })
   @IsOptional()
   @IsString()
-  @MaxLength(2000, { message: 'Additional notes cannot exceed 2000 characters.' })
+  @MaxLength(2000, {
+    message: 'Additional notes cannot exceed 2000 characters.',
+  })
   additionalNotes?: string;
 }
 
@@ -288,7 +320,9 @@ export class RespondToEstimateDto {
   @ApiPropertyOptional({ description: 'Modification request', maxLength: 2000 })
   @IsOptional()
   @IsString()
-  @MaxLength(2000, { message: 'Modification request cannot exceed 2000 characters.' })
+  @MaxLength(2000, {
+    message: 'Modification request cannot exceed 2000 characters.',
+  })
   modificationRequest?: string;
 }
 

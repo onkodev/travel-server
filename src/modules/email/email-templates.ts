@@ -300,7 +300,11 @@ export function estimateTemplate(params: {
   const formatDate = (date: Date | string | null | undefined): string => {
     if (!date) return '-';
     const d = new Date(date);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
   };
 
   const formatCurrency = (amount: number, curr: string): string => {
@@ -365,7 +369,9 @@ export function estimateTemplate(params: {
                           <span style="color: #0f172a; font-size: 14px; font-weight: 500;">${formatDate(startDate)} - ${formatDate(endDate)}</span>
                         </td>
                       </tr>
-                      ${travelDays ? `
+                      ${
+                        travelDays
+                          ? `
                       <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">
                           <span style="color: #64748b; font-size: 14px;">Duration</span>
@@ -374,8 +380,12 @@ export function estimateTemplate(params: {
                           <span style="color: #0f172a; font-size: 14px; font-weight: 500;">${travelDays} days</span>
                         </td>
                       </tr>
-                      ` : ''}
-                      ${travelers > 0 ? `
+                      `
+                          : ''
+                      }
+                      ${
+                        travelers > 0
+                          ? `
                       <tr>
                         <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">
                           <span style="color: #64748b; font-size: 14px;">Travelers</span>
@@ -384,7 +394,9 @@ export function estimateTemplate(params: {
                           <span style="color: #0f172a; font-size: 14px; font-weight: 500;">${travelers} ${travelers > 1 ? 'people' : 'person'}</span>
                         </td>
                       </tr>
-                      ` : ''}
+                      `
+                          : ''
+                      }
                       <tr>
                         <td style="padding: 12px 0 0;">
                           <span style="color: #64748b; font-size: 14px;">Total</span>
@@ -451,7 +463,14 @@ export function modificationRequestTemplate(params: {
   sessionId: string;
   adminUrl: string;
 }): string {
-  const { customerName, customerEmail, estimateId, requestContent, sessionId, adminUrl } = params;
+  const {
+    customerName,
+    customerEmail,
+    estimateId,
+    requestContent,
+    sessionId,
+    adminUrl,
+  } = params;
 
   return `
 <!DOCTYPE html>
@@ -581,9 +600,8 @@ export function chatbotInquiryAdminTemplate(params: {
     ? `${p.ipAddress}${p.countryName ? ` (${p.countryName} / ${p.country})` : ''}`
     : '-';
 
-  const visitedStr = (p.visitedProducts || []).length > 0
-    ? p.visitedProducts.join(', ')
-    : '';
+  const visitedStr =
+    (p.visitedProducts || []).length > 0 ? p.visitedProducts.join(', ') : '';
 
   const l = (label: string, value: string) =>
     `<tr><td style="padding:4px 12px 4px 0;color:#888;white-space:nowrap;vertical-align:top;">${label}</td><td style="padding:4px 0;color:#222;">${value}</td></tr>`;
@@ -596,15 +614,26 @@ export function chatbotInquiryAdminTemplate(params: {
   // Customer Info
   rows.push(section('Customer Info'));
   rows.push(l('Name', p.customerName));
-  rows.push(l('E-Mail', `<a href="mailto:${p.customerEmail}" style="color:#0ea5e9;text-decoration:none;">${p.customerEmail}</a>`));
-  if (p.customerPhone && p.customerPhone !== '-') rows.push(l('Phone', p.customerPhone));
+  rows.push(
+    l(
+      'E-Mail',
+      `<a href="mailto:${p.customerEmail}" style="color:#0ea5e9;text-decoration:none;">${p.customerEmail}</a>`,
+    ),
+  );
+  if (p.customerPhone && p.customerPhone !== '-')
+    rows.push(l('Phone', p.customerPhone));
   rows.push(l('Nationality', p.nationality || '-'));
   rows.push(l('IP', ipInfo));
 
   // Tour Details
   rows.push(section('Tour Details'));
   rows.push(l('Looking for', p.tourTypeLabel));
-  rows.push(l('First Time in Korea', p.isFirstVisit ? 'Yes' : p.isFirstVisit === false ? 'No' : '-'));
+  rows.push(
+    l(
+      'First Time in Korea',
+      p.isFirstVisit ? 'Yes' : p.isFirstVisit === false ? 'No' : '-',
+    ),
+  );
   rows.push(l('Tour Date', travelDateStr));
   rows.push(l('Duration', durationStr));
   rows.push(l('Price Range', p.budgetLabel));
@@ -621,9 +650,14 @@ export function chatbotInquiryAdminTemplate(params: {
   }
 
   // Interests & Locations
-  if (p.interestLabels.length > 0 || p.attractionLabels.length > 0 || p.region) {
+  if (
+    p.interestLabels.length > 0 ||
+    p.attractionLabels.length > 0 ||
+    p.region
+  ) {
     rows.push(section('Interests & Locations'));
-    if (p.interestLabels.length > 0) rows.push(l('Interested in', p.interestLabels.join(', ')));
+    if (p.interestLabels.length > 0)
+      rows.push(l('Interested in', p.interestLabels.join(', ')));
     if (p.region) rows.push(l('Region', p.regionLabel));
   }
 
@@ -637,13 +671,17 @@ export function chatbotInquiryAdminTemplate(params: {
   // Additional Notes
   if (p.additionalNotes) {
     rows.push(section('Additional Notes'));
-    rows.push(`<tr><td colspan="2" style="padding:6px 0;color:#222;">${p.additionalNotes}</td></tr>`);
+    rows.push(
+      `<tr><td colspan="2" style="padding:6px 0;color:#222;">${p.additionalNotes}</td></tr>`,
+    );
   }
 
   // Visited Products
   if (visitedStr) {
     rows.push(section('Visited Products'));
-    rows.push(`<tr><td colspan="2" style="padding:6px 0;color:#222;">${visitedStr}</td></tr>`);
+    rows.push(
+      `<tr><td colspan="2" style="padding:6px 0;color:#222;">${visitedStr}</td></tr>`,
+    );
   }
 
   return `<!DOCTYPE html>

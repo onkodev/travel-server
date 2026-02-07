@@ -47,8 +47,16 @@ export class ChatbotStepResponseService {
       type: 'boolean',
       required: true,
       options: [
-        { value: 'true', label: 'Yes, first time!', labelKo: '네, 처음이에요!' },
-        { value: 'false', label: 'No, I\'ve been before', labelKo: '아니요, 방문한 적 있어요' },
+        {
+          value: 'true',
+          label: 'Yes, first time!',
+          labelKo: '네, 처음이에요!',
+        },
+        {
+          value: 'false',
+          label: "No, I've been before",
+          labelKo: '아니요, 방문한 적 있어요',
+        },
       ],
       currentValue: flow.isFirstVisit,
     };
@@ -118,17 +126,22 @@ export class ChatbotStepResponseService {
   }
 
   // Step 5: Attractions (filtered by selected region)
-  getStep5(flow: { region: string | null; attractions: string[] }): StepResponseDto {
+  getStep5(flow: {
+    region: string | null;
+    attractions: string[];
+  }): StepResponseDto {
     const selectedRegion = flow.region;
-    const filteredAttractions = Object.entries(ATTRACTIONS).filter(([, data]) => {
-      if (!selectedRegion) {
-        return true;
-      }
-      if (selectedRegion === 'seoul') {
-        return data.region === 'seoul' || data.category === 'day_trip';
-      }
-      return data.region === selectedRegion;
-    });
+    const filteredAttractions = Object.entries(ATTRACTIONS).filter(
+      ([, data]) => {
+        if (!selectedRegion) {
+          return true;
+        }
+        if (selectedRegion === 'seoul') {
+          return data.region === 'seoul' || data.category === 'day_trip';
+        }
+        return data.region === selectedRegion;
+      },
+    );
 
     return {
       step: 5,
@@ -407,7 +420,9 @@ export class ChatbotStepResponseService {
     const lines: string[] = ['[Chatbot Survey Summary]', ''];
 
     if (flow.tourType) {
-      const tourTypeLabel = TOUR_TYPES[flow.tourType as keyof typeof TOUR_TYPES]?.label || flow.tourType;
+      const tourTypeLabel =
+        TOUR_TYPES[flow.tourType as keyof typeof TOUR_TYPES]?.label ||
+        flow.tourType;
       lines.push(`• Tour Type: ${tourTypeLabel}`);
     }
 
@@ -430,7 +445,8 @@ export class ChatbotStepResponseService {
     }
 
     if (flow.region) {
-      const regionLabel = REGIONS[flow.region as keyof typeof REGIONS]?.label || flow.region;
+      const regionLabel =
+        REGIONS[flow.region as keyof typeof REGIONS]?.label || flow.region;
       lines.push(`• Region: ${regionLabel}`);
     }
 
@@ -445,7 +461,9 @@ export class ChatbotStepResponseService {
     lines.push('[Travel Details]');
 
     if (flow.travelDate) {
-      lines.push(`• Travel Date: ${flow.travelDate.toISOString().split('T')[0]}`);
+      lines.push(
+        `• Travel Date: ${flow.travelDate.toISOString().split('T')[0]}`,
+      );
     }
 
     if (flow.duration) {
@@ -462,7 +480,9 @@ export class ChatbotStepResponseService {
     }
 
     if (flow.budgetRange) {
-      const budgetLabel = BUDGET_RANGES[flow.budgetRange as keyof typeof BUDGET_RANGES]?.label || flow.budgetRange;
+      const budgetLabel =
+        BUDGET_RANGES[flow.budgetRange as keyof typeof BUDGET_RANGES]?.label ||
+        flow.budgetRange;
       lines.push(`• Budget: ${budgetLabel}`);
     }
 

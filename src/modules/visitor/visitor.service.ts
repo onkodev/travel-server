@@ -310,13 +310,17 @@ export class VisitorService {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     // 1. 기본 통계를 단일 쿼리로 조회
-    const baseStats = await this.prisma.$queryRaw<[{
-      total: bigint;
-      today: bigint;
-      this_week: bigint;
-      with_chatbot: bigint;
-      with_estimate: bigint;
-    }]>`
+    const baseStats = await this.prisma.$queryRaw<
+      [
+        {
+          total: bigint;
+          today: bigint;
+          this_week: bigint;
+          with_chatbot: bigint;
+          with_estimate: bigint;
+        },
+      ]
+    >`
       SELECT
         COUNT(*) as total,
         COUNT(CASE WHEN created_at >= ${today} THEN 1 END) as today,
@@ -363,19 +367,25 @@ export class VisitorService {
       thisWeek: Number(stats.this_week),
       conversions: {
         chatbot: withChatbot,
-        chatbotRate: totalSessions > 0 ? ((withChatbot / totalSessions) * 100).toFixed(1) + '%' : '0%',
+        chatbotRate:
+          totalSessions > 0
+            ? ((withChatbot / totalSessions) * 100).toFixed(1) + '%'
+            : '0%',
         estimate: withEstimate,
-        estimateRate: totalSessions > 0 ? ((withEstimate / totalSessions) * 100).toFixed(1) + '%' : '0%',
+        estimateRate:
+          totalSessions > 0
+            ? ((withEstimate / totalSessions) * 100).toFixed(1) + '%'
+            : '0%',
       },
-      byCountry: byCountry.map(item => ({
+      byCountry: byCountry.map((item) => ({
         country: item.country,
         count: Number(item.count),
       })),
-      byDevice: byDevice.map(item => ({
+      byDevice: byDevice.map((item) => ({
         device: item.device_type,
         count: Number(item.count),
       })),
-      byUtmSource: byUtmSource.map(item => ({
+      byUtmSource: byUtmSource.map((item) => ({
         source: item.utm_source,
         count: Number(item.count),
       })),

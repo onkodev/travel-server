@@ -17,13 +17,14 @@ export class EmbeddingService {
 
   async generateEmbedding(text: string): Promise<number[] | null> {
     if (!this.apiKey) {
-      this.logger.warn('GEMINI_API_KEY가 설정되지 않아 임베딩을 생성할 수 없습니다');
+      this.logger.warn(
+        'GEMINI_API_KEY가 설정되지 않아 임베딩을 생성할 수 없습니다',
+      );
       return null;
     }
 
-    const truncated = text.length > MAX_TEXT_LENGTH
-      ? text.slice(0, MAX_TEXT_LENGTH)
-      : text;
+    const truncated =
+      text.length > MAX_TEXT_LENGTH ? text.slice(0, MAX_TEXT_LENGTH) : text;
 
     return this.callEmbeddingAPI(truncated, true);
   }
@@ -49,7 +50,9 @@ export class EmbeddingService {
 
       if (!response.ok) {
         const errorBody = await response.text();
-        this.logger.error(`Embedding API 오류: ${response.status} ${errorBody}`);
+        this.logger.error(
+          `Embedding API 오류: ${response.status} ${errorBody}`,
+        );
         if (retry && response.status >= 500) {
           await this.delay(1000);
           return this.callEmbeddingAPI(text, false);

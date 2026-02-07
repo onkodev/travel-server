@@ -1,4 +1,14 @@
-import { IsString, IsOptional, IsNumber, IsObject, IsInt, Min, Max, IsBoolean, IsDateString } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsObject,
+  IsInt,
+  Min,
+  Max,
+  IsBoolean,
+  IsDateString,
+} from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -304,7 +314,10 @@ export class VisitorStatsDto {
 
   @ApiPropertyOptional({
     description: '국가별 방문자 수',
-    example: [{ country: 'US', count: 500 }, { country: 'KR', count: 300 }],
+    example: [
+      { country: 'US', count: 500 },
+      { country: 'KR', count: 300 },
+    ],
   })
   countryStats?: Array<{ country: string; count: number }>;
 }

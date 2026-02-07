@@ -30,7 +30,8 @@ export class UnsplashService {
   private readonly accessKey: string;
 
   constructor(private configService: ConfigService) {
-    this.accessKey = this.configService.get<string>('UNSPLASH_ACCESS_KEY') || '';
+    this.accessKey =
+      this.configService.get<string>('UNSPLASH_ACCESS_KEY') || '';
   }
 
   async search(
@@ -56,7 +57,9 @@ export class UnsplashService {
     });
 
     if (!response.ok) {
-      this.logger.error(`Unsplash API error: ${response.status} ${response.statusText}`);
+      this.logger.error(
+        `Unsplash API error: ${response.status} ${response.statusText}`,
+      );
       throw new Error(`Unsplash API error: ${response.statusText}`);
     }
 

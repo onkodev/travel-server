@@ -18,7 +18,7 @@ export const TOUR_TYPES = {
   faq: {
     label: 'Ask Chat AI',
     labelKo: '챗AI에게 물어보기',
-    description: "Got questions? Ask our AI!",
+    description: 'Got questions? Ask our AI!',
     descriptionKo: 'AI에게 한국 여행 관련 질문하기',
     status: 'available', // 베타 테스트 중 (배포 시 'coming_soon'으로 변경)
     redirectUrl: null,
@@ -182,7 +182,8 @@ export const ATTRACTIONS = {
     labelKo: '경복궁',
     region: 'seoul',
     category: 'palace',
-    description: 'The largest of the Five Grand Palaces, featuring stunning traditional architecture',
+    description:
+      'The largest of the Five Grand Palaces, featuring stunning traditional architecture',
     imageUrl: 'https://images.unsplash.com/photo-1546874177-9e664107314e?w=400',
   },
   // 전통 마을
@@ -192,7 +193,8 @@ export const ATTRACTIONS = {
     region: 'seoul',
     category: 'traditional',
     description: 'Traditional Korean houses (hanoks) dating back 600 years',
-    imageUrl: 'https://images.unsplash.com/photo-1534274867514-d5b47ef89ed7?w=400',
+    imageUrl:
+      'https://images.unsplash.com/photo-1534274867514-d5b47ef89ed7?w=400',
   },
   // 랜드마크
   n_tower: {
@@ -201,7 +203,8 @@ export const ATTRACTIONS = {
     region: 'seoul',
     category: 'landmark',
     description: 'Iconic tower with panoramic views of Seoul',
-    imageUrl: 'https://images.unsplash.com/photo-1506816561089-5cc37b3aa9b0?w=400',
+    imageUrl:
+      'https://images.unsplash.com/photo-1506816561089-5cc37b3aa9b0?w=400',
   },
   // 트렌디
   hongdae: {
@@ -210,7 +213,8 @@ export const ATTRACTIONS = {
     region: 'seoul',
     category: 'trendy',
     description: 'Vibrant area known for indie music, art, and nightlife',
-    imageUrl: 'https://images.unsplash.com/photo-1517154421773-0529f29ea451?w=400',
+    imageUrl:
+      'https://images.unsplash.com/photo-1517154421773-0529f29ea451?w=400',
   },
   // 시장
   gwangjang: {
@@ -219,7 +223,8 @@ export const ATTRACTIONS = {
     region: 'seoul',
     category: 'market',
     description: 'Historic market famous for Korean street food',
-    imageUrl: 'https://images.unsplash.com/photo-1583167617820-14de7c0c97e4?w=400',
+    imageUrl:
+      'https://images.unsplash.com/photo-1583167617820-14de7c0c97e4?w=400',
   },
   // 서울 근교 (당일치기)
   dmz: {
@@ -235,7 +240,8 @@ export const ATTRACTIONS = {
     labelKo: '남이섬',
     region: 'gangwon',
     category: 'day_trip',
-    description: 'Scenic island famous for tree-lined paths and K-drama filming',
+    description:
+      'Scenic island famous for tree-lined paths and K-drama filming',
     imageUrl: 'https://images.unsplash.com/photo-1548115184-bc6544d06a58?w=400',
   },
 } as const;
@@ -264,7 +270,12 @@ export const AGE_RANGES = {
   '40s': { label: '40s', labelKo: '40대', min: 40, max: 49 },
   '50s': { label: '50s', labelKo: '50대', min: 50, max: 59 },
   '60+': { label: '60+', labelKo: '60대 이상', min: 60, max: null },
-  mixed: { label: 'Mixed ages', labelKo: '다양한 연령대', min: null, max: null },
+  mixed: {
+    label: 'Mixed ages',
+    labelKo: '다양한 연령대',
+    min: null,
+    max: null,
+  },
 } as const;
 
 export const REFERRAL_SOURCES = {

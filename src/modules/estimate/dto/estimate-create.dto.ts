@@ -171,7 +171,10 @@ export class CreateEstimateDto {
   @IsArray()
   regions?: string[];
 
-  @ApiPropertyOptional({ description: '견적 아이템 목록', type: [EstimateItemExtendedDto] })
+  @ApiPropertyOptional({
+    description: '견적 아이템 목록',
+    type: [EstimateItemExtendedDto],
+  })
   @IsOptional()
   @IsArray()
   items?: EstimateItemExtendedDto[];
@@ -221,7 +224,10 @@ export class CreateEstimateDto {
   @IsString()
   requestContent?: string;
 
-  @ApiPropertyOptional({ description: '수정 이력', type: [RevisionHistoryEntryDto] })
+  @ApiPropertyOptional({
+    description: '수정 이력',
+    type: [RevisionHistoryEntryDto],
+  })
   @IsOptional()
   @IsArray()
   revisionHistory?: RevisionHistoryEntryDto[];

@@ -61,7 +61,12 @@ export class AuthService {
   }
 
   // 회원가입
-  async signUp(email: string, password: string, username: string, redirectTo?: string) {
+  async signUp(
+    email: string,
+    password: string,
+    username: string,
+    redirectTo?: string,
+  ) {
     // Anon Client 사용 (이메일 발송 O)
     const anonClient = this.supabaseService.getAuthAnonClient();
     const authClient = this.supabaseService.getAuthClient();
@@ -143,7 +148,13 @@ export class AuthService {
   }
 
   // 현재 사용자 정보 조회 (프로필 없으면 자동 생성)
-  async getMe(userId: string, authUser?: { email?: string; user_metadata?: { full_name?: string; avatar_url?: string } }) {
+  async getMe(
+    userId: string,
+    authUser?: {
+      email?: string;
+      user_metadata?: { full_name?: string; avatar_url?: string };
+    },
+  ) {
     let profile = await this.supabaseService.getUserProfile(userId);
 
     // 프로필이 없으면 자동 생성 (OAuth 로그인 시 발생 가능)
@@ -153,7 +164,8 @@ export class AuthService {
       const { error: insertError } = await authClient.from('users').insert({
         id: userId,
         email: authUser.email,
-        name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0],
+        name:
+          authUser.user_metadata?.full_name || authUser.email?.split('@')[0],
         avatar_url: authUser.user_metadata?.avatar_url,
       });
 
@@ -338,7 +350,10 @@ export class AuthService {
   }
 
   // 프로필 업데이트
-  async updateProfile(userId: string, data: { name?: string; phone?: string; avatar_url?: string }) {
+  async updateProfile(
+    userId: string,
+    data: { name?: string; phone?: string; avatar_url?: string },
+  ) {
     const authClient = this.supabaseService.getAuthClient();
 
     const { error } = await authClient
@@ -359,7 +374,11 @@ export class AuthService {
   }
 
   // 비밀번호 변경 (로그인된 사용자) - 현재 비밀번호 확인 필수
-  async updatePassword(userId: string, currentPassword: string, newPassword: string) {
+  async updatePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
     const authClient = this.supabaseService.getAuthClient();
 
     // 1. 사용자 이메일 조회

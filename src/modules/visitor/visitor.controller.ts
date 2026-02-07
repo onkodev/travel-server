@@ -60,7 +60,8 @@ export class VisitorController {
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '방문자 세션 생성',
-    description: '새 방문자 세션을 생성하거나 기존 세션을 반환합니다. 핑거프린트가 있으면 기존 세션을 찾습니다.',
+    description:
+      '새 방문자 세션을 생성하거나 기존 세션을 반환합니다. 핑거프린트가 있으면 기존 세션을 찾습니다.',
   })
   @ApiBody({ type: CreateSessionDto })
   @ApiResponse({
@@ -68,10 +69,7 @@ export class VisitorController {
     description: '세션 생성 성공',
     type: CreateSessionResponseDto,
   })
-  async createSession(
-    @Req() req: Request,
-    @Body() body: CreateSessionDto,
-  ) {
+  async createSession(@Req() req: Request, @Body() body: CreateSessionDto) {
     const ipAddress = this.getIpAddress(req);
     const userAgent = req.headers['user-agent'];
 
@@ -105,7 +103,9 @@ export class VisitorController {
     description: '기록 성공',
     type: VisitorSuccessDto,
   })
-  async trackPageView(@Body() body: TrackPageViewDto): Promise<VisitorSuccessDto> {
+  async trackPageView(
+    @Body() body: TrackPageViewDto,
+  ): Promise<VisitorSuccessDto> {
     // Analytics용이라 모든 에러를 무시하고 성공 반환
     try {
       if (!body?.visitorId || !body?.path) {
@@ -176,7 +176,8 @@ export class VisitorController {
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '방문자 세션 목록 조회 (관리자)',
-    description: '모든 방문자 세션 목록을 조회합니다. 필터링 및 페이지네이션을 지원합니다.',
+    description:
+      '모든 방문자 세션 목록을 조회합니다. 필터링 및 페이지네이션을 지원합니다.',
   })
   @ApiResponse({
     status: 200,
@@ -226,7 +227,8 @@ export class VisitorController {
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '세션 상세 조회 (관리자)',
-    description: '방문자 세션의 상세 정보를 조회합니다. 페이지뷰 목록 및 사용자 행동 정보를 포함합니다.',
+    description:
+      '방문자 세션의 상세 정보를 조회합니다. 페이지뷰 목록 및 사용자 행동 정보를 포함합니다.',
   })
   @ApiParam({
     name: 'id',

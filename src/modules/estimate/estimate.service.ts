@@ -1,11 +1,21 @@
-import { Injectable, NotFoundException, GoneException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  GoneException,
+  Logger,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { NotificationService } from '../notification/notification.service';
 import { Prisma, Estimate } from '@prisma/client';
 import { randomBytes } from 'crypto';
-import { convertDecimalFields, toDateTime, omit, sanitizeSearch } from '../../common/utils';
+import {
+  convertDecimalFields,
+  toDateTime,
+  omit,
+  sanitizeSearch,
+} from '../../common/utils';
 import { CreateEstimateDto } from './dto/estimate-create.dto';
 import { UpdateEstimateDto } from './dto/estimate-update.dto';
 import { EstimateItemDto, ESTIMATE_STATUS } from './dto/estimate.dto';
@@ -14,7 +24,12 @@ import {
   calculateSkip,
   createPaginatedResponse,
 } from '../../common/dto/pagination.dto';
-import { ESTIMATE_EVENTS, CHATBOT_EVENTS, EstimateSentEvent, ChatbotEstimateStatusEvent } from '../../common/events';
+import {
+  ESTIMATE_EVENTS,
+  CHATBOT_EVENTS,
+  EstimateSentEvent,
+  ChatbotEstimateStatusEvent,
+} from '../../common/events';
 
 // Item 캐시 타입 (Prisma 타입과 호환)
 interface ItemCacheEntry {
@@ -230,13 +245,15 @@ export class EstimateService {
   // 이미지 배열에서 URL 문자열 배열로 변환하는 헬퍼
   private extractImageUrls(images: unknown): string[] {
     if (!images || !Array.isArray(images)) return [];
-    return images.map((img) => {
-      if (typeof img === 'string') return img;
-      if (typeof img === 'object' && img !== null && 'url' in img) {
-        return (img as { url: string }).url;
-      }
-      return null;
-    }).filter((url): url is string => Boolean(url));
+    return images
+      .map((img) => {
+        if (typeof img === 'string') return img;
+        if (typeof img === 'object' && img !== null && 'url' in img) {
+          return (img as { url: string }).url;
+        }
+        return null;
+      })
+      .filter((url): url is string => Boolean(url));
   }
 
   // 아이템 정보 보강 헬퍼 (캐싱 적용)
@@ -246,17 +263,24 @@ export class EstimateService {
 
     // itemInfo가 없거나 lat/lng가 없는 아이템들의 itemId 수집
     const itemsToEnrich = items.filter(
-      (item) => !item.itemInfo || !item.itemInfo.images || item.itemInfo.images.length === 0 || item.itemInfo.lat == null || item.itemInfo.lng == null
+      (item) =>
+        !item.itemInfo ||
+        !item.itemInfo.images ||
+        item.itemInfo.images.length === 0 ||
+        item.itemInfo.lat == null ||
+        item.itemInfo.lng == null,
     );
 
     if (itemsToEnrich.length === 0) return estimate;
 
     // 해당 아이템들의 정보 조회 (itemId가 있는 것만, null과 undefined 제외)
-    const itemIds = [...new Set(
-      itemsToEnrich
-        .map((item) => item.itemId)
-        .filter((id): id is number => id != null)
-    )];
+    const itemIds = [
+      ...new Set(
+        itemsToEnrich
+          .map((item) => item.itemId)
+          .filter((id): id is number => id != null),
+      ),
+    ];
     if (itemIds.length === 0) return estimate;
 
     // 캐시에서 먼저 찾기
@@ -334,18 +358,26 @@ export class EstimateService {
       const dbImages = this.extractImageUrls(itemRecord.images);
 
       // itemInfo가 없거나 정보가 부족한 경우 전체 보강
-      if (!item.itemInfo || !item.itemInfo.images || item.itemInfo.images.length === 0 || item.itemInfo.lat == null || item.itemInfo.lng == null) {
+      if (
+        !item.itemInfo ||
+        !item.itemInfo.images ||
+        item.itemInfo.images.length === 0 ||
+        item.itemInfo.lat == null ||
+        item.itemInfo.lng == null
+      ) {
         return {
           ...item,
           itemInfo: {
             ...(item.itemInfo || {}),
             nameKor: item.itemInfo?.nameKor || itemRecord.nameKor,
             nameEng: item.itemInfo?.nameEng || itemRecord.nameEng,
-            descriptionEng: item.itemInfo?.descriptionEng || itemRecord.descriptionEng,
+            descriptionEng:
+              item.itemInfo?.descriptionEng || itemRecord.descriptionEng,
             images: normalizedImages.length > 0 ? normalizedImages : dbImages,
             lat: item.itemInfo?.lat ?? itemRecord.lat,
             lng: item.itemInfo?.lng ?? itemRecord.lng,
-            addressEnglish: item.itemInfo?.addressEnglish || itemRecord.addressEnglish,
+            addressEnglish:
+              item.itemInfo?.addressEnglish || itemRecord.addressEnglish,
           },
         };
       }
@@ -408,7 +440,17 @@ export class EstimateService {
   // 견적 생성
   async createEstimate(data: CreateEstimateDto) {
     // 클라이언트에서 보낸 불필요한 필드 제거
-    const { id, createdAt, updatedAt, shareHash: _sh, items, displayOptions, timeline, revisionHistory, ...cleanData } = data;
+    const {
+      id,
+      createdAt,
+      updatedAt,
+      shareHash: _sh,
+      items,
+      displayOptions,
+      timeline,
+      revisionHistory,
+      ...cleanData
+    } = data;
 
     // 공유 해시 생성
     const shareHash = randomBytes(16).toString('hex');
@@ -428,9 +470,12 @@ export class EstimateService {
       validDate,
       // JSON 필드들을 Prisma InputJsonValue로 변환
       items: (items ?? []) as unknown as Prisma.InputJsonValue,
-      displayOptions: displayOptions as unknown as Prisma.InputJsonValue | undefined,
+      displayOptions: displayOptions as unknown as
+        | Prisma.InputJsonValue
+        | undefined,
       timeline: timeline as unknown as Prisma.InputJsonValue | undefined,
-      revisionHistory: (revisionHistory ?? []) as unknown as Prisma.InputJsonValue,
+      revisionHistory: (revisionHistory ??
+        []) as unknown as Prisma.InputJsonValue,
     };
 
     const estimate = await this.prisma.estimate.create({
@@ -443,28 +488,56 @@ export class EstimateService {
   async updateEstimate(id: number, data: UpdateEstimateDto) {
     // 제외할 필드 목록
     const EXCLUDE_FIELDS = [
-      'id', 'createdAt', 'updatedAt', 'shareHash',  // 읽기 전용
-      'totalTravelers', 'seniorsCount',              // DB에 없는 필드
-      'chatSessionId', 'userId',                     // 관계 필드
-      'items', 'displayOptions', 'timeline', 'revisionHistory',  // JSON 필드 (별도 처리)
-      'validDate', 'startDate', 'endDate',           // 날짜 필드 (별도 처리)
+      'id',
+      'createdAt',
+      'updatedAt',
+      'shareHash', // 읽기 전용
+      'totalTravelers',
+      'seniorsCount', // DB에 없는 필드
+      'chatSessionId',
+      'userId', // 관계 필드
+      'items',
+      'displayOptions',
+      'timeline',
+      'revisionHistory', // JSON 필드 (별도 처리)
+      'validDate',
+      'startDate',
+      'endDate', // 날짜 필드 (별도 처리)
     ] as const;
 
-    const cleanData = omit(data as Record<string, unknown>, [...EXCLUDE_FIELDS]);
+    const cleanData = omit(data as Record<string, unknown>, [
+      ...EXCLUDE_FIELDS,
+    ]);
 
     const estimate = await this.prisma.estimate.update({
       where: { id },
       data: {
         ...cleanData,
         // 날짜 필드 변환
-        ...(data.validDate !== undefined && { validDate: toDateTime(data.validDate) }),
-        ...(data.startDate !== undefined && { startDate: toDateTime(data.startDate) }),
-        ...(data.endDate !== undefined && { endDate: toDateTime(data.endDate) }),
+        ...(data.validDate !== undefined && {
+          validDate: toDateTime(data.validDate),
+        }),
+        ...(data.startDate !== undefined && {
+          startDate: toDateTime(data.startDate),
+        }),
+        ...(data.endDate !== undefined && {
+          endDate: toDateTime(data.endDate),
+        }),
         // JSON 필드
-        ...(data.items !== undefined && { items: data.items as unknown as Prisma.InputJsonValue }),
-        ...(data.displayOptions !== undefined && { displayOptions: data.displayOptions as unknown as Prisma.InputJsonValue }),
-        ...(data.timeline !== undefined && { timeline: data.timeline as unknown as Prisma.InputJsonValue }),
-        ...(data.revisionHistory !== undefined && { revisionHistory: data.revisionHistory as unknown as Prisma.InputJsonValue }),
+        ...(data.items !== undefined && {
+          items: data.items as unknown as Prisma.InputJsonValue,
+        }),
+        ...(data.displayOptions !== undefined && {
+          displayOptions:
+            data.displayOptions as unknown as Prisma.InputJsonValue,
+        }),
+        ...(data.timeline !== undefined && {
+          timeline: data.timeline as unknown as Prisma.InputJsonValue,
+        }),
+        ...(data.revisionHistory !== undefined && {
+          revisionHistory:
+            data.revisionHistory as unknown as Prisma.InputJsonValue,
+        }),
       },
     });
 
@@ -500,41 +573,52 @@ export class EstimateService {
 
     // 고객 이메일이 있으면 이메일 발송
     if (estimate.customerEmail) {
-      const items = (estimate.items as unknown as Array<{
-        name: string;
-        type?: string;
-        price: number;
-        quantity: number;
-        date?: string;
-      }>) || [];
+      const items =
+        (estimate.items as unknown as Array<{
+          name: string;
+          type?: string;
+          price: number;
+          quantity: number;
+          date?: string;
+        }>) || [];
 
-      this.emailService.sendEstimate({
-        to: estimate.customerEmail,
-        customerName: estimate.customerName || 'Valued Customer',
-        estimateTitle: estimate.title || 'Your Travel Quotation',
-        shareHash: estimate.shareHash || '',
-        items,
-        totalAmount: Number(estimate.totalAmount) || 0,
-        currency: estimate.currency || 'USD',
-        travelDays: estimate.travelDays || undefined,
-        startDate: estimate.startDate,
-        endDate: estimate.endDate,
-        adultsCount: estimate.adultsCount || undefined,
-        childrenCount: estimate.childrenCount || undefined,
-      }).catch((error) => {
-        this.logger.error(`Failed to send estimate email to ${estimate.customerEmail}:`, error);
-      });
+      this.emailService
+        .sendEstimate({
+          to: estimate.customerEmail,
+          customerName: estimate.customerName || 'Valued Customer',
+          estimateTitle: estimate.title || 'Your Travel Quotation',
+          shareHash: estimate.shareHash || '',
+          items,
+          totalAmount: Number(estimate.totalAmount) || 0,
+          currency: estimate.currency || 'USD',
+          travelDays: estimate.travelDays || undefined,
+          startDate: estimate.startDate,
+          endDate: estimate.endDate,
+          adultsCount: estimate.adultsCount || undefined,
+          childrenCount: estimate.childrenCount || undefined,
+        })
+        .catch((error) => {
+          this.logger.error(
+            `Failed to send estimate email to ${estimate.customerEmail}:`,
+            error,
+          );
+        });
     }
 
     // 관리자에게 견적 발송 완료 알림
-    this.notificationService.notifyEstimateSent({
-      estimateId: estimate.id,
-      customerName: estimate.customerName || undefined,
-      customerEmail: estimate.customerEmail || undefined,
-    }).catch((error) => {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Failed to send estimate notification: ${errorMessage}`);
-    });
+    this.notificationService
+      .notifyEstimateSent({
+        estimateId: estimate.id,
+        customerName: estimate.customerName || undefined,
+        customerEmail: estimate.customerEmail || undefined,
+      })
+      .catch((error) => {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `Failed to send estimate notification: ${errorMessage}`,
+        );
+      });
 
     // 채팅 세션이 있으면 이벤트 발송 (ChatbotService가 수신하여 메시지 저장)
     if (estimate.chatSessionId) {
@@ -692,7 +776,10 @@ export class EstimateService {
     if (status === ESTIMATE_STATUS.APPROVED) updates.respondedAt = new Date();
     if (status === ESTIMATE_STATUS.COMPLETED) updates.completedAt = new Date();
 
-    const estimate = await this.prisma.estimate.update({ where: { id }, data: updates });
+    const estimate = await this.prisma.estimate.update({
+      where: { id },
+      data: updates,
+    });
 
     // SSE 이벤트 발행 (채팅 세션이 연결된 경우)
     if (estimate.chatSessionId) {
@@ -714,7 +801,10 @@ export class EstimateService {
 
   // 아이템 업데이트
   async updateItems(id: number, items: EstimateItemDto[]) {
-    const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity || 0), 0);
+    const subtotal = items.reduce(
+      (sum, item) => sum + (item.price * item.quantity || 0),
+      0,
+    );
     return this.prisma.estimate.update({
       where: { id },
       data: { items: items as unknown as Prisma.InputJsonValue, subtotal },
@@ -738,7 +828,11 @@ export class EstimateService {
 
       const updated = await tx.estimate.update({
         where: { id },
-        data: { manualAdjustment: amount, adjustmentReason: reason, totalAmount },
+        data: {
+          manualAdjustment: amount,
+          adjustmentReason: reason,
+          totalAmount,
+        },
       });
 
       return convertDecimalFields(updated);

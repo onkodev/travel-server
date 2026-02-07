@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsString, MinLength, IsOptional, IsInt, Min, Max, IsIn } from 'class-validator';
+import {
+  IsEmail,
+  IsString,
+  MinLength,
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  IsIn,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 /**
@@ -46,7 +55,10 @@ export class ContactDto {
   @ApiProperty({ description: '문의자 이메일', example: 'john@example.com' })
   email: string;
 
-  @ApiProperty({ description: '문의 내용', example: 'I would like to inquire about the Seoul tour package.' })
+  @ApiProperty({
+    description: '문의 내용',
+    example: 'I would like to inquire about the Seoul tour package.',
+  })
   message: string;
 
   @ApiProperty({
@@ -120,7 +132,9 @@ export class ContactQueryDto {
     enum: ['pending', 'replied', 'closed'],
   })
   @IsString()
-  @IsIn(['pending', 'replied', 'closed'], { message: '올바른 상태값이 아닙니다' })
+  @IsIn(['pending', 'replied', 'closed'], {
+    message: '올바른 상태값이 아닙니다',
+  })
   @IsOptional()
   status?: string;
 }
@@ -160,7 +174,9 @@ export class UpdateContactStatusDto {
     enum: ['pending', 'replied', 'closed'],
   })
   @IsString()
-  @IsIn(['pending', 'replied', 'closed'], { message: '올바른 상태값이 아닙니다' })
+  @IsIn(['pending', 'replied', 'closed'], {
+    message: '올바른 상태값이 아닙니다',
+  })
   status: string;
 }
 

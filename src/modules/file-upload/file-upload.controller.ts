@@ -50,7 +50,9 @@ export class FileUploadController {
         ];
         if (!allowedMimes.includes(file.mimetype)) {
           return cb(
-            new BadRequestException('이미지 파일만 업로드 가능합니다 (JPEG, PNG, GIF, WebP, SVG)'),
+            new BadRequestException(
+              '이미지 파일만 업로드 가능합니다 (JPEG, PNG, GIF, WebP, SVG)',
+            ),
             false,
           );
         }
@@ -60,7 +62,8 @@ export class FileUploadController {
   )
   @ApiOperation({
     summary: 'S3 파일 업로드',
-    description: '이미지 파일을 AWS S3에 업로드합니다. (최대 10MB, JPEG/PNG/GIF/WebP/SVG)',
+    description:
+      '이미지 파일을 AWS S3에 업로드합니다. (최대 10MB, JPEG/PNG/GIF/WebP/SVG)',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -91,7 +94,11 @@ export class FileUploadController {
   })
   @ApiQuery({ name: 'query', description: '검색어' })
   @ApiQuery({ name: 'page', required: false, description: '페이지 번호' })
-  @ApiQuery({ name: 'perPage', required: false, description: '페이지당 결과 수' })
+  @ApiQuery({
+    name: 'perPage',
+    required: false,
+    description: '페이지당 결과 수',
+  })
   @ApiResponse({ status: 200, description: '검색 성공' })
   async searchUnsplash(
     @Query('query') query: string,

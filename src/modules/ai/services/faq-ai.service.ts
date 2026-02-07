@@ -28,11 +28,16 @@ export class FaqAiService {
   /**
    * 이메일 내용에서 FAQ Q&A 추출
    */
-  async extractFaqFromEmail(params: FaqExtractionParams): Promise<ExtractedFaqItem[]> {
+  async extractFaqFromEmail(
+    params: FaqExtractionParams,
+  ): Promise<ExtractedFaqItem[]> {
     const prompt = FAQ_EXTRACTION_PROMPT(params);
 
     try {
-      const text = await this.geminiCore.callGemini(prompt, FAQ_EXTRACTION_CONFIG);
+      const text = await this.geminiCore.callGemini(
+        prompt,
+        FAQ_EXTRACTION_CONFIG,
+      );
       const result = parseJsonResponse<ExtractedFaqItem[]>(text, []);
 
       // 유효성 검사: question과 answer가 있는 항목만 반환

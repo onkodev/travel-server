@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
@@ -7,7 +11,13 @@ import {
   createPaginatedResponse,
 } from '../../common/dto/pagination.dto';
 
-const VALID_PAYMENT_STATUSES = ['pending', 'completed', 'failed', 'refunded', 'cancelled'] as const;
+const VALID_PAYMENT_STATUSES = [
+  'pending',
+  'completed',
+  'failed',
+  'refunded',
+  'cancelled',
+] as const;
 
 @Injectable()
 export class PaymentService {
@@ -148,7 +158,11 @@ export class PaymentService {
       failureReason?: string;
     },
   ) {
-    if (!VALID_PAYMENT_STATUSES.includes(status as typeof VALID_PAYMENT_STATUSES[number])) {
+    if (
+      !VALID_PAYMENT_STATUSES.includes(
+        status as (typeof VALID_PAYMENT_STATUSES)[number],
+      )
+    ) {
       throw new BadRequestException(`유효하지 않은 결제 상태: ${status}`);
     }
     const data: Prisma.PaymentUpdateInput = { status };

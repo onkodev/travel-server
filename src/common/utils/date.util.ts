@@ -27,4 +27,3 @@ export function omit<T extends Record<string, unknown>, K extends keyof T>(
   keys.forEach((key) => delete result[key]);
   return result;
 }
-

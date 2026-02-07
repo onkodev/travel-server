@@ -34,7 +34,9 @@ export class EstimateSchedulerService {
       });
 
       if (toInProgress.count > 0) {
-        this.logger.log(`${toInProgress.count}개 견적이 '진행중' 상태로 변경됨`);
+        this.logger.log(
+          `${toInProgress.count}개 견적이 '진행중' 상태로 변경됨`,
+        );
       }
 
       // 2. in_progress → completed: 여행 종료일이 지난 경우

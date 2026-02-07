@@ -19,10 +19,16 @@ import { AiEstimateService } from './ai-estimate.service';
 import { ChatbotStepResponseService } from './chatbot-step-response.service';
 import { NotificationService } from '../notification/notification.service';
 import { EmailService } from '../email/email.service';
-import { chatbotInquiryAdminTemplate, modificationRequestTemplate } from '../email/email-templates';
+import {
+  chatbotInquiryAdminTemplate,
+  modificationRequestTemplate,
+} from '../email/email-templates';
 import { EstimateItem } from '../../common/types';
 import { ESTIMATE_EVENTS, CHATBOT_EVENTS } from '../../common/events';
-import type { EstimateSentEvent, ChatbotNewMessageEvent } from '../../common/events';
+import type {
+  EstimateSentEvent,
+  ChatbotNewMessageEvent,
+} from '../../common/events';
 import {
   calculateSkip,
   createPaginatedResponse,
@@ -80,7 +86,12 @@ export class ChatbotService {
     const hasTourType = !!dto.tourType;
 
     // IP 기반 지리 정보 조회
-    let geoData: { country: string | null; countryName: string | null; city: string | null; timezone: string | null } = {
+    let geoData: {
+      country: string | null;
+      countryName: string | null;
+      city: string | null;
+      timezone: string | null;
+    } = {
       country: null,
       countryName: null,
       city: null,
@@ -91,7 +102,9 @@ export class ChatbotService {
       try {
         geoData = await this.geoIpService.lookup(ipAddress);
       } catch (error) {
-        this.logger.warn(`GeoIP lookup failed for ${ipAddress}: ${error.message}`);
+        this.logger.warn(
+          `GeoIP lookup failed for ${ipAddress}: ${error.message}`,
+        );
       }
     }
 
@@ -382,7 +395,9 @@ export class ChatbotService {
     // 여행 날짜가 오늘 이후인지 검증 (YYYY-MM-DD 문자열 비교로 타임존 이슈 방지)
     const todayStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     if (dto.travelDate < todayStr) {
-      throw new BadRequestException('Travel date must be today or in the future.');
+      throw new BadRequestException(
+        'Travel date must be today or in the future.',
+      );
     }
     const travelDate = new Date(dto.travelDate + 'T00:00:00'); // 로컬 시간으로 파싱
 
@@ -438,7 +453,8 @@ export class ChatbotService {
   async trackPageVisit(sessionId: string, path: string) {
     const flow = await this.getFlow(sessionId);
 
-    const visits = (flow.pageVisits as unknown as { path: string; timestamp: Date }[]) || [];
+    const visits =
+      (flow.pageVisits as unknown as { path: string; timestamp: Date }[]) || [];
     visits.push({ path, timestamp: new Date() });
 
     return this.prisma.chatbotFlow.update({
@@ -475,9 +491,9 @@ export class ChatbotService {
     const attractionsWithDbInfo = Object.entries(ATTRACTIONS).map(
       ([key, attr]) => {
         const dbItem = itemMap.get(attr.label);
-        const images = dbItem?.images as
-          | Array<string | { url: string; type?: string }>
-          | null;
+        const images = dbItem?.images as Array<
+          string | { url: string; type?: string }
+        > | null;
 
         // images 배열에서 첫 번째 이미지 URL 추출
         let firstImageUrl: string | null = null;
@@ -485,7 +501,11 @@ export class ChatbotService {
           const firstImage = images[0];
           if (typeof firstImage === 'string') {
             firstImageUrl = firstImage;
-          } else if (firstImage && typeof firstImage === 'object' && 'url' in firstImage) {
+          } else if (
+            firstImage &&
+            typeof firstImage === 'object' &&
+            'url' in firstImage
+          ) {
             firstImageUrl = firstImage.url;
           }
         }
@@ -523,7 +543,6 @@ export class ChatbotService {
     };
   }
 
-
   // 라벨 변환 헬퍼 (이메일 템플릿용)
   private resolveLabels(flow: {
     tourType: string | null;
@@ -535,19 +554,24 @@ export class ChatbotService {
     ageRange: string | null;
   }) {
     const tourTypeLabel = flow.tourType
-      ? (TOUR_TYPES[flow.tourType as keyof typeof TOUR_TYPES]?.label || flow.tourType)
+      ? TOUR_TYPES[flow.tourType as keyof typeof TOUR_TYPES]?.label ||
+        flow.tourType
       : '-';
     const regionLabel = flow.region
-      ? (REGIONS[flow.region as keyof typeof REGIONS]?.label || flow.region)
+      ? REGIONS[flow.region as keyof typeof REGIONS]?.label || flow.region
       : '-';
-    const interestMainLabels = (flow.interestMain || [])
-      .map((v) => INTEREST_MAIN[v as keyof typeof INTEREST_MAIN]?.label || v);
-    const interestSubLabels = (flow.interestSub || [])
-      .map((v) => INTEREST_SUB[v as keyof typeof INTEREST_SUB]?.label || v);
-    const attractionLabels = (flow.attractions || [])
-      .map((v) => ATTRACTIONS[v as keyof typeof ATTRACTIONS]?.label || v);
+    const interestMainLabels = (flow.interestMain || []).map(
+      (v) => INTEREST_MAIN[v as keyof typeof INTEREST_MAIN]?.label || v,
+    );
+    const interestSubLabels = (flow.interestSub || []).map(
+      (v) => INTEREST_SUB[v as keyof typeof INTEREST_SUB]?.label || v,
+    );
+    const attractionLabels = (flow.attractions || []).map(
+      (v) => ATTRACTIONS[v as keyof typeof ATTRACTIONS]?.label || v,
+    );
     const budgetLabel = flow.budgetRange
-      ? (BUDGET_RANGES[flow.budgetRange as keyof typeof BUDGET_RANGES]?.label || flow.budgetRange)
+      ? BUDGET_RANGES[flow.budgetRange as keyof typeof BUDGET_RANGES]?.label ||
+        flow.budgetRange
       : '-';
 
     return {
@@ -561,15 +585,21 @@ export class ChatbotService {
 
   // 플로우 완료 및 견적 생성 (AI 기반)
   async completeFlow(sessionId: string, userId?: string) {
-    this.logger.log(`Completing flow: sessionId=${sessionId}, userId=${userId || 'anonymous'}`);
+    this.logger.log(
+      `Completing flow: sessionId=${sessionId}, userId=${userId || 'anonymous'}`,
+    );
 
     const flow = await this.getFlow(sessionId);
 
     // 이미 완료된 경우
     if (flow.isCompleted && flow.estimateId) {
-      this.logger.log(`Flow already completed: sessionId=${sessionId}, estimateId=${flow.estimateId}`);
+      this.logger.log(
+        `Flow already completed: sessionId=${sessionId}, estimateId=${flow.estimateId}`,
+      );
       const estimate = await this.estimateService.getEstimate(flow.estimateId);
-      const items = (Array.isArray(estimate.items) ? estimate.items : []) as EstimateItem[];
+      const items = (
+        Array.isArray(estimate.items) ? estimate.items : []
+      ) as EstimateItem[];
       return {
         flow,
         estimate,
@@ -588,24 +618,42 @@ export class ChatbotService {
 
     try {
       // AiEstimateService를 사용하여 AI 기반 견적 생성
-      const { estimateId } = await this.aiEstimateService.generateFirstEstimate(sessionId);
+      const { estimateId } =
+        await this.aiEstimateService.generateFirstEstimate(sessionId);
 
       // 업데이트된 플로우 조회
       const updatedFlow = await this.getFlow(sessionId);
 
-      // Flow에 userId 연결 (아직 없고 userId가 제공된 경우)
-      if (userId && !updatedFlow.userId) {
-        await this.prisma.chatbotFlow.update({
-          where: { sessionId },
-          data: { userId },
-        });
+      // Flow + Estimate에 userId 연결
+      if (userId) {
+        const updates: Promise<unknown>[] = [];
+        if (!updatedFlow.userId) {
+          updates.push(
+            this.prisma.chatbotFlow.update({
+              where: { sessionId },
+              data: { userId },
+            }),
+          );
+        }
+        updates.push(
+          this.prisma.estimate.update({
+            where: { id: estimateId },
+            data: { userId },
+          }),
+        );
+        await Promise.all(updates);
       }
 
       // 견적 아이템 정보 보강
-      const enrichedEstimate = await this.estimateService.getEstimate(estimateId);
-      const items = (Array.isArray(enrichedEstimate.items) ? enrichedEstimate.items : []) as EstimateItem[];
+      const enrichedEstimate =
+        await this.estimateService.getEstimate(estimateId);
+      const items = (
+        Array.isArray(enrichedEstimate.items) ? enrichedEstimate.items : []
+      ) as EstimateItem[];
 
-      this.logger.log(`Flow completed successfully: sessionId=${sessionId}, estimateId=${estimateId}`);
+      this.logger.log(
+        `Flow completed successfully: sessionId=${sessionId}, estimateId=${estimateId}`,
+      );
 
       return {
         flow: updatedFlow,
@@ -614,8 +662,13 @@ export class ChatbotService {
         hasTbdDays: items.some((item) => item.isTbd),
       };
     } catch (error) {
-      this.logger.error(`Failed to complete flow: sessionId=${sessionId}`, error.stack);
-      throw new InternalServerErrorException('견적 생성 처리 중 오류가 발생했습니다');
+      this.logger.error(
+        `Failed to complete flow: sessionId=${sessionId}`,
+        error.stack,
+      );
+      throw new InternalServerErrorException(
+        '견적 생성 처리 중 오류가 발생했습니다',
+      );
     }
   }
 
@@ -627,7 +680,11 @@ export class ChatbotService {
     const notificationResults = {
       pushNotification: { sent: false, error: null as string | null },
       adminEmail: { sent: false, error: null as string | null },
-      customerEmail: { sent: false, error: null as string | null, skipped: false },
+      customerEmail: {
+        sent: false,
+        error: null as string | null,
+        skipped: false,
+      },
     };
 
     // 플로우를 완료 상태로 변경 (견적 유무와 관계없이)
@@ -670,22 +727,30 @@ export class ChatbotService {
             .map((pv) => pv.title!);
         }
       } catch (err) {
-        this.logger.warn(`Failed to fetch visitor browsing history: ${err.message}`);
+        this.logger.warn(
+          `Failed to fetch visitor browsing history: ${err.message}`,
+        );
       }
     }
 
     // 관리자 이메일 발송
     try {
-      const adminEmail = this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL')
-        || this.configService.get<string>('ADMIN_EMAIL')
-        || 'admin@tumakr.com';
+      const adminEmail =
+        this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL') ||
+        this.configService.get<string>('ADMIN_EMAIL') ||
+        'admin@tumakr.com';
 
       const travelDateStr = flow.travelDate
-        ? new Date(flow.travelDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+        ? new Date(flow.travelDate).toLocaleDateString('en-US', {
+            month: '2-digit',
+            day: '2-digit',
+            year: 'numeric',
+          })
         : '';
 
       const labels = this.resolveLabels(flow);
-      const adminUrl = this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
+      const adminUrl =
+        this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
 
       await this.emailService.sendEmail({
         to: adminEmail,
@@ -734,14 +799,20 @@ export class ChatbotService {
     // 고객 확인 이메일 발송
     if (flow.customerEmail) {
       try {
-        const surveySummary = this.stepResponseService.buildSurveySummary(flow as Parameters<ChatbotStepResponseService['buildSurveySummary']>[0]);
+        const surveySummary = this.stepResponseService.buildSurveySummary(
+          flow as Parameters<
+            ChatbotStepResponseService['buildSurveySummary']
+          >[0],
+        );
         await this.emailService.sendContactConfirmation({
           to: flow.customerEmail,
           customerName: flow.customerName || 'Customer',
           message: surveySummary,
         });
         notificationResults.customerEmail.sent = true;
-        this.logger.log(`Confirmation email sent to customer: ${flow.customerEmail}`);
+        this.logger.log(
+          `Confirmation email sent to customer: ${flow.customerEmail}`,
+        );
       } catch (error) {
         notificationResults.customerEmail.error = error.message;
         this.logger.error(`Failed to send customer email: ${error.message}`);
@@ -761,9 +832,11 @@ export class ChatbotService {
     }
 
     // 알림 실패 여부 체크
-    const hasNotificationFailure = !notificationResults.pushNotification.sent
-      || !notificationResults.adminEmail.sent
-      || (!notificationResults.customerEmail.sent && !notificationResults.customerEmail.skipped);
+    const hasNotificationFailure =
+      !notificationResults.pushNotification.sent ||
+      !notificationResults.adminEmail.sent ||
+      (!notificationResults.customerEmail.sent &&
+        !notificationResults.customerEmail.skipped);
 
     // 응답 생성
     const response = {
@@ -775,13 +848,17 @@ export class ChatbotService {
       status: estimateStatus,
       notifications: notificationResults,
       ...(hasNotificationFailure && {
-        warning: 'Some notifications could not be sent. Our team has been notified.',
+        warning:
+          'Some notifications could not be sent. Our team has been notified.',
       }),
     };
 
     // 알림 실패 시 관리자에게 경고 로그 (모니터링용)
     if (hasNotificationFailure) {
-      this.logger.warn(`Partial notification failure for session ${sessionId}:`, notificationResults);
+      this.logger.warn(
+        `Partial notification failure for session ${sessionId}:`,
+        notificationResults,
+      );
     }
 
     return response;
@@ -825,26 +902,34 @@ export class ChatbotService {
         await this.notificationService.notifyModificationRequest({
           estimateId: flow.estimateId,
           sessionId: sessionId,
-          customerName: currentEstimate?.customerName || flow.customerName || undefined,
+          customerName:
+            currentEstimate?.customerName || flow.customerName || undefined,
           requestContent: modificationRequest,
         });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logger.error(`Failed to send modification request notification: ${errorMessage}`);
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `Failed to send modification request notification: ${errorMessage}`,
+        );
       }
 
       // 관리자 이메일 발송
       try {
-        const adminEmail = this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL')
-          || this.configService.get<string>('ADMIN_EMAIL')
-          || 'admin@tumakr.com';
-        const adminUrl = this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
+        const adminEmail =
+          this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL') ||
+          this.configService.get<string>('ADMIN_EMAIL') ||
+          'admin@tumakr.com';
+        const adminUrl =
+          this.configService.get<string>('CLIENT_URL') ||
+          'http://localhost:3000';
 
         await this.emailService.sendEmail({
           to: adminEmail,
           subject: `[수정 요청] ${currentEstimate?.customerName || flow.customerName || '고객'}님 - 견적 #${flow.estimateId}`,
           html: modificationRequestTemplate({
-            customerName: currentEstimate?.customerName || flow.customerName || '고객',
+            customerName:
+              currentEstimate?.customerName || flow.customerName || '고객',
             customerEmail: flow.customerEmail || '-',
             estimateId: flow.estimateId,
             requestContent: modificationRequest,
@@ -852,15 +937,21 @@ export class ChatbotService {
             adminUrl,
           }),
         });
-        this.logger.log(`Modification request email sent for estimate #${flow.estimateId}`);
+        this.logger.log(
+          `Modification request email sent for estimate #${flow.estimateId}`,
+        );
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logger.error(`Failed to send modification request email: ${errorMessage}`);
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `Failed to send modification request email: ${errorMessage}`,
+        );
       }
 
       return {
         success: true,
-        message: 'Modification request submitted. Our expert will review and contact you.',
+        message:
+          'Modification request submitted. Our expert will review and contact you.',
         status: ESTIMATE_STATUS.PENDING, // 상태를 pending으로 반환
       };
     }
@@ -945,7 +1036,12 @@ export class ChatbotService {
     }
 
     // 정렬 로직
-    const SORT_WHITELIST = ['createdAt', 'customerName', 'countryName', 'currentStep'];
+    const SORT_WHITELIST = [
+      'createdAt',
+      'customerName',
+      'countryName',
+      'currentStep',
+    ];
     let orderBy: Record<string, 'asc' | 'desc'> = { createdAt: 'desc' };
     if (sortColumn && SORT_WHITELIST.includes(sortColumn)) {
       const dir = sortDirection === 'asc' ? 'asc' : 'desc';
@@ -1006,9 +1102,7 @@ export class ChatbotService {
           })
         : [];
 
-    const estimateStatusMap = new Map(
-      estimates.map((e) => [e.id, e.statusAi]),
-    );
+    const estimateStatusMap = new Map(estimates.map((e) => [e.id, e.statusAi]));
 
     // 플로우에 estimateStatus 추가
     const flowsWithStatus = flows.map((flow) => ({
@@ -1037,8 +1131,11 @@ export class ChatbotService {
         content: `🎉 Your personalized travel quotation is ready!\n\nPlease review the details and let us know if you'd like any modifications. You can click "Request Modification" to make changes, or "Accept" to confirm your booking.`,
       });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Failed to save chat message for estimate ${event.estimateId}: ${errorMessage}`);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to save chat message for estimate ${event.estimateId}: ${errorMessage}`,
+      );
     }
   }
 
@@ -1075,7 +1172,8 @@ export class ChatbotService {
 
       if (existingMessages === 1) {
         // 첫 번째 사용자 메시지
-        const title = data.content.slice(0, 50) + (data.content.length > 50 ? '...' : '');
+        const title =
+          data.content.slice(0, 50) + (data.content.length > 50 ? '...' : '');
         await this.prisma.chatbotFlow.update({
           where: { sessionId },
           data: { title },
@@ -1094,12 +1192,16 @@ export class ChatbotService {
           try {
             await this.notificationService.notifyCustomerMessage({
               sessionId,
-              customerName: estimate.customerName || flow.customerName || undefined,
+              customerName:
+                estimate.customerName || flow.customerName || undefined,
               messagePreview: data.content,
             });
           } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            this.logger.error(`Failed to send customer message notification: ${errorMessage}`);
+            const errorMessage =
+              error instanceof Error ? error.message : String(error);
+            this.logger.error(
+              `Failed to send customer message notification: ${errorMessage}`,
+            );
           }
         }
       }
@@ -1116,7 +1218,9 @@ export class ChatbotService {
         createdAt: message.createdAt,
       },
     };
-    this.logger.log(`SSE event emitting for session ${sessionId}, role: ${data.role}`);
+    this.logger.log(
+      `SSE event emitting for session ${sessionId}, role: ${data.role}`,
+    );
     this.eventEmitter.emit(CHATBOT_EVENTS.NEW_MESSAGE, sseEvent);
 
     return message;
@@ -1219,11 +1323,16 @@ export class ChatbotService {
         : [];
 
     const estimateMap = new Map(
-      estimates.map((e) => [e.id, { statusAi: e.statusAi, shareHash: e.shareHash }]),
+      estimates.map((e) => [
+        e.id,
+        { statusAi: e.statusAi, shareHash: e.shareHash },
+      ]),
     );
 
     const sessions = flows.map((flow) => {
-      const estimateInfo = flow.estimateId ? estimateMap.get(flow.estimateId) : null;
+      const estimateInfo = flow.estimateId
+        ? estimateMap.get(flow.estimateId)
+        : null;
       return {
         sessionId: flow.sessionId,
         title: flow.title,
@@ -1265,8 +1374,14 @@ export class ChatbotService {
     const loggedInName = userProfile?.name || userProfile?.full_name;
     const loggedInEmail = userProfile?.email;
 
-    const nameMismatch = guestName && loggedInName && guestName.toLowerCase() !== loggedInName.toLowerCase();
-    const emailMismatch = guestEmail && loggedInEmail && guestEmail.toLowerCase() !== loggedInEmail.toLowerCase();
+    const nameMismatch =
+      guestName &&
+      loggedInName &&
+      guestName.toLowerCase() !== loggedInName.toLowerCase();
+    const emailMismatch =
+      guestEmail &&
+      loggedInEmail &&
+      guestEmail.toLowerCase() !== loggedInEmail.toLowerCase();
     const hasInfoMismatch = !!(nameMismatch || emailMismatch);
 
     // 세션을 사용자에게 연결 + 정보 불일치 기록
@@ -1284,7 +1399,9 @@ export class ChatbotService {
       },
     });
 
-    this.logger.log(`Session ${sessionId} linked to user ${userId}${hasInfoMismatch ? ' (info mismatch detected)' : ''}`);
+    this.logger.log(
+      `Session ${sessionId} linked to user ${userId}${hasInfoMismatch ? ' (info mismatch detected)' : ''}`,
+    );
 
     // Estimate도 로그인 정보로 업데이트
     if (flow.estimateId && (loggedInName || loggedInEmail)) {
@@ -1295,7 +1412,9 @@ export class ChatbotService {
           ...(loggedInEmail && { customerEmail: loggedInEmail }),
         },
       });
-      this.logger.log(`Estimate ${flow.estimateId} updated with logged-in user info`);
+      this.logger.log(
+        `Estimate ${flow.estimateId} updated with logged-in user info`,
+      );
     }
 
     if (nameMismatch || emailMismatch) {
@@ -1333,12 +1452,19 @@ export class ChatbotService {
           },
         });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logger.error(`Failed to send user mismatch notification: ${errorMessage}`);
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `Failed to send user mismatch notification: ${errorMessage}`,
+        );
       }
     }
 
-    return { success: true, linked: true, infoMismatch: nameMismatch || emailMismatch };
+    return {
+      success: true,
+      linked: true,
+      infoMismatch: nameMismatch || emailMismatch,
+    };
   }
 
   // 세션 제목 업데이트
@@ -1347,7 +1473,9 @@ export class ChatbotService {
 
     // 사용자 권한 확인 (userId가 제공된 경우)
     if (userId && flow.userId && flow.userId !== userId) {
-      throw new ForbiddenException('You do not have permission to modify this session.');
+      throw new ForbiddenException(
+        'You do not have permission to modify this session.',
+      );
     }
 
     return this.prisma.chatbotFlow.update({
@@ -1363,7 +1491,9 @@ export class ChatbotService {
     // 사용자 권한 확인 (admin은 모든 세션 삭제 가능)
     const isAdmin = userRole === 'admin';
     if (!isAdmin && userId && flow.userId && flow.userId !== userId) {
-      throw new ForbiddenException('You do not have permission to delete this session.');
+      throw new ForbiddenException(
+        'You do not have permission to delete this session.',
+      );
     }
 
     // ChatbotMessage는 onDelete: Cascade로 자동 삭제됨
@@ -1434,11 +1564,17 @@ export class ChatbotService {
 
     // 이미 견적이 연결되어 있으면 에러
     if (flow.estimateId) {
-      throw new BadRequestException('이 세션에는 이미 견적이 연결되어 있습니다.');
+      throw new BadRequestException(
+        '이 세션에는 이미 견적이 연결되어 있습니다.',
+      );
     }
 
     // 견적 제목 생성
-    const estimateTitle = title || (flow.customerName ? `${flow.customerName}님 견적` : `상담 #${flow.id} 견적`);
+    const estimateTitle =
+      title ||
+      (flow.customerName
+        ? `${flow.customerName}님 견적`
+        : `상담 #${flow.id} 견적`);
 
     // 여행 날짜 계산
     let startDate: Date | null = null;
@@ -1454,7 +1590,10 @@ export class ChatbotService {
     }
 
     // 관심사 배열 병합
-    const interests = [...(flow.interestMain || []), ...(flow.interestSub || [])];
+    const interests = [
+      ...(flow.interestMain || []),
+      ...(flow.interestSub || []),
+    ];
 
     // 질문 응답 내역 전체를 requestContent로 구성
     const requestContentParts: string[] = [];
@@ -1467,19 +1606,27 @@ export class ChatbotService {
         group: '그룹 투어',
         custom: '커스텀 투어',
       };
-      requestContentParts.push(`[투어 타입] ${tourTypeLabels[flow.tourType] || flow.tourType}`);
+      requestContentParts.push(
+        `[투어 타입] ${tourTypeLabels[flow.tourType] || flow.tourType}`,
+      );
     }
 
     // Step 2: 첫 방문 여부
     if (flow.isFirstVisit !== null) {
-      requestContentParts.push(`[한국 첫 방문] ${flow.isFirstVisit ? '예' : '아니오'}`);
+      requestContentParts.push(
+        `[한국 첫 방문] ${flow.isFirstVisit ? '예' : '아니오'}`,
+      );
     }
 
     // Step 3: 계획 유무
     if (flow.hasPlan !== null) {
-      requestContentParts.push(`[계획 유무] ${flow.hasPlan ? '계획 있음' : '계획 없음'}`);
+      requestContentParts.push(
+        `[계획 유무] ${flow.hasPlan ? '계획 있음' : '계획 없음'}`,
+      );
       if (flow.hasPlan && flow.isFlexible !== null) {
-        requestContentParts.push(`[계획 수정 가능] ${flow.isFlexible ? '수정 가능' : '수정 불가'}`);
+        requestContentParts.push(
+          `[계획 수정 가능] ${flow.isFlexible ? '수정 가능' : '수정 불가'}`,
+        );
       }
       if (flow.hasPlan && flow.planDetails) {
         requestContentParts.push(`[계획 상세]\n${flow.planDetails}`);
@@ -1488,7 +1635,10 @@ export class ChatbotService {
 
     // Step 4: 관심사
     if (flow.interestMain?.length || flow.interestSub?.length) {
-      const allInterests = [...(flow.interestMain || []), ...(flow.interestSub || [])];
+      const allInterests = [
+        ...(flow.interestMain || []),
+        ...(flow.interestSub || []),
+      ];
       requestContentParts.push(`[관심사] ${allInterests.join(', ')}`);
     }
 
@@ -1500,20 +1650,30 @@ export class ChatbotService {
     // Step 6: 폼 입력 정보
     requestContentParts.push(`\n--- 여행 정보 ---`);
     if (flow.travelDate) {
-      requestContentParts.push(`[여행일] ${new Date(flow.travelDate).toLocaleDateString('ko-KR')}`);
+      requestContentParts.push(
+        `[여행일] ${new Date(flow.travelDate).toLocaleDateString('ko-KR')}`,
+      );
     }
     if (flow.duration) {
       requestContentParts.push(`[기간] ${flow.duration}일`);
     }
 
-    const totalPax = (flow.adultsCount || 0) + (flow.childrenCount || 0) + (flow.infantsCount || 0) + (flow.seniorsCount || 0);
-    requestContentParts.push(`[인원] 총 ${totalPax}명 (성인 ${flow.adultsCount || 0}, 아동 ${flow.childrenCount || 0}, 유아 ${flow.infantsCount || 0}, 시니어 ${flow.seniorsCount || 0})`);
+    const totalPax =
+      (flow.adultsCount || 0) +
+      (flow.childrenCount || 0) +
+      (flow.infantsCount || 0) +
+      (flow.seniorsCount || 0);
+    requestContentParts.push(
+      `[인원] 총 ${totalPax}명 (성인 ${flow.adultsCount || 0}, 아동 ${flow.childrenCount || 0}, 유아 ${flow.infantsCount || 0}, 시니어 ${flow.seniorsCount || 0})`,
+    );
 
     if (flow.budgetRange) {
       requestContentParts.push(`[예산] ${flow.budgetRange}`);
     }
     if (flow.needsPickup !== null) {
-      requestContentParts.push(`[공항 픽업] ${flow.needsPickup ? '필요' : '불필요'}`);
+      requestContentParts.push(
+        `[공항 픽업] ${flow.needsPickup ? '필요' : '불필요'}`,
+      );
     }
 
     // 추가 요청사항

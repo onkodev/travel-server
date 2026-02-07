@@ -53,7 +53,11 @@ export class ItineraryTemplateService {
   }
 
   // 템플릿 생성
-  async createTemplate(data: { name: string; items: Prisma.JsonValue; userId?: string }) {
+  async createTemplate(data: {
+    name: string;
+    items: Prisma.JsonValue;
+    userId?: string;
+  }) {
     return this.prisma.itineraryTemplate.create({
       data: {
         name: data.name,
@@ -64,7 +68,10 @@ export class ItineraryTemplateService {
   }
 
   // 템플릿 업데이트
-  async updateTemplate(id: number, data: { name?: string; items?: Prisma.JsonValue }) {
+  async updateTemplate(
+    id: number,
+    data: { name?: string; items?: Prisma.JsonValue },
+  ) {
     const template = await this.prisma.itineraryTemplate.findUnique({
       where: { id },
     });

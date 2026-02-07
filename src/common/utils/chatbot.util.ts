@@ -17,18 +17,24 @@ interface PaxCounts {
  * 총 인원 계산 (성인 + 아동 + 유아)
  * 시니어는 별도 카운트가 필요한 경우에만 포함
  */
-export function calculateTotalPax(counts: PaxCounts, includeSeniors = false): number {
+export function calculateTotalPax(
+  counts: PaxCounts,
+  includeSeniors = false,
+): number {
   const adults = counts.adultsCount || 1; // 최소 1명
   const children = counts.childrenCount || 0;
   const infants = counts.infantsCount || 0;
-  const seniors = includeSeniors ? (counts.seniorsCount || 0) : 0;
+  const seniors = includeSeniors ? counts.seniorsCount || 0 : 0;
   return adults + children + infants + seniors;
 }
 
 /**
  * 인원 정보 문자열 생성
  */
-export function formatPaxString(counts: PaxCounts, locale: 'ko' | 'en' = 'ko'): string {
+export function formatPaxString(
+  counts: PaxCounts,
+  locale: 'ko' | 'en' = 'ko',
+): string {
   const adults = counts.adultsCount || 1;
   const children = counts.childrenCount || 0;
   const infants = counts.infantsCount || 0;
@@ -120,7 +126,9 @@ export function resolveLabel(
 /**
  * 관심사 배열을 라벨 배열로 변환
  */
-export function resolveInterestLabels(interests: string[] | null | undefined): string[] {
+export function resolveInterestLabels(
+  interests: string[] | null | undefined,
+): string[] {
   if (!interests || interests.length === 0) return [];
   return interests.map((i) => resolveLabel(i, 'interest'));
 }

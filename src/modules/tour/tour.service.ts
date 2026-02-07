@@ -1,13 +1,13 @@
-import {
-  Injectable,
-  NotFoundException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { toCamelCase, toSnakeCase } from '../../common/utils/case.util';
 import { SupabaseError } from '../../common/types';
 import { CreateTourDto, UpdateTourDto } from './dto';
-import { MemoryCache, handleSupabaseError, sanitizeSearch } from '../../common/utils';
+import {
+  MemoryCache,
+  handleSupabaseError,
+  sanitizeSearch,
+} from '../../common/utils';
 import {
   calculateSkip,
   createPaginatedResponse,
@@ -22,7 +22,10 @@ export class TourService {
   constructor(private supabaseService: SupabaseService) {}
 
   // Supabase 에러를 NestJS 예외로 변환
-  private handleSupabaseError(error: SupabaseError | unknown, context: string): never {
+  private handleSupabaseError(
+    error: SupabaseError | unknown,
+    context: string,
+  ): never {
     handleSupabaseError(this.logger, error, context);
   }
 
@@ -60,7 +63,8 @@ export class TourService {
       : null;
 
     if (cacheKey) {
-      const cached = this.cache.get<ReturnType<typeof createPaginatedResponse>>(cacheKey);
+      const cached =
+        this.cache.get<ReturnType<typeof createPaginatedResponse>>(cacheKey);
       if (cached) return cached;
     }
 
@@ -97,7 +101,9 @@ export class TourService {
 
     const sanitized = sanitizeSearch(search);
     if (sanitized) {
-      query = query.or(`title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`);
+      query = query.or(
+        `title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`,
+      );
     }
 
     query = query
@@ -149,7 +155,9 @@ export class TourService {
 
     const sanitized = sanitizeSearch(search);
     if (sanitized) {
-      query = query.or(`title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`);
+      query = query.or(
+        `title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`,
+      );
     }
 
     query = query
@@ -232,9 +240,16 @@ export class TourService {
 
     // PostgreSQL array 컬럼 목록 (snake_case)
     const arrayColumns = new Set([
-      'image_urls', 'included_items', 'excluded_items', 'tags',
-      'itinerary', 'blocked_dates', 'blocked_weekdays', 'highlights',
-      'meeting_point', 'notes', // 혹시 배열일 수 있으므로 추가
+      'image_urls',
+      'included_items',
+      'excluded_items',
+      'tags',
+      'itinerary',
+      'blocked_dates',
+      'blocked_weekdays',
+      'highlights',
+      'meeting_point',
+      'notes', // 혹시 배열일 수 있으므로 추가
     ]);
 
     // 먼저 snake_case로 변환
@@ -266,7 +281,6 @@ export class TourService {
         }
       }
     }
-
 
     const { data: tour, error } = await supabase
       .from('tours')

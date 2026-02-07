@@ -84,7 +84,12 @@ export class ItemService {
       this.prisma.item.count({ where }),
     ]);
 
-    return createPaginatedResponse(items.map(convertDecimalFields), total, page, limit);
+    return createPaginatedResponse(
+      items.map(convertDecimalFields),
+      total,
+      page,
+      limit,
+    );
   }
 
   // 아이템 상세 조회
@@ -321,12 +326,16 @@ export class ItemService {
     };
 
     // 지역 검색 조건 생성 (여러 변형 포함)
-    const getRegionCondition = (regionInput?: string): Prisma.ItemWhereInput | undefined => {
+    const getRegionCondition = (
+      regionInput?: string,
+    ): Prisma.ItemWhereInput | undefined => {
       if (!regionInput) return undefined;
       const lowerRegion = regionInput.toLowerCase();
       const variants = regionMap[lowerRegion] || [regionInput];
       return {
-        OR: variants.map((v) => ({ region: { contains: v, mode: 'insensitive' as const } })),
+        OR: variants.map((v) => ({
+          region: { contains: v, mode: 'insensitive' as const },
+        })),
       };
     };
 
@@ -436,8 +445,12 @@ export class ItemService {
 
       // 원본 interests로 keyword/description 검색 (영문)
       interests.forEach((interest) => {
-        orConditions.push({ keyword: { contains: interest, mode: 'insensitive' as const } });
-        orConditions.push({ description: { contains: interest, mode: 'insensitive' as const } });
+        orConditions.push({
+          keyword: { contains: interest, mode: 'insensitive' as const },
+        });
+        orConditions.push({
+          description: { contains: interest, mode: 'insensitive' as const },
+        });
       });
 
       if (orConditions.length > 0) {
@@ -506,7 +519,13 @@ export class ItemService {
     excludeIds?: number[];
     limit?: number;
   }) {
-    const { category, interests = [], region, excludeIds = [], limit = 15 } = params;
+    const {
+      category,
+      interests = [],
+      region,
+      excludeIds = [],
+      limit = 15,
+    } = params;
 
     const searchTerms: string[] = [];
     if (category) searchTerms.push(category);

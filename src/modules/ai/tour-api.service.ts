@@ -39,14 +39,14 @@ interface TourAPIRawItem {
 
 // 콘텐츠 타입 ID → 내부 타입 매핑
 const CONTENT_TYPE_MAP: Record<string, string> = {
-  '12': 'place',        // 관광지
-  '14': 'place',        // 문화시설
-  '15': 'contents',     // 축제/공연/행사
-  '25': 'place',        // 여행코스
-  '28': 'contents',     // 레포츠
+  '12': 'place', // 관광지
+  '14': 'place', // 문화시설
+  '15': 'contents', // 축제/공연/행사
+  '25': 'place', // 여행코스
+  '28': 'contents', // 레포츠
   '32': 'accommodation', // 숙박
-  '38': 'place',        // 쇼핑
-  '39': 'contents',     // 음식점
+  '38': 'place', // 쇼핑
+  '39': 'contents', // 음식점
 };
 
 @Injectable()
@@ -76,7 +76,10 @@ export class TourApiService {
   }
 
   // 한국어 검색
-  private async searchKorean(keyword: string, contentTypeId?: string): Promise<TourAPIRawItem[]> {
+  private async searchKorean(
+    keyword: string,
+    contentTypeId?: string,
+  ): Promise<TourAPIRawItem[]> {
     const params = this.getCommonParams({
       keyword,
       numOfRows: '20',
@@ -85,15 +88,21 @@ export class TourApiService {
     if (contentTypeId) params.append('contentTypeId', contentTypeId);
 
     try {
-      const response = await fetch(`${this.baseUrlKor}/searchKeyword2?${params}`);
+      const response = await fetch(
+        `${this.baseUrlKor}/searchKeyword2?${params}`,
+      );
       if (!response.ok) {
-        this.logger.error(`Tour API error: ${response.status} ${response.statusText}`);
+        this.logger.error(
+          `Tour API error: ${response.status} ${response.statusText}`,
+        );
         return [];
       }
 
       const data = await response.json();
       if (data?.response?.header?.resultCode !== '0000') {
-        this.logger.error(`Tour API: ${data?.response?.header?.resultMsg || 'Unknown error'}`);
+        this.logger.error(
+          `Tour API: ${data?.response?.header?.resultMsg || 'Unknown error'}`,
+        );
         return [];
       }
 
@@ -106,7 +115,10 @@ export class TourApiService {
   }
 
   // 영어 데이터 위치 기반 검색
-  private async searchEnglishByLocation(mapX: number, mapY: number): Promise<TourAPIRawItem[]> {
+  private async searchEnglishByLocation(
+    mapX: number,
+    mapY: number,
+  ): Promise<TourAPIRawItem[]> {
     const params = this.getCommonParams({
       mapX: mapX.toString(),
       mapY: mapY.toString(),
@@ -116,7 +128,9 @@ export class TourApiService {
     });
 
     try {
-      const response = await fetch(`${this.baseUrlEng}/locationBasedList2?${params}`);
+      const response = await fetch(
+        `${this.baseUrlEng}/locationBasedList2?${params}`,
+      );
       if (!response.ok) return [];
 
       const data = await response.json();
@@ -130,7 +144,10 @@ export class TourApiService {
   }
 
   // 영어 매칭 찾기
-  private findBestEngMatch(korItem: TourAPIRawItem, engItems: TourAPIRawItem[]): TourAPIRawItem | null {
+  private findBestEngMatch(
+    korItem: TourAPIRawItem,
+    engItems: TourAPIRawItem[],
+  ): TourAPIRawItem | null {
     // 정확한 지역 + 카테고리 매칭
     for (const item of engItems) {
       if (
@@ -190,13 +207,17 @@ export class TourApiService {
     try {
       const response = await fetch(apiUrl);
       if (!response.ok) {
-        this.logger.error(`Tour API error: ${response.status} ${response.statusText}`);
+        this.logger.error(
+          `Tour API error: ${response.status} ${response.statusText}`,
+        );
         return [];
       }
 
       const data = await response.json();
       if (data?.response?.header?.resultCode !== '0000') {
-        this.logger.error(`Tour API: ${data?.response?.header?.resultMsg || 'Unknown error'}`);
+        this.logger.error(
+          `Tour API: ${data?.response?.header?.resultMsg || 'Unknown error'}`,
+        );
         return [];
       }
 
@@ -274,13 +295,19 @@ export class TourApiService {
     });
 
     if (existing) {
-      return { success: true, item: { ...itemData, id: existing.id }, isNew: false };
+      return {
+        success: true,
+        item: { ...itemData, id: existing.id },
+        isNew: false,
+      };
     }
 
     // 썸네일을 S3에 업로드
     let s3ImageUrl: string | null = null;
     if (itemData.thumbnail) {
-      this.logger.debug(`Uploading thumbnail for ${contentId}: ${itemData.thumbnail}`);
+      this.logger.debug(
+        `Uploading thumbnail for ${contentId}: ${itemData.thumbnail}`,
+      );
       s3ImageUrl = await this.fileUploadService.uploadFromUrl(
         itemData.thumbnail,
         contentId,
@@ -302,9 +329,7 @@ export class TourApiService {
         addressEnglish: itemData.addressEng,
         lat: itemData.lat,
         lng: itemData.lng,
-        images: s3ImageUrl
-          ? [{ type: 'thumbnail', url: s3ImageUrl }]
-          : [],
+        images: s3ImageUrl ? [{ type: 'thumbnail', url: s3ImageUrl }] : [],
       },
     });
 

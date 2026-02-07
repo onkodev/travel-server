@@ -17,16 +17,19 @@ export class EmailService {
 
   constructor(private configService: ConfigService) {
     this.sesClient = new SESClient({
-      region: this.configService.get<string>('AWS_SES_REGION') || 'ap-northeast-2',
+      region:
+        this.configService.get<string>('AWS_SES_REGION') || 'ap-northeast-2',
       credentials: {
         accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY') || '',
         secretAccessKey: this.configService.get<string>('AWS_SECRET_KEY') || '',
       },
     });
     this.fromEmail =
-      this.configService.get<string>('AWS_SES_FROM_EMAIL') || 'noreply@tumakr.com';
+      this.configService.get<string>('AWS_SES_FROM_EMAIL') ||
+      'noreply@tumakr.com';
     this.replyToEmail =
-      this.configService.get<string>('AWS_SES_REPLY_TO_EMAIL') || 'info@onedaykorea.com';
+      this.configService.get<string>('AWS_SES_REPLY_TO_EMAIL') ||
+      'info@onedaykorea.com';
   }
 
   async sendContactReply(params: {
@@ -124,11 +127,13 @@ export class EmailService {
     email: string;
     message: string;
   }): Promise<boolean> {
-    const adminEmail = this.configService.get<string>('ADMIN_EMAIL') || 'admin@tumakr.com';
+    const adminEmail =
+      this.configService.get<string>('ADMIN_EMAIL') || 'admin@tumakr.com';
 
     try {
       const { contactId, name, email, message } = params;
-      const adminUrl = this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
+      const adminUrl =
+        this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
 
       const command = new SendEmailCommand({
         Source: `Tumakr System <${this.fromEmail}>`,
@@ -144,7 +149,13 @@ export class EmailService {
           Body: {
             Html: {
               Charset: 'UTF-8',
-              Data: adminNotificationTemplate({ contactId, name, email, message, adminUrl }),
+              Data: adminNotificationTemplate({
+                contactId,
+                name,
+                email,
+                message,
+                adminUrl,
+              }),
             },
           },
         },
@@ -224,7 +235,8 @@ export class EmailService {
   }): Promise<boolean> {
     try {
       const { to, customerName, estimateTitle, shareHash } = params;
-      const clientUrl = this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
+      const clientUrl =
+        this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
       const estimateUrl = `${clientUrl}/quotation/${shareHash}`;
 
       const command = new SendEmailCommand({

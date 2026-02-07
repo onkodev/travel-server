@@ -54,7 +54,9 @@ class FieldDto {
   @ApiPropertyOptional({ type: [OptionDto] })
   options?: OptionDto[];
 
-  @ApiPropertyOptional({ description: '폼 섹션 (personal, travel, group, budget)' })
+  @ApiPropertyOptional({
+    description: '폼 섹션 (personal, travel, group, budget)',
+  })
   section?: string;
 }
 

@@ -6,15 +6,16 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 // ============================================================================
 
 export const ESTIMATE_STATUS = {
-  DRAFT: 'draft',         // AI 생성 완료, 관리자 검토 전
-  PENDING: 'pending',     // 관리자 검토 대기
-  SENT: 'sent',           // 고객에게 발송됨
-  APPROVED: 'approved',   // 고객 승인 (결제 대기)
+  DRAFT: 'draft', // AI 생성 완료, 관리자 검토 전
+  PENDING: 'pending', // 관리자 검토 대기
+  SENT: 'sent', // 고객에게 발송됨
+  APPROVED: 'approved', // 고객 승인 (결제 대기)
   COMPLETED: 'completed', // 투어 완료
   CANCELLED: 'cancelled', // 취소됨 (거절 포함)
 } as const;
 
-export type EstimateStatus = typeof ESTIMATE_STATUS[keyof typeof ESTIMATE_STATUS];
+export type EstimateStatus =
+  (typeof ESTIMATE_STATUS)[keyof typeof ESTIMATE_STATUS];
 
 // 상태별 한글 라벨
 export const ESTIMATE_STATUS_LABELS: Record<EstimateStatus, string> = {
@@ -29,24 +30,27 @@ export const ESTIMATE_STATUS_LABELS: Record<EstimateStatus, string> = {
 // 상태 전이 규칙 (현재 상태 → 가능한 다음 상태들)
 // 수정 요청: sent 상태에서 revisionRequested=true로 처리
 // 결제: Payment.status로 관리
-export const ESTIMATE_STATUS_TRANSITIONS: Record<EstimateStatus, EstimateStatus[]> = {
+export const ESTIMATE_STATUS_TRANSITIONS: Record<
+  EstimateStatus,
+  EstimateStatus[]
+> = {
   draft: ['pending'],
   pending: ['sent'],
-  sent: ['approved', 'cancelled'],        // 수정요청은 sent 유지 + flag
-  approved: ['completed', 'cancelled'],   // 결제는 Payment로
+  sent: ['approved', 'cancelled'], // 수정요청은 sent 유지 + flag
+  approved: ['completed', 'cancelled'], // 결제는 Payment로
   completed: [],
   cancelled: [],
 };
 
 // 취소 사유 타입
 export const CANCEL_REASONS = {
-  DECLINED: 'declined',           // 고객 거절
+  DECLINED: 'declined', // 고객 거절
   CUSTOMER_REQUEST: 'customer_request', // 고객 요청
-  NO_RESPONSE: 'no_response',     // 무응답
-  OTHER: 'other',                 // 기타
+  NO_RESPONSE: 'no_response', // 무응답
+  OTHER: 'other', // 기타
 } as const;
 
-export type CancelReason = typeof CANCEL_REASONS[keyof typeof CANCEL_REASONS];
+export type CancelReason = (typeof CANCEL_REASONS)[keyof typeof CANCEL_REASONS];
 
 export class EstimateItemDto {
   @ApiProperty({ description: '아이템 ID' })

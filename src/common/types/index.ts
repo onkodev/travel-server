@@ -100,7 +100,11 @@ export interface ReviewData {
 /**
  * 아이템 타입 (place, accommodation, transportation, contents)
  */
-export type EstimateItemType = 'place' | 'accommodation' | 'transportation' | 'contents';
+export type EstimateItemType =
+  | 'place'
+  | 'accommodation'
+  | 'transportation'
+  | 'contents';
 
 /**
  * 아이템 정보 (견적 아이템에 포함되는 상세 정보)
@@ -166,11 +170,13 @@ export function isDbEstimateItem(item: EstimateItem): boolean {
  * 아이템 표시 이름 가져오기 (itemName > itemInfo.nameEng > name > nameEng)
  */
 export function getEstimateItemDisplayName(item: EstimateItem): string {
-  return item.itemName
-    || item.itemInfo?.nameEng
-    || item.name
-    || item.nameEng
-    || 'Unknown Item';
+  return (
+    item.itemName ||
+    item.itemInfo?.nameEng ||
+    item.name ||
+    item.nameEng ||
+    'Unknown Item'
+  );
 }
 
 // ============================================================================

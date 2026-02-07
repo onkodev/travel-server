@@ -6,7 +6,12 @@ import {
   calculateSkip,
   createPaginatedResponse,
 } from '../../common/dto/pagination.dto';
-import { GoodsCategory, GoodsStatus, CreateGoodsDto, UpdateGoodsDto } from './dto';
+import {
+  GoodsCategory,
+  GoodsStatus,
+  CreateGoodsDto,
+  UpdateGoodsDto,
+} from './dto';
 
 @Injectable()
 export class GoodsService {
@@ -162,14 +167,17 @@ export class GoodsService {
 
     if (data.name !== undefined) updateData.name = data.name;
     if (data.nameKor !== undefined) updateData.nameKor = data.nameKor;
-    if (data.description !== undefined) updateData.description = data.description;
+    if (data.description !== undefined)
+      updateData.description = data.description;
     if (data.category !== undefined) updateData.category = data.category;
-    if (data.thumbnailUrl !== undefined) updateData.thumbnailUrl = data.thumbnailUrl;
+    if (data.thumbnailUrl !== undefined)
+      updateData.thumbnailUrl = data.thumbnailUrl;
     if (data.imageUrls !== undefined) updateData.imageUrls = data.imageUrls;
     if (data.price !== undefined) updateData.price = data.price;
     if (data.currency !== undefined) updateData.currency = data.currency;
     if (data.stock !== undefined) updateData.stock = data.stock;
-    if (data.options !== undefined) updateData.options = data.options as Prisma.InputJsonValue;
+    if (data.options !== undefined)
+      updateData.options = data.options as Prisma.InputJsonValue;
     if (data.tags !== undefined) updateData.tags = data.tags;
     if (data.status !== undefined) updateData.status = data.status;
     if (data.isFeatured !== undefined) updateData.isFeatured = data.isFeatured;

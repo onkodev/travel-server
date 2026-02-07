@@ -1,5 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsArray, IsIn, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsArray,
+  IsIn,
+  MaxLength,
+} from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto';
 
 export class ItemDto {

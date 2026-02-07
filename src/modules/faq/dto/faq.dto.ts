@@ -22,7 +22,10 @@ import { PaginationQueryDto } from '../../../common/dto';
 // ============================================================================
 
 export class FaqQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional({ description: '상태 필터', enum: ['pending', 'approved', 'rejected'] })
+  @ApiPropertyOptional({
+    description: '상태 필터',
+    enum: ['pending', 'approved', 'rejected'],
+  })
   @IsOptional()
   @IsIn(['pending', 'approved', 'rejected'])
   status?: string;
@@ -227,7 +230,10 @@ export class FaqChatLogQueryDto extends PaginationQueryDto {
   @MaxLength(200)
   search?: string;
 
-  @ApiPropertyOptional({ description: '응답 유형', enum: ['direct', 'rag', 'no_match'] })
+  @ApiPropertyOptional({
+    description: '응답 유형',
+    enum: ['direct', 'rag', 'no_match'],
+  })
   @IsOptional()
   @IsIn(['direct', 'rag', 'no_match'])
   responseTier?: string;

@@ -78,7 +78,12 @@ export class AuthController {
     type: ErrorResponseDto,
   })
   async signUp(@Body() body: SignUpDto) {
-    return this.authService.signUp(body.email, body.password, body.name, body.redirectTo);
+    return this.authService.signUp(
+      body.email,
+      body.password,
+      body.name,
+      body.redirectTo,
+    );
   }
 
   @Post('signout')
@@ -269,7 +274,8 @@ export class AuthController {
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '비밀번호 변경',
-    description: '로그인된 사용자의 비밀번호를 변경합니다. 현재 비밀번호 확인이 필요합니다.',
+    description:
+      '로그인된 사용자의 비밀번호를 변경합니다. 현재 비밀번호 확인이 필요합니다.',
   })
   @ApiResponse({
     status: 200,
@@ -290,7 +296,11 @@ export class AuthController {
     @CurrentUser('id') userId: string,
     @Body() body: UpdatePasswordDto,
   ) {
-    return this.authService.updatePassword(userId, body.currentPassword, body.newPassword);
+    return this.authService.updatePassword(
+      userId,
+      body.currentPassword,
+      body.newPassword,
+    );
   }
 
   @Public()

@@ -307,7 +307,10 @@ export class EstimateController {
     description: '견적 없음',
     type: ErrorResponseDto,
   })
-  async updateAIStatus(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateStatusDto) {
+  async updateAIStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateStatusDto,
+  ) {
     return this.estimateService.updateAIStatus(id, body.status);
   }
 
@@ -318,7 +321,10 @@ export class EstimateController {
   })
   @ApiParam({ name: 'id', description: '견적 ID' })
   @ApiResponse({ status: 200, description: '변경 성공', type: EstimateDto })
-  async togglePinned(@Param('id', ParseIntPipe) id: number, @Body() body: UpdatePinnedDto) {
+  async togglePinned(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdatePinnedDto,
+  ) {
     return this.estimateService.togglePinned(id, body.isPinned);
   }
 
@@ -329,7 +335,10 @@ export class EstimateController {
   })
   @ApiParam({ name: 'id', description: '견적 ID' })
   @ApiResponse({ status: 200, description: '수정 성공', type: EstimateDto })
-  async updateItems(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateItemsDto) {
+  async updateItems(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateItemsDto,
+  ) {
     return this.estimateService.updateItems(id, body.items);
   }
 
@@ -344,11 +353,7 @@ export class EstimateController {
     @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdateAdjustmentDto,
   ) {
-    return this.estimateService.updateAdjustment(
-      id,
-      body.amount,
-      body.reason,
-    );
+    return this.estimateService.updateAdjustment(id, body.amount, body.reason);
   }
 
   @Post(':id/send')

@@ -22,7 +22,10 @@ export class GeminiCoreService {
   /**
    * Gemini API 호출 공통 메서드
    */
-  async callGemini(prompt: string, options?: GeminiCallOptions): Promise<string> {
+  async callGemini(
+    prompt: string,
+    options?: GeminiCallOptions,
+  ): Promise<string> {
     if (!this.apiKey) {
       throw new BadRequestException('Gemini API key is not configured');
     }

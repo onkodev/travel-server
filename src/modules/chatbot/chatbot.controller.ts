@@ -113,7 +113,13 @@ export class ChatbotController {
       }
     }
 
-    return this.chatbotService.startFlow(dto, ipAddress, userAgent, referer, userId);
+    return this.chatbotService.startFlow(
+      dto,
+      ipAddress,
+      userAgent,
+      referer,
+      userId,
+    );
   }
 
   @Get('categories')
@@ -139,7 +145,11 @@ export class ChatbotController {
     description: '로그인한 사용자의 챗봇 세션 목록을 조회합니다.',
   })
   @ApiResponse({ status: 200, description: '조회 성공' })
-  @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 401,
+    description: '인증 필요',
+    type: ErrorResponseDto,
+  })
   async getUserSessions(@RequireUserId() userId: string) {
     return this.chatbotService.getUserSessions(userId);
   }
@@ -192,7 +202,9 @@ export class ChatbotController {
   @ApiQuery({ name: 'days', required: false, description: '조회 기간 (일)' })
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getFunnelAnalysis(@Query('days') days?: string) {
-    return this.chatbotAnalyticsService.getFunnelAnalysis(days ? parseInt(days) : 30);
+    return this.chatbotAnalyticsService.getFunnelAnalysis(
+      days ? parseInt(days) : 30,
+    );
   }
 
   @Get('admin/leads')
@@ -206,7 +218,9 @@ export class ChatbotController {
   @ApiQuery({ name: 'limit', required: false, description: '조회 개수' })
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getLeadScores(@Query('limit') limit?: string) {
-    return this.chatbotAnalyticsService.getLeadScores(limit ? parseInt(limit) : 50);
+    return this.chatbotAnalyticsService.getLeadScores(
+      limit ? parseInt(limit) : 50,
+    );
   }
 
   @Get('admin/countries')
@@ -220,7 +234,9 @@ export class ChatbotController {
   @ApiQuery({ name: 'days', required: false, description: '조회 기간 (일)' })
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getCountryStats(@Query('days') days?: string) {
-    return this.chatbotAnalyticsService.getCountryStats(days ? parseInt(days) : 30);
+    return this.chatbotAnalyticsService.getCountryStats(
+      days ? parseInt(days) : 30,
+    );
   }
 
   @Get('admin/flow/:sessionId')
@@ -229,11 +245,16 @@ export class ChatbotController {
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '플로우 상세 조회 (관리자)',
-    description: '플로우 상세 정보와 방문자의 사이트 브라우징 기록을 조회합니다.',
+    description:
+      '플로우 상세 정보와 방문자의 사이트 브라우징 기록을 조회합니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '조회 성공', type: ChatbotFlowDto })
-  @ApiResponse({ status: 404, description: '플로우 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 404,
+    description: '플로우 없음',
+    type: ErrorResponseDto,
+  })
   async getFlowAdmin(@Param('sessionId') sessionId: string) {
     return this.chatbotService.getFlow(sessionId, true);
   }
@@ -280,13 +301,26 @@ export class ChatbotController {
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '챗봇에서 견적 생성 (관리자)',
-    description: '챗봇 상담 데이터를 기반으로 새 견적을 생성하고 세션에 연결합니다.',
+    description:
+      '챗봇 상담 데이터를 기반으로 새 견적을 생성하고 세션에 연결합니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 201, description: '견적 생성 성공' })
-  @ApiResponse({ status: 400, description: '이미 견적이 연결됨', type: ErrorResponseDto })
-  @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
-  @ApiResponse({ status: 404, description: '플로우 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 400,
+    description: '이미 견적이 연결됨',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: '인증 필요',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '플로우 없음',
+    type: ErrorResponseDto,
+  })
   async createEstimateFromChatbot(
     @Param('sessionId') sessionId: string,
     @Body() body: { title?: string },
@@ -306,7 +340,9 @@ export class ChatbotController {
   @ApiResponse({ status: 200, description: '조회 성공', type: ChatbotFlowDto })
   @ApiResponse({ status: 401, description: '인증 필요' })
   @ApiResponse({ status: 404, description: '플로우 없음' })
-  async getFlowByEstimateId(@Param('estimateId', ParseIntPipe) estimateId: number) {
+  async getFlowByEstimateId(
+    @Param('estimateId', ParseIntPipe) estimateId: number,
+  ) {
     return this.chatbotService.getFlowByEstimateId(estimateId);
   }
 
@@ -318,7 +354,8 @@ export class ChatbotController {
   @Sse()
   @ApiOperation({
     summary: 'SSE 이벤트 구독',
-    description: '세션의 실시간 이벤트(새 메시지, 견적 상태 변경)를 SSE로 구독합니다.',
+    description:
+      '세션의 실시간 이벤트(새 메시지, 견적 상태 변경)를 SSE로 구독합니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: 'SSE 연결 성공' })
@@ -335,10 +372,13 @@ export class ChatbotController {
 
     // Ping every 30 seconds to keep connection alive
     const ping$ = interval(30000).pipe(
-      map(() => ({
-        type: 'ping',
-        data: JSON.stringify({ timestamp: Date.now() }),
-      } as MessageEvent)),
+      map(
+        () =>
+          ({
+            type: 'ping',
+            data: JSON.stringify({ timestamp: Date.now() }),
+          }) as MessageEvent,
+      ),
     );
 
     // Cleanup on disconnect
@@ -347,15 +387,15 @@ export class ChatbotController {
     });
 
     // Merge events and pings, complete when subject completes
-    return merge(
-      subject.asObservable(),
-      ping$,
-    ).pipe(
+    return merge(subject.asObservable(), ping$).pipe(
       takeWhile(() => !subject.closed),
-      map((event) => ({
-        type: event.type,
-        data: event.data,
-      } as MessageEvent)),
+      map(
+        (event) =>
+          ({
+            type: event.type,
+            data: event.data,
+          }) as MessageEvent,
+      ),
     );
   }
 
@@ -364,17 +404,25 @@ export class ChatbotController {
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '누락된 SSE 이벤트 조회',
-    description: '재연결 시 누락된 이벤트를 조회합니다. since 파라미터로 특정 시점 이후 이벤트만 조회 가능.',
+    description:
+      '재연결 시 누락된 이벤트를 조회합니다. since 파라미터로 특정 시점 이후 이벤트만 조회 가능.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiQuery({ name: 'since', required: false, description: '이 타임스탬프 이후의 이벤트만 조회 (밀리초)' })
+  @ApiQuery({
+    name: 'since',
+    required: false,
+    description: '이 타임스탬프 이후의 이벤트만 조회 (밀리초)',
+  })
   @ApiResponse({ status: 200, description: '조회 성공' })
   getMissedEvents(
     @Param('sessionId') sessionId: string,
     @Query('since') since?: string,
   ): { events: import('./chatbot-sse.service').QueuedEvent[] } {
     const sinceTimestamp = since ? parseInt(since, 10) : undefined;
-    const events = this.chatbotSseService.getMissedEvents(sessionId, sinceTimestamp);
+    const events = this.chatbotSseService.getMissedEvents(
+      sessionId,
+      sinceTimestamp,
+    );
     return { events };
   }
 
@@ -389,7 +437,11 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '조회 성공', type: ChatbotFlowDto })
-  @ApiResponse({ status: 404, description: '플로우 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 404,
+    description: '플로우 없음',
+    type: ErrorResponseDto,
+  })
   async getFlow(@Param('sessionId') sessionId: string) {
     return this.chatbotService.getFlow(sessionId);
   }
@@ -422,7 +474,11 @@ export class ChatbotController {
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({ summary: 'Step 1 업데이트', description: '투어 타입 선택' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
+  @ApiResponse({
+    status: 200,
+    description: '업데이트 성공',
+    type: ChatbotFlowDto,
+  })
   async updateStep1(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateStep1Dto,
@@ -433,9 +489,16 @@ export class ChatbotController {
   @Patch(':sessionId/step/2')
   @Public()
   @SkipThrottle({ default: true, strict: true })
-  @ApiOperation({ summary: 'Step 2 업데이트', description: '첫 방문 여부 선택' })
+  @ApiOperation({
+    summary: 'Step 2 업데이트',
+    description: '첫 방문 여부 선택',
+  })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
+  @ApiResponse({
+    status: 200,
+    description: '업데이트 성공',
+    type: ChatbotFlowDto,
+  })
   async updateStep2(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateStep2Dto,
@@ -451,7 +514,11 @@ export class ChatbotController {
     description: '메인 관심사 카테고리 선택',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
+  @ApiResponse({
+    status: 200,
+    description: '업데이트 성공',
+    type: ChatbotFlowDto,
+  })
   async updateStep3Main(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateStep3MainDto,
@@ -467,7 +534,11 @@ export class ChatbotController {
     description: '세부 관심사 선택',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
+  @ApiResponse({
+    status: 200,
+    description: '업데이트 성공',
+    type: ChatbotFlowDto,
+  })
   async updateStep3Sub(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateStep3SubDto,
@@ -480,7 +551,11 @@ export class ChatbotController {
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({ summary: 'Step 4 업데이트', description: '지역 선택' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
+  @ApiResponse({
+    status: 200,
+    description: '업데이트 성공',
+    type: ChatbotFlowDto,
+  })
   async updateStep4(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateStep4Dto,
@@ -491,9 +566,16 @@ export class ChatbotController {
   @Patch(':sessionId/plan')
   @Public()
   @SkipThrottle({ default: true, strict: true })
-  @ApiOperation({ summary: '계획유무 업데이트', description: '여행 계획 유무 및 상세 정보 저장' })
+  @ApiOperation({
+    summary: '계획유무 업데이트',
+    description: '여행 계획 유무 및 상세 정보 저장',
+  })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
+  @ApiResponse({
+    status: 200,
+    description: '업데이트 성공',
+    type: ChatbotFlowDto,
+  })
   async updatePlan(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdatePlanDto,
@@ -506,7 +588,11 @@ export class ChatbotController {
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({ summary: 'Step 5 업데이트', description: '명소 선택' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
+  @ApiResponse({
+    status: 200,
+    description: '업데이트 성공',
+    type: ChatbotFlowDto,
+  })
   async updateStep5(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateStep5Dto,
@@ -520,7 +606,11 @@ export class ChatbotController {
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({ summary: 'Step 6 업데이트', description: '여행 정보 입력' })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
+  @ApiResponse({
+    status: 200,
+    description: '업데이트 성공',
+    type: ChatbotFlowDto,
+  })
   async updateStep6(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateStep6Dto,
@@ -538,8 +628,16 @@ export class ChatbotController {
     description: '연락처 정보 입력 - 로그인이 필요합니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({ status: 200, description: '업데이트 성공', type: ChatbotFlowDto })
-  @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 200,
+    description: '업데이트 성공',
+    type: ChatbotFlowDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: '인증 필요',
+    type: ErrorResponseDto,
+  })
   async updateStep7(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateStep7Dto,
@@ -575,7 +673,11 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 201, description: '견적 생성 성공' })
-  @ApiResponse({ status: 400, description: '설문 미완료', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 400,
+    description: '설문 미완료',
+    type: ErrorResponseDto,
+  })
   async completeFlow(
     @Param('sessionId') sessionId: string,
     @CurrentUser('id') userId?: string,
@@ -593,9 +695,7 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '전문가에게 전달 성공' })
-  async sendToExpert(
-    @Param('sessionId') sessionId: string,
-  ) {
+  async sendToExpert(@Param('sessionId') sessionId: string) {
     return this.chatbotService.sendToExpert(sessionId);
   }
 
@@ -609,8 +709,16 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '응답 처리 성공' })
-  @ApiResponse({ status: 400, description: '견적 없음', type: ErrorResponseDto })
-  @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 400,
+    description: '견적 없음',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: '인증 필요',
+    type: ErrorResponseDto,
+  })
   async respondToEstimate(
     @Param('sessionId') sessionId: string,
     @Body() dto: RespondToEstimateDto,
@@ -634,7 +742,11 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 201, description: '메시지 저장 성공' })
-  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
   async saveMessage(
     @Param('sessionId') sessionId: string,
     @Body() dto: SaveMessageDto,
@@ -651,7 +763,11 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 201, description: '메시지 배치 저장 성공' })
-  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
   async saveMessagesBatch(
     @Param('sessionId') sessionId: string,
     @Body() dto: SaveMessageBatchDto,
@@ -668,7 +784,11 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '조회 성공' })
-  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
   async getMessages(@Param('sessionId') sessionId: string) {
     return this.chatbotService.getMessages(sessionId);
   }
@@ -683,8 +803,16 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '업데이트 성공' })
-  @ApiResponse({ status: 403, description: '권한 없음', type: ErrorResponseDto })
-  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 403,
+    description: '권한 없음',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
   async updateSessionTitle(
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateSessionTitleDto,
@@ -699,11 +827,16 @@ export class ChatbotController {
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '세션을 현재 사용자에게 연결',
-    description: '비로그인 상태에서 생성된 세션을 현재 로그인한 사용자에게 연결합니다.',
+    description:
+      '비로그인 상태에서 생성된 세션을 현재 로그인한 사용자에게 연결합니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '연결 성공' })
-  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
   async linkSessionToUser(
     @Param('sessionId') sessionId: string,
     @RequireUserId() userId: string,
@@ -721,8 +854,16 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '삭제 성공' })
-  @ApiResponse({ status: 403, description: '권한 없음', type: ErrorResponseDto })
-  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 403,
+    description: '권한 없음',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
   async deleteSession(
     @Param('sessionId') sessionId: string,
     @CurrentUser('id') userId: string,
@@ -738,7 +879,8 @@ export class ChatbotController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({
     summary: 'AI 견적 생성 (향상된 버전)',
-    description: '설문 완료 후 AI가 템플릿 기반으로 맞춤 견적을 생성합니다. Gemini AI를 활용하여 최적의 템플릿을 선택하고, 사용자가 선택한 명소를 반영합니다.',
+    description:
+      '설문 완료 후 AI가 템플릿 기반으로 맞춤 견적을 생성합니다. Gemini AI를 활용하여 최적의 템플릿을 선택하고, 사용자가 선택한 명소를 반영합니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({
@@ -746,12 +888,19 @@ export class ChatbotController {
     description: '견적 생성 성공',
     type: GenerateEstimateResponseDto,
   })
-  @ApiResponse({ status: 400, description: '설문 미완료', type: ErrorResponseDto })
-  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
-  async generateAiEstimate(
-    @Param('sessionId') sessionId: string,
-  ) {
-    const result = await this.aiEstimateService.generateFirstEstimate(sessionId);
+  @ApiResponse({
+    status: 400,
+    description: '설문 미완료',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
+  async generateAiEstimate(@Param('sessionId') sessionId: string) {
+    const result =
+      await this.aiEstimateService.generateFirstEstimate(sessionId);
 
     // 생성된 견적의 items 조회
     const estimate = await this.prisma.estimate.findUnique({
@@ -778,14 +927,16 @@ export class ChatbotController {
     }>;
 
     // images 배열에서 URL만 추출하는 헬퍼
-    const extractImageUrls = (images?: Array<{ url: string; type?: string }>): string[] => {
+    const extractImageUrls = (
+      images?: Array<{ url: string; type?: string }>,
+    ): string[] => {
       if (!images || !Array.isArray(images)) return [];
-      return images.map(img => img.url).filter(Boolean);
+      return images.map((img) => img.url).filter(Boolean);
     };
 
     return {
       ...result,
-      items: items.map(item => ({
+      items: items.map((item) => ({
         id: String(item.itemId || `tbd-${item.dayNumber}`),
         type: item.type || 'place',
         itemId: item.itemId || null,
@@ -796,17 +947,19 @@ export class ChatbotController {
         orderIndex: item.orderIndex || 0,
         isTbd: item.isTbd || false,
         note: item.note,
-        itemInfo: item.itemInfo ? {
-          nameKor: item.itemInfo.nameKor,
-          nameEng: item.itemInfo.nameEng,
-          descriptionEng: item.itemInfo.descriptionEng,
-          images: extractImageUrls(item.itemInfo.images),
-          lat: item.itemInfo.lat,
-          lng: item.itemInfo.lng,
-          addressEnglish: item.itemInfo.addressEnglish,
-        } : undefined,
+        itemInfo: item.itemInfo
+          ? {
+              nameKor: item.itemInfo.nameKor,
+              nameEng: item.itemInfo.nameEng,
+              descriptionEng: item.itemInfo.descriptionEng,
+              images: extractImageUrls(item.itemInfo.images),
+              lat: item.itemInfo.lat,
+              lng: item.itemInfo.lng,
+              addressEnglish: item.itemInfo.addressEnglish,
+            }
+          : undefined,
       })),
-      hasTbdDays: items.some(item => item.isTbd),
+      hasTbdDays: items.some((item) => item.isTbd),
     };
   }
 
@@ -816,7 +969,8 @@ export class ChatbotController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: 'AI 견적 수정',
-    description: '기존 AI 견적의 아이템을 교체/추가/삭제합니다. 관심사와 지역을 고려하여 최적의 대체 장소를 AI가 선택합니다.',
+    description:
+      '기존 AI 견적의 아이템을 교체/추가/삭제합니다. 관심사와 지역을 고려하여 최적의 대체 장소를 AI가 선택합니다.',
   })
   @ApiParam({ name: 'estimateId', description: '견적 ID' })
   @ApiResponse({
@@ -824,9 +978,21 @@ export class ChatbotController {
     description: '수정 성공',
     type: ModifyEstimateResponseDto,
   })
-  @ApiResponse({ status: 400, description: '잘못된 요청', type: ErrorResponseDto })
-  @ApiResponse({ status: 401, description: '인증 필요', type: ErrorResponseDto })
-  @ApiResponse({ status: 404, description: '견적 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 400,
+    description: '잘못된 요청',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: '인증 필요',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '견적 없음',
+    type: ErrorResponseDto,
+  })
   async modifyAiEstimate(
     @Param('estimateId') estimateId: string,
     @Body() dto: ModifyEstimateDto,
@@ -847,7 +1013,8 @@ export class ChatbotController {
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @ApiOperation({
     summary: '여행 도우미 대화',
-    description: 'AI 여행 도우미와 대화합니다. 여행 관련 질문에 답변하고, 일정 수정 요청도 처리합니다.',
+    description:
+      'AI 여행 도우미와 대화합니다. 여행 관련 질문에 답변하고, 일정 수정 요청도 처리합니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({
@@ -855,7 +1022,11 @@ export class ChatbotController {
     description: '응답 성공',
     type: TravelChatResponseDto,
   })
-  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
   async travelChat(
     @Param('sessionId') sessionId: string,
     @Body() dto: TravelChatDto,
@@ -869,7 +1040,8 @@ export class ChatbotController {
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @ApiOperation({
     summary: '대화형 일정 수정',
-    description: '사용자의 자연어 메시지를 분석하여 AI가 일정을 수정합니다. Step 7에서 사용됩니다.',
+    description:
+      '사용자의 자연어 메시지를 분석하여 AI가 일정을 수정합니다. Step 7에서 사용됩니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({
@@ -877,13 +1049,24 @@ export class ChatbotController {
     description: '수정 성공',
     type: ModifyItineraryResponseDto,
   })
-  @ApiResponse({ status: 400, description: '견적 없음', type: ErrorResponseDto })
-  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 400,
+    description: '견적 없음',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
   async modifyItineraryConversational(
     @Param('sessionId') sessionId: string,
     @Body() dto: ModifyItineraryMessageDto,
   ) {
-    return this.conversationalEstimateService.modifyItinerary(sessionId, dto.message);
+    return this.conversationalEstimateService.modifyItinerary(
+      sessionId,
+      dto.message,
+    );
   }
 
   @Post(':sessionId/itinerary/regenerate-day/:dayNumber')
@@ -901,13 +1084,24 @@ export class ChatbotController {
     description: '재생성 성공',
     type: RegenerateDayResponseDto,
   })
-  @ApiResponse({ status: 400, description: '잘못된 요청', type: ErrorResponseDto })
-  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 400,
+    description: '잘못된 요청',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
   async regenerateDay(
     @Param('sessionId') sessionId: string,
     @Param('dayNumber', ParseIntPipe) dayNumber: number,
   ) {
-    return this.conversationalEstimateService.regenerateDay(sessionId, dayNumber);
+    return this.conversationalEstimateService.regenerateDay(
+      sessionId,
+      dayNumber,
+    );
   }
 
   @Post(':sessionId/itinerary/finalize')
@@ -923,8 +1117,16 @@ export class ChatbotController {
     description: '전송 성공',
     type: FinalizeItineraryResponseDto,
   })
-  @ApiResponse({ status: 400, description: '견적 없음', type: ErrorResponseDto })
-  @ApiResponse({ status: 404, description: '세션 없음', type: ErrorResponseDto })
+  @ApiResponse({
+    status: 400,
+    description: '견적 없음',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
   async finalizeItinerary(@Param('sessionId') sessionId: string) {
     return this.conversationalEstimateService.finalizeItinerary(sessionId);
   }

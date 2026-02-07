@@ -158,7 +158,10 @@ export class BookingController {
     description: '예약 없음',
     type: ErrorResponseDto,
   })
-  async updateBooking(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateBookingDto) {
+  async updateBooking(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateBookingDto,
+  ) {
     const updateData: Prisma.BookingUpdateInput = { ...body };
     if (body.bookingDate) {
       updateData.bookingDate = new Date(body.bookingDate);

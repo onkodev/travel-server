@@ -11,7 +11,13 @@ import {
 import { PaginationQueryDto } from '../../../common/dto';
 
 // 굿즈 카테고리
-export const GOODS_CATEGORIES = ['apparel', 'accessories', 'drinkware', 'stationery', 'other'] as const;
+export const GOODS_CATEGORIES = [
+  'apparel',
+  'accessories',
+  'drinkware',
+  'stationery',
+  'other',
+] as const;
 export type GoodsCategory = (typeof GOODS_CATEGORIES)[number];
 
 // 굿즈 상태
@@ -159,7 +165,11 @@ export class CreateGoodsDto {
   @IsArray()
   tags?: string[];
 
-  @ApiPropertyOptional({ description: '상태', enum: GOODS_STATUS, default: 'draft' })
+  @ApiPropertyOptional({
+    description: '상태',
+    enum: GOODS_STATUS,
+    default: 'draft',
+  })
   @IsOptional()
   @IsIn(GOODS_STATUS)
   status?: GoodsStatus;

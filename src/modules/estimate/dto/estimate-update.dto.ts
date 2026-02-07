@@ -203,7 +203,10 @@ export class UpdateEstimateDto {
   @IsString()
   currency?: string;
 
-  @ApiPropertyOptional({ description: '표시 옵션 (place, accommodation, transportation, contents, price)' })
+  @ApiPropertyOptional({
+    description:
+      '표시 옵션 (place, accommodation, transportation, contents, price)',
+  })
   @IsOptional()
   @IsObject()
   displayOptions?: Record<string, boolean>;
@@ -213,7 +216,9 @@ export class UpdateEstimateDto {
   @IsString()
   comment?: string;
 
-  @ApiPropertyOptional({ description: '타임라인 (Record<number, string> 형태)' })
+  @ApiPropertyOptional({
+    description: '타임라인 (Record<number, string> 형태)',
+  })
   @IsOptional()
   timeline?: Record<number, string>;
 

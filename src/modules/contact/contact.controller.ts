@@ -67,7 +67,9 @@ export class ContactController {
     description: '잘못된 요청 (유효성 검사 실패)',
     type: ErrorResponseDto,
   })
-  async createContact(@Body() dto: CreateContactDto): Promise<ContactSuccessDto> {
+  async createContact(
+    @Body() dto: CreateContactDto,
+  ): Promise<ContactSuccessDto> {
     await this.contactService.createContact(dto);
     return { success: true };
   }
@@ -95,9 +97,7 @@ export class ContactController {
     description: '권한 없음 (관리자만 접근 가능)',
     type: ErrorResponseDto,
   })
-  async getContacts(
-    @Query() query: ContactQueryDto,
-  ): Promise<ContactListDto> {
+  async getContacts(@Query() query: ContactQueryDto): Promise<ContactListDto> {
     return this.contactService.getContacts(query);
   }
 
@@ -140,7 +140,8 @@ export class ContactController {
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '문의 답변 작성',
-    description: '관리자가 문의에 답변을 작성합니다. 답변 작성 시 이메일이 발송됩니다.',
+    description:
+      '관리자가 문의에 답변을 작성합니다. 답변 작성 시 이메일이 발송됩니다.',
   })
   @ApiParam({
     name: 'id',

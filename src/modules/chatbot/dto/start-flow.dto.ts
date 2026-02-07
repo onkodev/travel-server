@@ -44,12 +44,16 @@ export class StartFlowDto {
   @IsString()
   utmContent?: string;
 
-  @ApiPropertyOptional({ description: 'Visitor session ID (for site-wide tracking)' })
+  @ApiPropertyOptional({
+    description: 'Visitor session ID (for site-wide tracking)',
+  })
   @IsOptional()
   @IsString()
   visitorId?: string;
 
-  @ApiPropertyOptional({ description: 'Session title (e.g., selected tour type label)' })
+  @ApiPropertyOptional({
+    description: 'Session title (e.g., selected tour type label)',
+  })
   @IsOptional()
   @IsString()
   title?: string;

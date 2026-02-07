@@ -11,10 +11,12 @@ export class FileUploadService {
   private bucket: string;
 
   constructor(private configService: ConfigService) {
-    this.region = this.configService.get<string>('AWS_REGION') || 'ap-northeast-2';
+    this.region =
+      this.configService.get<string>('AWS_REGION') || 'ap-northeast-2';
     this.accessKey = this.configService.get<string>('AWS_ACCESS_KEY') || '';
     this.secretKey = this.configService.get<string>('AWS_SECRET_KEY') || '';
-    this.bucket = this.configService.get<string>('AWS_BUCKET_NAME') || 'tumakr-prod';
+    this.bucket =
+      this.configService.get<string>('AWS_BUCKET_NAME') || 'tumakr-prod';
   }
 
   // HMAC SHA256
@@ -29,7 +31,10 @@ export class FileUploadService {
 
   // AWS Signature Key 생성
   private getSignatureKey(dateStamp: string): Buffer {
-    const kDate = this.hmacSha256(Buffer.from('AWS4' + this.secretKey), dateStamp);
+    const kDate = this.hmacSha256(
+      Buffer.from('AWS4' + this.secretKey),
+      dateStamp,
+    );
     const kRegion = this.hmacSha256(kDate, this.region);
     const kService = this.hmacSha256(kRegion, 's3');
     return this.hmacSha256(kService, 'aws4_request');
@@ -49,7 +54,8 @@ export class FileUploadService {
       const ext = file.originalname.split('.').pop() || 'jpg';
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
       const key = `${folder}/${fileName}`;
-      const contentType = file.mimetype || `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+      const contentType =
+        file.mimetype || `image/${ext === 'jpg' ? 'jpeg' : ext}`;
 
       // AWS Signature V4
       const now = new Date();
@@ -69,7 +75,9 @@ export class FileUploadService {
       const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${canonicalRequestHash}`;
 
       const signingKey = this.getSignatureKey(dateStamp);
-      const signature = this.hmacSha256(signingKey, stringToSign).toString('hex');
+      const signature = this.hmacSha256(signingKey, stringToSign).toString(
+        'hex',
+      );
 
       const authHeader = `AWS4-HMAC-SHA256 Credential=${this.accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
@@ -87,7 +95,9 @@ export class FileUploadService {
 
       if (!uploadResponse.ok) {
         const errorText = await uploadResponse.text();
-        this.logger.error(`S3 upload failed: ${uploadResponse.status} ${errorText}`);
+        this.logger.error(
+          `S3 upload failed: ${uploadResponse.status} ${errorText}`,
+        );
         return { success: false, error: 'S3 upload failed' };
       }
 
@@ -116,7 +126,9 @@ export class FileUploadService {
       // 이미지 다운로드
       const response = await fetch(imageUrl);
       if (!response.ok) {
-        this.logger.error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+        this.logger.error(
+          `Failed to fetch image: ${response.status} ${response.statusText}`,
+        );
         return null;
       }
 
@@ -147,7 +159,9 @@ export class FileUploadService {
       const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${canonicalRequestHash}`;
 
       const signingKey = this.getSignatureKey(dateStamp);
-      const signature = this.hmacSha256(signingKey, stringToSign).toString('hex');
+      const signature = this.hmacSha256(signingKey, stringToSign).toString(
+        'hex',
+      );
 
       const authHeader = `AWS4-HMAC-SHA256 Credential=${this.accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
@@ -165,7 +179,9 @@ export class FileUploadService {
 
       if (!uploadResponse.ok) {
         const errorText = await uploadResponse.text();
-        this.logger.error(`Upload failed: ${uploadResponse.status} ${errorText}`);
+        this.logger.error(
+          `Upload failed: ${uploadResponse.status} ${errorText}`,
+        );
         return null;
       }
 

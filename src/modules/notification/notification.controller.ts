@@ -39,7 +39,8 @@ export class NotificationController {
   @Get()
   @ApiOperation({
     summary: '알림 목록 조회',
-    description: '현재 사용자의 알림 목록을 조회합니다. 관리자만 접근 가능합니다.',
+    description:
+      '현재 사용자의 알림 목록을 조회합니다. 관리자만 접근 가능합니다.',
   })
   @ApiResponse({
     status: 200,
@@ -171,7 +172,10 @@ export class NotificationController {
     }
 
     const agentId = 1;
-    await this.notificationService.deleteNotification(agentId, dto.notificationId);
+    await this.notificationService.deleteNotification(
+      agentId,
+      dto.notificationId,
+    );
     return { success: true };
   }
 
@@ -200,7 +204,10 @@ export class NotificationController {
     }
 
     const agentId = 1;
-    await this.notificationService.deleteNotifications(agentId, dto.notificationIds);
+    await this.notificationService.deleteNotifications(
+      agentId,
+      dto.notificationIds,
+    );
     return { success: true };
   }
 }

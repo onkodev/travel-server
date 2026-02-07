@@ -72,7 +72,10 @@ export class ChatbotSseService implements OnModuleDestroy {
   /**
    * 이벤트를 큐에 추가 (연결 끊김 시 메시지 손실 방지)
    */
-  private queueEvent(sessionId: string, event: Omit<QueuedEvent, 'id' | 'timestamp'>): QueuedEvent {
+  private queueEvent(
+    sessionId: string,
+    event: Omit<QueuedEvent, 'id' | 'timestamp'>,
+  ): QueuedEvent {
     const queuedEvent: QueuedEvent = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       timestamp: Date.now(),
@@ -106,7 +109,8 @@ export class ChatbotSseService implements OnModuleDestroy {
     const cutoff = sinceTimestamp || 0;
 
     return queue.filter(
-      (event) => event.timestamp > cutoff && now - event.timestamp < EVENT_QUEUE_TTL_MS,
+      (event) =>
+        event.timestamp > cutoff && now - event.timestamp < EVENT_QUEUE_TTL_MS,
     );
   }
 
@@ -119,7 +123,9 @@ export class ChatbotSseService implements OnModuleDestroy {
 
     this.eventQueues.forEach((queue, sessionId) => {
       const before = queue.length;
-      const filtered = queue.filter((event) => now - event.timestamp < EVENT_QUEUE_TTL_MS);
+      const filtered = queue.filter(
+        (event) => now - event.timestamp < EVENT_QUEUE_TTL_MS,
+      );
 
       if (filtered.length === 0) {
         this.eventQueues.delete(sessionId);
@@ -144,7 +150,9 @@ export class ChatbotSseService implements OnModuleDestroy {
     if (!subject || subject.closed) {
       subject = new Subject<MessageEvent>();
       this.subscribers.set(sessionId, subject);
-      this.logger.log(`SSE subscription created for session: ${sessionId}, totalSubscribers=${this.subscribers.size}`);
+      this.logger.log(
+        `SSE subscription created for session: ${sessionId}, totalSubscribers=${this.subscribers.size}`,
+      );
     } else {
       this.logger.debug(`SSE subscription reused for session: ${sessionId}`);
     }
@@ -160,7 +168,9 @@ export class ChatbotSseService implements OnModuleDestroy {
     if (subject) {
       subject.complete();
       this.subscribers.delete(sessionId);
-      this.logger.log(`SSE subscription removed for session: ${sessionId}, remainingSubscribers=${this.subscribers.size}`);
+      this.logger.log(
+        `SSE subscription removed for session: ${sessionId}, remainingSubscribers=${this.subscribers.size}`,
+      );
     }
   }
 
@@ -187,7 +197,9 @@ export class ChatbotSseService implements OnModuleDestroy {
   @OnEvent(CHATBOT_EVENTS.NEW_MESSAGE)
   handleNewMessage(event: ChatbotNewMessageEvent): void {
     const subscribersList = Array.from(this.subscribers.keys());
-    this.logger.log(`SSE handleNewMessage: session=${event.sessionId}, role=${event.message.role}, totalSubscribers=${this.subscribers.size}, subscribedSessions=[${subscribersList.join(', ')}]`);
+    this.logger.log(
+      `SSE handleNewMessage: session=${event.sessionId}, role=${event.message.role}, totalSubscribers=${this.subscribers.size}, subscribedSessions=[${subscribersList.join(', ')}]`,
+    );
 
     const eventData = JSON.stringify({
       id: event.message.id,
@@ -204,7 +216,9 @@ export class ChatbotSseService implements OnModuleDestroy {
 
     const subject = this.subscribers.get(event.sessionId);
     if (!subject || subject.closed) {
-      this.logger.log(`No active SSE subscriber for session: ${event.sessionId}, event queued: ${queuedEvent.id}`);
+      this.logger.log(
+        `No active SSE subscriber for session: ${event.sessionId}, event queued: ${queuedEvent.id}`,
+      );
       return;
     }
 
@@ -214,7 +228,9 @@ export class ChatbotSseService implements OnModuleDestroy {
         data: eventData,
         id: queuedEvent.id, // 이벤트 ID 포함 (클라이언트 중복 방지용)
       });
-      this.logger.log(`SSE newMessage sent: session=${event.sessionId}, role=${event.message.role}`);
+      this.logger.log(
+        `SSE newMessage sent: session=${event.sessionId}, role=${event.message.role}`,
+      );
     } catch (error) {
       this.logger.error(`Failed to send SSE newMessage: ${error}`);
       // 큐에는 이미 저장되어 있으므로 재연결 시 클라이언트가 가져갈 수 있음
@@ -240,7 +256,9 @@ export class ChatbotSseService implements OnModuleDestroy {
 
     const subject = this.subscribers.get(event.sessionId);
     if (!subject || subject.closed) {
-      this.logger.debug(`No active SSE subscriber for session: ${event.sessionId}, estimate status event queued: ${queuedEvent.id}`);
+      this.logger.debug(
+        `No active SSE subscriber for session: ${event.sessionId}, estimate status event queued: ${queuedEvent.id}`,
+      );
       return;
     }
 
@@ -250,7 +268,9 @@ export class ChatbotSseService implements OnModuleDestroy {
         data: eventData,
         id: queuedEvent.id,
       });
-      this.logger.debug(`SSE estimateStatusChanged sent for session: ${event.sessionId}, status: ${event.status}`);
+      this.logger.debug(
+        `SSE estimateStatusChanged sent for session: ${event.sessionId}, status: ${event.status}`,
+      );
     } catch (error) {
       this.logger.error(`Failed to send SSE estimateStatusChanged: ${error}`);
     }

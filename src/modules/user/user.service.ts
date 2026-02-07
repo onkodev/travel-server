@@ -1,15 +1,9 @@
-import {
-  Injectable,
-  NotFoundException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { SupabaseService } from '../../supabase/supabase.service';
-import {
-  SupabaseError,
-  UserTourData,
-  ReviewData,
-} from '../../common/types';
+import { PrismaService } from '../../prisma/prisma.service';
+import { SupabaseError, UserTourData, ReviewData } from '../../common/types';
 import { handleSupabaseError, sanitizeSearch } from '../../common/utils';
+import { convertDecimalFields } from '../../common/utils/decimal.util';
 import {
   calculateSkip,
   createPaginatedResponse,
@@ -63,10 +57,16 @@ interface SupabaseUserRow {
 export class UserService {
   private readonly logger = new Logger(UserService.name);
 
-  constructor(private supabaseService: SupabaseService) {}
+  constructor(
+    private supabaseService: SupabaseService,
+    private prisma: PrismaService,
+  ) {}
 
   // Supabase 에러를 NestJS 예외로 변환
-  private handleSupabaseError(error: SupabaseError | unknown, context: string): never {
+  private handleSupabaseError(
+    error: SupabaseError | unknown,
+    context: string,
+  ): never {
     handleSupabaseError(this.logger, error, context);
   }
 
@@ -81,9 +81,7 @@ export class UserService {
     // 키워드 검색
     const keyword = sanitizeSearch(params.keyword);
     if (keyword) {
-      query = query.or(
-        `name.ilike.%${keyword}%,email.ilike.%${keyword}%`,
-      );
+      query = query.or(`name.ilike.%${keyword}%,email.ilike.%${keyword}%`);
     }
 
     // 활성 상태 필터
@@ -117,8 +115,14 @@ export class UserService {
     // 병렬 쿼리로 성능 개선
     const [totalResult, activeResult, inactiveResult] = await Promise.all([
       supabase.from('users').select('*', { count: 'exact', head: true }),
-      supabase.from('users').select('*', { count: 'exact', head: true }).eq('is_active', true),
-      supabase.from('users').select('*', { count: 'exact', head: true }).eq('is_active', false),
+      supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true),
+      supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', false),
     ]);
 
     return {
@@ -193,17 +197,161 @@ export class UserService {
     };
   }
 
+  // 사용자의 견적 + 진행중 상담 조회
+  async getMyEstimates(userId: string) {
+    // 1. 사용자의 ChatbotFlow 조회 (견적 유무 무관)
+    const flows = await this.prisma.chatbotFlow.findMany({
+      where: { userId },
+      select: {
+        sessionId: true,
+        estimateId: true,
+        title: true,
+        tourType: true,
+        region: true,
+        travelDate: true,
+        duration: true,
+        adultsCount: true,
+        childrenCount: true,
+        infantsCount: true,
+        isCompleted: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const sessionIds = flows.map((f) => f.sessionId);
+
+    // 2. 연결된 Estimate 조회 (userId 직접 매칭 + chatSessionId 매칭)
+    const estimates = await this.prisma.estimate.findMany({
+      where: {
+        source: 'ai',
+        OR: [
+          { userId },
+          ...(sessionIds.length > 0
+            ? [{ chatSessionId: { in: sessionIds } }]
+            : []),
+        ],
+      },
+      select: {
+        id: true,
+        shareHash: true,
+        title: true,
+        statusAi: true,
+        startDate: true,
+        endDate: true,
+        travelDays: true,
+        adultsCount: true,
+        childrenCount: true,
+        infantsCount: true,
+        totalAmount: true,
+        currency: true,
+        regions: true,
+        tourType: true,
+        chatSessionId: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // 3. 견적이 있는 세션 ID 수집
+    const estimateBySession = new Map(
+      estimates.filter((e) => e.chatSessionId).map((e) => [e.chatSessionId, e]),
+    );
+    const estimateIds = new Set(estimates.map((e) => e.id));
+
+    // 4. 통합 결과 생성
+    const results: Array<{
+      id: number | null;
+      shareHash: string | null;
+      title: string;
+      statusAi: string | null;
+      startDate: string | null;
+      endDate: string | null;
+      travelDays: number;
+      adultsCount: number | null;
+      childrenCount: number | null;
+      infantsCount: number | null;
+      totalAmount: number | null;
+      currency: string | null;
+      regions: string[];
+      tourType: string | null;
+      createdAt: string | null;
+    }> = [];
+
+    // 견적이 있는 것들 추가
+    for (const est of estimates.map(convertDecimalFields)) {
+      results.push({
+        id: est.id,
+        shareHash: est.shareHash,
+        title: est.title,
+        statusAi: est.statusAi,
+        startDate: est.startDate ? new Date(est.startDate).toISOString() : null,
+        endDate: est.endDate ? new Date(est.endDate).toISOString() : null,
+        travelDays: est.travelDays,
+        adultsCount: est.adultsCount,
+        childrenCount: est.childrenCount,
+        infantsCount: est.infantsCount,
+        totalAmount: est.totalAmount as number | null,
+        currency: est.currency,
+        regions: est.regions,
+        tourType: est.tourType,
+        createdAt: est.createdAt ? new Date(est.createdAt).toISOString() : null,
+      });
+    }
+
+    // 견적이 아직 없는 진행중 flow도 추가
+    for (const flow of flows) {
+      if (flow.estimateId && estimateIds.has(flow.estimateId)) continue;
+      if (estimateBySession.has(flow.sessionId)) continue;
+
+      results.push({
+        id: null,
+        shareHash: null,
+        title: flow.title || 'Trip Request',
+        statusAi: 'pending',
+        startDate: flow.travelDate
+          ? new Date(flow.travelDate).toISOString()
+          : null,
+        endDate: null,
+        travelDays: flow.duration || 1,
+        adultsCount: flow.adultsCount,
+        childrenCount: flow.childrenCount,
+        infantsCount: flow.infantsCount,
+        totalAmount: null,
+        currency: null,
+        regions: flow.region ? [flow.region] : [],
+        tourType: flow.tourType,
+        createdAt: flow.createdAt
+          ? new Date(flow.createdAt).toISOString()
+          : null,
+      });
+    }
+
+    // 최신순 정렬
+    results.sort((a, b) => {
+      const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return db - da;
+    });
+
+    return results;
+  }
+
   // 사용자가 구매한 투어 목록 조회
   async getMyTours(userId: string) {
     // user_tours 테이블이 아직 구현되지 않음 - 빈 배열 반환
-    this.logger.log(`getMyTours called for userId: ${userId} - feature not yet implemented`);
+    this.logger.log(
+      `getMyTours called for userId: ${userId} - feature not yet implemented`,
+    );
     return [];
   }
 
   // 사용자 통계 조회 (여행한 도시 수, 리뷰 평균 점수, 선호 테마)
   async getMyStats(userId: string) {
     // user_tours 테이블이 아직 구현되지 않음 - 기본값 반환
-    this.logger.log(`getMyStats called for userId: ${userId} - feature not yet implemented`);
+    this.logger.log(
+      `getMyStats called for userId: ${userId} - feature not yet implemented`,
+    );
     return {
       cityCount: 0,
       averageRating: 0,
