@@ -15,8 +15,10 @@ export class ItineraryTemplateService {
     userId?: string;
     page?: number;
     limit?: number;
+    region?: string;
+    category?: string;
   }) {
-    const { userId, page = 1, limit = 20 } = params;
+    const { userId, page = 1, limit = 20, region, category } = params;
     const skip = calculateSkip(page, limit);
 
     const where: Prisma.ItineraryTemplateWhereInput = {};
@@ -24,6 +26,16 @@ export class ItineraryTemplateService {
     // userId가 null인 템플릿(공개)과 현재 사용자 템플릿 모두 조회
     if (userId) {
       where.OR = [{ userId: null }, { userId: userId }];
+    }
+
+    // 지역 필터
+    if (region) {
+      where.region = region;
+    }
+
+    // 카테고리 필터
+    if (category) {
+      where.category = category;
     }
 
     const [templates, total] = await Promise.all([
@@ -55,12 +67,16 @@ export class ItineraryTemplateService {
   // 템플릿 생성
   async createTemplate(data: {
     name: string;
+    region?: string;
+    category?: string;
     items: Prisma.JsonValue;
     userId?: string;
   }) {
     return this.prisma.itineraryTemplate.create({
       data: {
         name: data.name,
+        region: data.region || null,
+        category: data.category || null,
         items: data.items || [],
         userId: data.userId,
       },
@@ -70,7 +86,7 @@ export class ItineraryTemplateService {
   // 템플릿 업데이트
   async updateTemplate(
     id: number,
-    data: { name?: string; items?: Prisma.JsonValue },
+    data: { name?: string; region?: string; category?: string; items?: Prisma.JsonValue },
   ) {
     const template = await this.prisma.itineraryTemplate.findUnique({
       where: { id },
@@ -80,11 +96,14 @@ export class ItineraryTemplateService {
       throw new NotFoundException('템플릿을 찾을 수 없습니다');
     }
 
+    const { items, ...rest } = data;
     return this.prisma.itineraryTemplate.update({
       where: { id },
       data: {
-        ...data,
-        items: data.items as unknown as Prisma.InputJsonValue | undefined,
+        ...rest,
+        ...(items !== undefined
+          ? { items: items as unknown as Prisma.InputJsonValue }
+          : {}),
       },
     });
   }
@@ -117,6 +136,8 @@ export class ItineraryTemplateService {
     return this.prisma.itineraryTemplate.create({
       data: {
         name: `${template.name} (복사본)`,
+        region: template.region,
+        category: template.category,
         items: template.items as unknown as Prisma.InputJsonValue,
         userId: userId || template.userId,
       },

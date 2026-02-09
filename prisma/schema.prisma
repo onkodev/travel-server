@@ -85,6 +85,8 @@ model Estimate {
   @@index([travelDays], map: "idx_estimates_travel_days")
   @@index([travelerType], map: "idx_estimates_traveler_type")
   @@index([userId], map: "idx_estimates_user_id")
+  @@index([userId, createdAt(sort: Desc)], map: "idx_estimates_user_created")
+  @@index([statusManual, startDate], map: "idx_estimates_status_start")
   @@map("estimates")
 }
 
@@ -238,11 +240,15 @@ model Payment {
 model ItineraryTemplate {
   id        Int      @id @default(autoincrement())
   name      String   @db.VarChar(100)
+  region    String?  @db.VarChar(30)
+  category  String?  @db.VarChar(50)
   items     Json     @default("[]")
   userId    String?  @map("user_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([userId], map: "idx_itinerary_templates_user_id")
+  @@index([region], map: "idx_itinerary_templates_region")
   @@map("itinerary_templates")
 }
 

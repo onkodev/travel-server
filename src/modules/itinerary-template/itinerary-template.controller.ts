@@ -61,6 +61,8 @@ export class ItineraryTemplateController {
       userId: user?.id,
       page: query.page,
       limit: query.limit,
+      region: query.region,
+      category: query.category,
     });
   }
 

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsArray } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto';
 
 export class TemplateDto {
@@ -8,6 +8,12 @@ export class TemplateDto {
 
   @ApiProperty({ description: '템플릿 이름' })
   name: string;
+
+  @ApiPropertyOptional({ description: '지역 (예: seoul, busan, jeju)' })
+  region?: string;
+
+  @ApiPropertyOptional({ description: '카테고리 (자유 입력)' })
+  category?: string;
 
   @ApiPropertyOptional({ description: '사용자 ID' })
   userId?: string;
@@ -22,7 +28,17 @@ export class TemplateDto {
   updatedAt: string;
 }
 
-export class TemplateQueryDto extends PaginationQueryDto {}
+export class TemplateQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ description: '지역 필터' })
+  @IsOptional()
+  @IsString()
+  region?: string;
+
+  @ApiPropertyOptional({ description: '카테고리 필터' })
+  @IsOptional()
+  @IsString()
+  category?: string;
+}
 
 export class CreateTemplateDto {
   @ApiProperty({
@@ -32,9 +48,19 @@ export class CreateTemplateDto {
   @IsString()
   name: string;
 
+  @ApiPropertyOptional({ description: '지역 (예: seoul, busan, jeju)' })
+  @IsOptional()
+  @IsString()
+  region?: string;
+
+  @ApiPropertyOptional({ description: '카테고리 (자유 입력)' })
+  @IsOptional()
+  @IsString()
+  category?: string;
+
   @ApiProperty({ description: '일정 아이템 데이터' })
-  @IsObject()
-  items: object;
+  @IsArray()
+  items: object[];
 }
 
 export class UpdateTemplateDto {
@@ -43,8 +69,18 @@ export class UpdateTemplateDto {
   @IsString()
   name?: string;
 
+  @ApiPropertyOptional({ description: '지역 (예: seoul, busan, jeju)' })
+  @IsOptional()
+  @IsString()
+  region?: string;
+
+  @ApiPropertyOptional({ description: '카테고리 (자유 입력)' })
+  @IsOptional()
+  @IsString()
+  category?: string;
+
   @ApiPropertyOptional({ description: '일정 아이템 데이터' })
   @IsOptional()
-  @IsObject()
-  items?: object;
+  @IsArray()
+  items?: object[];
 }
