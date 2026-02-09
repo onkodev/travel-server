@@ -70,12 +70,18 @@ export class ItemService {
           nameKor: true,
           nameEng: true,
           description: true,
+          descriptionEng: true,
           keyword: true,
           price: true,
           weekdayPrice: true,
           weekendPrice: true,
+          address: true,
+          addressEnglish: true,
+          lat: true,
+          lng: true,
           region: true,
           area: true,
+          categories: true,
           images: true,
           createdAt: true,
           updatedAt: true,
@@ -117,17 +123,22 @@ export class ItemService {
   async createItem(data: Prisma.ItemCreateInput) {
     const item = await this.prisma.item.create({ data });
     this.cache.clear();
-    return item;
+    return convertDecimalFields(item);
   }
 
   // 아이템 업데이트
   async updateItem(id: number, data: Prisma.ItemUpdateInput) {
+    const existing = await this.prisma.item.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('아이템을 찾을 수 없습니다');
+    }
+
     const item = await this.prisma.item.update({
       where: { id },
       data,
     });
     this.cache.clear();
-    return item;
+    return convertDecimalFields(item);
   }
 
   // 아이템 복제
