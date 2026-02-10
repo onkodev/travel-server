@@ -843,7 +843,7 @@ export class EstimateService {
   // 아이템 업데이트
   async updateItems(id: number, items: EstimateItemDto[]) {
     const subtotal = items.reduce(
-      (sum, item) => sum + (item.price * item.quantity || 0),
+      (sum, item) => sum + ((item as any).subtotal || item.price * item.quantity || 0),
       0,
     );
     return this.prisma.estimate.update({
