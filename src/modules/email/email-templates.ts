@@ -3,6 +3,8 @@
  * email.service.ts에서 분리하여 유지보수성 향상
  */
 
+import { escapeHtml } from '../../common/utils/html.util';
+
 // ============================================================================
 // 관리자 알림 (새 문의 접수)
 // ============================================================================
@@ -14,7 +16,11 @@ export function adminNotificationTemplate(params: {
   message: string;
   adminUrl: string;
 }): string {
-  const { contactId, name, email, message, adminUrl } = params;
+  const contactId = params.contactId;
+  const name = escapeHtml(params.name);
+  const email = escapeHtml(params.email);
+  const message = escapeHtml(params.message);
+  const adminUrl = params.adminUrl;
 
   return `
 <!DOCTYPE html>
@@ -97,7 +103,8 @@ export function confirmationTemplate(params: {
   customerName: string;
   message: string;
 }): string {
-  const { customerName, message } = params;
+  const customerName = escapeHtml(params.customerName);
+  const message = escapeHtml(params.message);
 
   return `
 <!DOCTYPE html>
@@ -185,7 +192,9 @@ export function replyTemplate(params: {
   originalMessage: string;
   reply: string;
 }): string {
-  const { customerName, originalMessage, reply } = params;
+  const customerName = escapeHtml(params.customerName);
+  const originalMessage = escapeHtml(params.originalMessage);
+  const reply = escapeHtml(params.reply);
 
   return `
 <!DOCTYPE html>
@@ -284,9 +293,9 @@ export function estimateTemplate(params: {
   adultsCount?: number;
   childrenCount?: number;
 }): string {
+  const customerName = escapeHtml(params.customerName);
+  const estimateTitle = escapeHtml(params.estimateTitle);
   const {
-    customerName,
-    estimateTitle,
     estimateUrl,
     totalAmount,
     currency,
@@ -463,14 +472,10 @@ export function modificationRequestTemplate(params: {
   sessionId: string;
   adminUrl: string;
 }): string {
-  const {
-    customerName,
-    customerEmail,
-    estimateId,
-    requestContent,
-    sessionId,
-    adminUrl,
-  } = params;
+  const customerName = escapeHtml(params.customerName);
+  const customerEmail = escapeHtml(params.customerEmail);
+  const requestContent = escapeHtml(params.requestContent);
+  const { estimateId, sessionId, adminUrl } = params;
 
   return `
 <!DOCTYPE html>
@@ -584,7 +589,15 @@ export function chatbotInquiryAdminTemplate(params: {
   sessionId: string;
   adminUrl: string;
 }): string {
-  const p = params;
+  const p = {
+    ...params,
+    customerName: escapeHtml(params.customerName),
+    customerEmail: escapeHtml(params.customerEmail),
+    customerPhone: escapeHtml(params.customerPhone),
+    nationality: escapeHtml(params.nationality),
+    additionalNotes: escapeHtml(params.additionalNotes),
+    planDetails: escapeHtml(params.planDetails),
+  };
 
   // 인원 요약
   const groupParts: string[] = [];

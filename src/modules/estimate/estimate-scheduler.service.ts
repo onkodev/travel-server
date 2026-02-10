@@ -21,35 +21,37 @@ export class EstimateSchedulerService {
     today.setHours(0, 0, 0, 0);
 
     try {
-      // 1. planning → in_progress: 여행 시작일이 오늘이거나 지난 경우
-      const toInProgress = await this.prisma.estimate.updateMany({
-        where: {
-          statusManual: 'planning',
-          startDate: { lte: today },
-          endDate: { gte: today }, // 아직 여행 중
-        },
-        data: {
-          statusManual: 'in_progress',
-        },
-      });
+      // 두 업데이트를 트랜잭션으로 래핑
+      const [toInProgress, toCompleted] = await this.prisma.$transaction([
+        // 1. planning → in_progress: 여행 시작일이 오늘이거나 지난 경우
+        this.prisma.estimate.updateMany({
+          where: {
+            statusManual: 'planning',
+            startDate: { lte: today },
+            endDate: { gte: today }, // 아직 여행 중
+          },
+          data: {
+            statusManual: 'in_progress',
+          },
+        }),
+        // 2. in_progress → completed: 여행 종료일이 지난 경우
+        this.prisma.estimate.updateMany({
+          where: {
+            statusManual: 'in_progress',
+            endDate: { lt: today }, // 여행 종료
+          },
+          data: {
+            statusManual: 'completed',
+            completedAt: new Date(),
+          },
+        }),
+      ]);
 
       if (toInProgress.count > 0) {
         this.logger.log(
           `${toInProgress.count}개 견적이 '진행중' 상태로 변경됨`,
         );
       }
-
-      // 2. in_progress → completed: 여행 종료일이 지난 경우
-      const toCompleted = await this.prisma.estimate.updateMany({
-        where: {
-          statusManual: 'in_progress',
-          endDate: { lt: today }, // 여행 종료
-        },
-        data: {
-          statusManual: 'completed',
-          completedAt: new Date(),
-        },
-      });
 
       if (toCompleted.count > 0) {
         this.logger.log(`${toCompleted.count}개 견적이 '완료' 상태로 변경됨`);

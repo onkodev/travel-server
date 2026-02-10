@@ -199,15 +199,19 @@ export class PaymentService {
       if (payment.status !== 'completed') {
         throw new BadRequestException('완료된 결제만 환불할 수 있습니다');
       }
-      if (data.refundedAmount > Number(payment.amount)) {
-        throw new BadRequestException('환불 금액이 결제 금액을 초과할 수 없습니다');
+      if (data.refundedAmount <= 0) {
+        throw new BadRequestException('환불 금액은 0보다 커야 합니다');
+      }
+      const alreadyRefunded = Number(payment.refundedAmount || 0);
+      if (alreadyRefunded + data.refundedAmount > Number(payment.amount)) {
+        throw new BadRequestException('누적 환불 금액이 결제 금액을 초과할 수 없습니다');
       }
 
       return tx.payment.update({
         where: { id },
         data: {
           status: 'refunded',
-          refundedAmount: data.refundedAmount,
+          refundedAmount: alreadyRefunded + data.refundedAmount,
           refundReason: data.refundReason,
           paypalRefundId: data.paypalRefundId,
           refundedAt: new Date(),

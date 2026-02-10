@@ -16,6 +16,7 @@ import { EstimateService } from '../estimate/estimate.service';
 import { ESTIMATE_STATUS } from '../estimate/dto';
 import { GeoIpService } from '../geoip/geoip.service';
 import { AiEstimateService } from './ai-estimate.service';
+import { ChatbotSseService } from './chatbot-sse.service';
 import { ChatbotStepResponseService } from './chatbot-step-response.service';
 import { NotificationService } from '../notification/notification.service';
 import { EmailService } from '../email/email.service';
@@ -67,6 +68,7 @@ export class ChatbotService {
     private estimateService: EstimateService,
     private geoIpService: GeoIpService,
     private aiEstimateService: AiEstimateService,
+    private sseService: ChatbotSseService,
     private stepResponseService: ChatbotStepResponseService,
     private notificationService: NotificationService,
     private emailService: EmailService,
@@ -1507,6 +1509,9 @@ export class ChatbotService {
       );
     }
 
+    // SSE 리소스 정리
+    this.sseService.cleanupSession(sessionId);
+
     // ChatbotMessage는 onDelete: Cascade로 자동 삭제됨
     await this.prisma.chatbotFlow.delete({
       where: { sessionId },
@@ -1520,6 +1525,11 @@ export class ChatbotService {
   async bulkDelete(sessionIds: string[]) {
     if (!sessionIds || sessionIds.length === 0) {
       throw new BadRequestException('삭제할 세션 ID가 없습니다.');
+    }
+
+    // SSE 리소스 정리
+    for (const sid of sessionIds) {
+      this.sseService.cleanupSession(sid);
     }
 
     // ChatbotMessage는 onDelete: Cascade로 자동 삭제됨

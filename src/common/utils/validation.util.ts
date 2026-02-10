@@ -13,5 +13,8 @@ const MAX_SEARCH_LENGTH = 100;
 
 export function sanitizeSearch(search: string | undefined): string | undefined {
   if (!search) return undefined;
-  return search.trim().slice(0, MAX_SEARCH_LENGTH);
+  return search
+    .trim()
+    .slice(0, MAX_SEARCH_LENGTH)
+    .replace(/[\\%_]/g, '\\$&');
 }

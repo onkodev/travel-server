@@ -2,6 +2,11 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { google, gmail_v1 } from 'googleapis';
 
+/** Gmail API 요청 타임아웃 (30초) */
+const API_TIMEOUT_MS = 30_000;
+
+const TIMEOUT_OPTS = { timeout: API_TIMEOUT_MS };
+
 export interface GmailMessage {
   id: string;
   threadId: string;
@@ -64,7 +69,7 @@ export class GmailService {
     if (this.accountEmail) return this.accountEmail;
 
     const gmail = this.ensureInitialized();
-    const profile = await gmail.users.getProfile({ userId: 'me' });
+    const profile = await gmail.users.getProfile({ userId: 'me' }, TIMEOUT_OPTS);
     this.accountEmail = profile.data.emailAddress || 'unknown';
     return this.accountEmail;
   }
@@ -75,10 +80,10 @@ export class GmailService {
    */
   async getInboxThreadCount(): Promise<number> {
     const gmail = this.ensureInitialized();
-    const label = await gmail.users.labels.get({
-      userId: 'me',
-      id: 'INBOX',
-    });
+    const label = await gmail.users.labels.get(
+      { userId: 'me', id: 'INBOX' },
+      TIMEOUT_OPTS,
+    );
     return label.data.threadsTotal || 0;
   }
 
@@ -93,12 +98,10 @@ export class GmailService {
     const gmail = this.ensureInitialized();
     const { maxResults = 50, query, pageToken } = params;
 
-    const listResponse = await gmail.users.threads.list({
-      userId: 'me',
-      maxResults,
-      q: query || 'in:inbox',
-      pageToken,
-    });
+    const listResponse = await gmail.users.threads.list(
+      { userId: 'me', maxResults, q: query || 'in:inbox', pageToken },
+      TIMEOUT_OPTS,
+    );
 
     const threadIds = (listResponse.data.threads || []).filter(
       (t): t is { id: string } => !!t.id,
@@ -130,11 +133,10 @@ export class GmailService {
   async getThread(threadId: string): Promise<GmailThread | null> {
     const gmail = this.ensureInitialized();
 
-    const threadResponse = await gmail.users.threads.get({
-      userId: 'me',
-      id: threadId,
-      format: 'full',
-    });
+    const threadResponse = await gmail.users.threads.get(
+      { userId: 'me', id: threadId, format: 'full' },
+      TIMEOUT_OPTS,
+    );
 
     const gmailMessages = threadResponse.data.messages || [];
     if (gmailMessages.length === 0) return null;

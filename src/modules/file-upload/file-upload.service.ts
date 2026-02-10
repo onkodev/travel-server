@@ -13,10 +13,16 @@ export class FileUploadService {
   constructor(private configService: ConfigService) {
     this.region =
       this.configService.get<string>('AWS_REGION') || 'ap-northeast-2';
-    this.accessKey = this.configService.get<string>('AWS_ACCESS_KEY') || '';
-    this.secretKey = this.configService.get<string>('AWS_SECRET_KEY') || '';
     this.bucket =
       this.configService.get<string>('AWS_BUCKET_NAME') || 'tumakr-prod';
+
+    const accessKey = this.configService.get<string>('AWS_ACCESS_KEY');
+    const secretKey = this.configService.get<string>('AWS_SECRET_KEY');
+    if (!accessKey || !secretKey) {
+      throw new Error('Missing required AWS configuration: AWS_ACCESS_KEY and AWS_SECRET_KEY must be set');
+    }
+    this.accessKey = accessKey;
+    this.secretKey = secretKey;
   }
 
   // HMAC SHA256

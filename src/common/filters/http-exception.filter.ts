@@ -83,7 +83,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         statusCode: HttpStatus.BAD_REQUEST,
         message: '데이터 유효성 검사 실패',
         error: 'Validation Error',
-        details: [exception.message],
+        ...(process.env.NODE_ENV !== 'production' && {
+          details: [exception.message],
+        }),
         timestamp,
         path,
       };

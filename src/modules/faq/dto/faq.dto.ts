@@ -18,6 +18,22 @@ import { Type } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/dto';
 
 // ============================================================================
+// FAQ Categories
+// ============================================================================
+
+export const FAQ_CATEGORIES = [
+  'general',
+  'booking',
+  'tour',
+  'payment',
+  'transportation',
+  'accommodation',
+  'visa',
+  'other',
+] as const;
+export type FaqCategory = (typeof FAQ_CATEGORIES)[number];
+
+// ============================================================================
 // FAQ DTOs
 // ============================================================================
 
@@ -34,6 +50,14 @@ export class FaqQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsIn(['manual', 'gmail'])
   source?: string;
+
+  @ApiPropertyOptional({
+    description: '카테고리 필터 (__none = 미분류)',
+    enum: [...FAQ_CATEGORIES, '__none'],
+  })
+  @IsOptional()
+  @IsIn([...FAQ_CATEGORIES, '__none'])
+  category?: string;
 
   @ApiPropertyOptional({ description: '검색어 (질문/답변)' })
   @IsOptional()
@@ -85,6 +109,11 @@ export class CreateFaqDto {
   @IsArray()
   @IsString({ each: true })
   tags?: string[];
+
+  @ApiPropertyOptional({ description: '카테고리', enum: FAQ_CATEGORIES })
+  @IsOptional()
+  @IsIn([...FAQ_CATEGORIES])
+  category?: string;
 }
 
 export class UpdateFaqDto {
@@ -117,6 +146,11 @@ export class UpdateFaqDto {
   @IsArray()
   @IsString({ each: true })
   tags?: string[];
+
+  @ApiPropertyOptional({ description: '카테고리', enum: FAQ_CATEGORIES })
+  @IsOptional()
+  @IsIn([...FAQ_CATEGORIES])
+  category?: string;
 }
 
 export class ApproveFaqDto {
@@ -161,14 +195,62 @@ export class BulkActionDto {
   @IsNumber({}, { each: true })
   ids: number[];
 
-  @ApiProperty({ description: '액션', enum: ['approve', 'reject', 'delete'] })
-  @IsIn(['approve', 'reject', 'delete'])
-  action: 'approve' | 'reject' | 'delete';
+  @ApiProperty({
+    description: '액션',
+    enum: ['approve', 'reject', 'delete', 'setCategory'],
+  })
+  @IsIn(['approve', 'reject', 'delete', 'setCategory'])
+  action: 'approve' | 'reject' | 'delete' | 'setCategory';
 
   @ApiPropertyOptional({ description: '거절 사유 (reject 시)' })
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @ApiPropertyOptional({
+    description: '카테고리 (setCategory 시)',
+    enum: FAQ_CATEGORIES,
+  })
+  @IsOptional()
+  @IsIn([...FAQ_CATEGORIES])
+  category?: string;
+}
+
+export class ScanDuplicatesDto {
+  @ApiPropertyOptional({ description: '유사도 임계값 (기본 0.85)', default: 0.85 })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0.7)
+  @Max(1.0)
+  threshold?: number;
+
+  @ApiPropertyOptional({ description: '최대 결과 수 (기본 100)', default: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(500)
+  limit?: number;
+}
+
+export class CheckDuplicateDto {
+  @ApiProperty({ description: '중복 체크할 질문' })
+  @IsString()
+  @MaxLength(500)
+  question: string;
+
+  @ApiPropertyOptional({ description: '유사도 임계값 (기본 0.8)', default: 0.8 })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0.5)
+  @Max(1.0)
+  threshold?: number;
+
+  @ApiPropertyOptional({ description: '제외할 FAQ ID (편집 시 자기 자신 제외)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  excludeId?: number;
 }
 
 // ============================================================================

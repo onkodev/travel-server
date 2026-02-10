@@ -594,23 +594,23 @@ export class EstimateService {
 
   // 견적 발송 처리
   async sendEstimate(id: number) {
-    // 견적 전체 조회 (chatSessionId, items 포함)
-    const estimate = await this.prisma.estimate.findUnique({
-      where: { id },
-    });
-
-    if (!estimate) {
-      throw new NotFoundException(`견적 ID ${id}를 찾을 수 없습니다.`);
-    }
-
-    // 상태 업데이트
-    const updatedEstimate = await this.prisma.estimate.update({
-      where: { id },
-      data: {
-        statusAi: ESTIMATE_STATUS.SENT,
-        sentAt: new Date(),
+    // 조회 + 상태 업데이트를 트랜잭션으로 래핑
+    const { estimate, updatedEstimate } = await this.prisma.$transaction(
+      async (tx) => {
+        const est = await tx.estimate.findUnique({ where: { id } });
+        if (!est) {
+          throw new NotFoundException(`견적 ID ${id}를 찾을 수 없습니다.`);
+        }
+        const updated = await tx.estimate.update({
+          where: { id },
+          data: {
+            statusAi: ESTIMATE_STATUS.SENT,
+            sentAt: new Date(),
+          },
+        });
+        return { estimate: est, updatedEstimate: updated };
       },
-    });
+    );
 
     // 고객 이메일이 있으면 이메일 발송
     if (estimate.customerEmail) {
@@ -929,31 +929,37 @@ export class EstimateService {
 
     if (!current || !current.createdAt) return { prevId: null, nextId: null };
 
-    // 이전 (더 최신)
+    const pinned = current.isPinned ?? false;
+
+    // 이전 (더 최신) — 같은 핀 상태에서 더 최신이거나, 핀 고정된 항목(현재가 비핀일 때)
+    const prevConditions = [
+      { isPinned: pinned, createdAt: { gt: current.createdAt }, id: { not: id } },
+    ];
+    if (!pinned) {
+      prevConditions.push({ isPinned: true } as never);
+    }
+
     const prev = await this.prisma.estimate.findFirst({
-      where: {
-        OR: [
-          { isPinned: current.isPinned, createdAt: { gt: current.createdAt } },
-          { isPinned: true },
-        ],
-      },
+      where: { OR: prevConditions },
       orderBy: [{ isPinned: 'desc' }, { createdAt: 'asc' }],
       select: { id: true },
     });
 
-    // 다음 (더 오래됨)
+    // 다음 (더 오래됨) — 같은 핀 상태에서 더 오래되었거나, 비핀 항목(현재가 핀일 때)
+    const nextConditions = [
+      { isPinned: pinned, createdAt: { lt: current.createdAt }, id: { not: id } },
+    ];
+    if (pinned) {
+      nextConditions.push({ isPinned: false } as never);
+    }
+
     const next = await this.prisma.estimate.findFirst({
-      where: {
-        OR: [
-          { isPinned: current.isPinned, createdAt: { lt: current.createdAt } },
-          { isPinned: false },
-        ],
-      },
+      where: { OR: nextConditions },
       orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
       select: { id: true },
     });
 
-    return { prevId: prev?.id || null, nextId: next?.id || null };
+    return { prevId: prev?.id ?? null, nextId: next?.id ?? null };
   }
 
   // 일괄 삭제

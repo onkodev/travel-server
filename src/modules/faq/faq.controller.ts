@@ -36,6 +36,8 @@ import {
   FaqSearchQueryDto,
   FaqChatDto,
   FaqChatLogQueryDto,
+  CheckDuplicateDto,
+  ScanDuplicatesDto,
 } from './dto';
 
 @ApiTags('FAQ')
@@ -60,6 +62,7 @@ export class FaqController {
       status: query.status,
       source: query.source,
       search: query.search,
+      category: query.category,
     });
   }
 
@@ -89,6 +92,28 @@ export class FaqController {
   @ApiParam({ name: 'id', description: 'FAQ ID' })
   async getDirectFaqAnswer(@Param('id', ParseIntPipe) id: number) {
     return this.faqService.getDirectFaqAnswer(id);
+  }
+
+  @Post('scan-duplicates')
+  @ApiOperation({ summary: '기존 FAQ 간 중복 스캔' })
+  async scanDuplicates(@Body() body: ScanDuplicatesDto) {
+    return this.faqService.scanDuplicates(body.threshold);
+  }
+
+  @Post('auto-categorize')
+  @ApiOperation({ summary: 'AI 자동 카테고리 분류 (미분류 FAQ 대상)' })
+  async autoCategorize() {
+    return this.faqService.autoCategorizeFaqs();
+  }
+
+  @Post('check-duplicate')
+  @ApiOperation({ summary: 'FAQ 중복 체크' })
+  async checkDuplicate(@Body() body: CheckDuplicateDto) {
+    return this.faqService.checkDuplicates(
+      body.question,
+      body.threshold,
+      body.excludeId,
+    );
   }
 
   @Get('stats')
@@ -134,6 +159,7 @@ export class FaqController {
       questionKo: body.questionKo,
       answerKo: body.answerKo,
       tags: body.tags,
+      category: body.category,
       source: 'manual',
     });
   }
@@ -151,6 +177,7 @@ export class FaqController {
     if (body.questionKo !== undefined) data.questionKo = body.questionKo;
     if (body.answerKo !== undefined) data.answerKo = body.answerKo;
     if (body.tags !== undefined) data.tags = body.tags;
+    if (body.category !== undefined) data.category = body.category;
     return this.faqService.updateFaq(id, data);
   }
 
@@ -198,6 +225,7 @@ export class FaqController {
       body.action,
       userId,
       body.reason,
+      body.category,
     );
   }
 

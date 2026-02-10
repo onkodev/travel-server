@@ -11,7 +11,7 @@ import {
 // Types
 // ============================================================================
 
-interface MessageEvent {
+export interface MessageEvent {
   data: string;
   type?: string;
   id?: string;
@@ -39,16 +39,20 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5분마다 정리
 @Injectable()
 export class ChatbotSseService implements OnModuleDestroy {
   private readonly logger = new Logger(ChatbotSseService.name);
-  private readonly subscribers = new Map<string, Subject<MessageEvent>>();
+
+  // 세션당 여러 구독자 지원 (관리자 + 고객 동시 접속 가능)
+  private readonly subscribers = new Map<
+    string,
+    Set<Subject<MessageEvent>>
+  >();
 
   // 이벤트 큐: 연결 끊김 시 메시지 손실 방지
   private readonly eventQueues = new Map<string, QueuedEvent[]>();
 
-  // Cleanup interval to remove stale subscribers (5 minutes)
+  // Cleanup interval
   private cleanupInterval: NodeJS.Timeout;
 
   constructor() {
-    // Periodic cleanup of stale connections and expired events
     this.cleanupInterval = setInterval(() => {
       this.cleanupStaleSubscribers();
       this.cleanupExpiredEvents();
@@ -57,9 +61,8 @@ export class ChatbotSseService implements OnModuleDestroy {
 
   onModuleDestroy() {
     clearInterval(this.cleanupInterval);
-    // Complete all subjects on shutdown
-    this.subscribers.forEach((subject) => {
-      subject.complete();
+    this.subscribers.forEach((subjects) => {
+      subjects.forEach((s) => s.complete());
     });
     this.subscribers.clear();
     this.eventQueues.clear();
@@ -69,9 +72,6 @@ export class ChatbotSseService implements OnModuleDestroy {
   // Event Queue Management
   // ============================================================================
 
-  /**
-   * 이벤트를 큐에 추가 (연결 끊김 시 메시지 손실 방지)
-   */
   private queueEvent(
     sessionId: string,
     event: Omit<QueuedEvent, 'id' | 'timestamp'>,
@@ -90,7 +90,6 @@ export class ChatbotSseService implements OnModuleDestroy {
 
     queue.push(queuedEvent);
 
-    // 최대 크기 초과 시 오래된 이벤트 제거
     while (queue.length > EVENT_QUEUE_MAX_SIZE) {
       queue.shift();
     }
@@ -98,9 +97,6 @@ export class ChatbotSseService implements OnModuleDestroy {
     return queuedEvent;
   }
 
-  /**
-   * 특정 시간 이후의 누락된 이벤트 조회 (재연결 시 사용)
-   */
   getMissedEvents(sessionId: string, sinceTimestamp?: number): QueuedEvent[] {
     const queue = this.eventQueues.get(sessionId);
     if (!queue) return [];
@@ -114,9 +110,6 @@ export class ChatbotSseService implements OnModuleDestroy {
     );
   }
 
-  /**
-   * 만료된 이벤트 정리
-   */
   private cleanupExpiredEvents(): void {
     const now = Date.now();
     let totalCleaned = 0;
@@ -137,52 +130,68 @@ export class ChatbotSseService implements OnModuleDestroy {
     });
 
     if (totalCleaned > 0) {
-      this.logger.debug(`Cleaned up ${totalCleaned} expired events from queue`);
+      this.logger.debug(
+        `Cleaned up ${totalCleaned} expired events from queue`,
+      );
     }
   }
 
+  // ============================================================================
+  // Subscriber Management (다중 구독자 지원)
+  // ============================================================================
+
   /**
-   * Get or create a Subject for a session
+   * 세션에 새 구독자 Subject 생성 (각 SSE 연결마다 독립적)
    */
-  getOrCreateSubject(sessionId: string): Subject<MessageEvent> {
-    let subject = this.subscribers.get(sessionId);
+  createSubscriber(sessionId: string): Subject<MessageEvent> {
+    const subject = new Subject<MessageEvent>();
 
-    if (!subject || subject.closed) {
-      subject = new Subject<MessageEvent>();
-      this.subscribers.set(sessionId, subject);
-      this.logger.log(
-        `SSE subscription created for session: ${sessionId}, totalSubscribers=${this.subscribers.size}`,
-      );
-    } else {
-      this.logger.debug(`SSE subscription reused for session: ${sessionId}`);
+    let subs = this.subscribers.get(sessionId);
+    if (!subs) {
+      subs = new Set();
+      this.subscribers.set(sessionId, subs);
     }
+    subs.add(subject);
 
+    this.logger.log(
+      `SSE subscriber added: session=${sessionId}, count=${subs.size}`,
+    );
     return subject;
   }
 
   /**
-   * Remove subscriber when client disconnects
+   * 특정 구독자만 제거 (다른 구독자에 영향 없음)
    */
-  removeSubscriber(sessionId: string): void {
-    const subject = this.subscribers.get(sessionId);
-    if (subject) {
-      subject.complete();
+  removeSubscriber(sessionId: string, subject: Subject<MessageEvent>): void {
+    const subs = this.subscribers.get(sessionId);
+    if (!subs) return;
+
+    subject.complete();
+    subs.delete(subject);
+
+    if (subs.size === 0) {
       this.subscribers.delete(sessionId);
-      this.logger.log(
-        `SSE subscription removed for session: ${sessionId}, remainingSubscribers=${this.subscribers.size}`,
-      );
     }
+
+    this.logger.log(
+      `SSE subscriber removed: session=${sessionId}, remaining=${subs.size}`,
+    );
   }
 
   /**
-   * Cleanup stale subscribers (subjects that have been closed)
+   * Cleanup stale (closed) subscribers
    */
   private cleanupStaleSubscribers(): void {
     let cleaned = 0;
-    this.subscribers.forEach((subject, sessionId) => {
-      if (subject.closed) {
+    this.subscribers.forEach((subs, sessionId) => {
+      subs.forEach((subject) => {
+        if (subject.closed) {
+          subs.delete(subject);
+          cleaned++;
+        }
+      });
+      if (subs.size === 0) {
         this.subscribers.delete(sessionId);
-        cleaned++;
       }
     });
     if (cleaned > 0) {
@@ -190,15 +199,20 @@ export class ChatbotSseService implements OnModuleDestroy {
     }
   }
 
+  // ============================================================================
+  // Event Handlers
+  // ============================================================================
+
   /**
-   * Handle new message event
-   * 이벤트를 큐에 저장 후 SSE로 전송 (연결 끊김 시에도 큐에 보관)
+   * 새 메시지 이벤트 → 모든 구독자에게 브로드캐스트
    */
   @OnEvent(CHATBOT_EVENTS.NEW_MESSAGE)
   handleNewMessage(event: ChatbotNewMessageEvent): void {
-    const subscribersList = Array.from(this.subscribers.keys());
+    const subs = this.subscribers.get(event.sessionId);
+    const subCount = subs?.size ?? 0;
+
     this.logger.log(
-      `SSE handleNewMessage: session=${event.sessionId}, role=${event.message.role}, totalSubscribers=${this.subscribers.size}, subscribedSessions=[${subscribersList.join(', ')}]`,
+      `SSE handleNewMessage: session=${event.sessionId}, role=${event.message.role}, subscribers=${subCount}`,
     );
 
     const eventData = JSON.stringify({
@@ -214,32 +228,36 @@ export class ChatbotSseService implements OnModuleDestroy {
       data: eventData,
     });
 
-    const subject = this.subscribers.get(event.sessionId);
-    if (!subject || subject.closed) {
+    if (!subs || subs.size === 0) {
       this.logger.log(
-        `No active SSE subscriber for session: ${event.sessionId}, event queued: ${queuedEvent.id}`,
+        `No SSE subscribers for session: ${event.sessionId}, event queued: ${queuedEvent.id}`,
       );
       return;
     }
 
-    try {
-      subject.next({
-        type: 'newMessage',
-        data: eventData,
-        id: queuedEvent.id, // 이벤트 ID 포함 (클라이언트 중복 방지용)
-      });
-      this.logger.log(
-        `SSE newMessage sent: session=${event.sessionId}, role=${event.message.role}`,
-      );
-    } catch (error) {
-      this.logger.error(`Failed to send SSE newMessage: ${error}`);
-      // 큐에는 이미 저장되어 있으므로 재연결 시 클라이언트가 가져갈 수 있음
+    // 모든 구독자에게 전송
+    let sentCount = 0;
+    for (const subject of subs) {
+      if (subject.closed) continue;
+      try {
+        subject.next({
+          type: 'newMessage',
+          data: eventData,
+          id: queuedEvent.id,
+        });
+        sentCount++;
+      } catch (error) {
+        this.logger.error(`Failed to send SSE to subscriber: ${error}`);
+      }
     }
+
+    this.logger.log(
+      `SSE newMessage sent: session=${event.sessionId}, role=${event.message.role}, sentTo=${sentCount}/${subCount}`,
+    );
   }
 
   /**
-   * Handle estimate status changed event
-   * 이벤트를 큐에 저장 후 SSE로 전송 (연결 끊김 시에도 큐에 보관)
+   * 견적 상태 변경 이벤트 → 모든 구독자에게 브로드캐스트
    */
   @OnEvent(CHATBOT_EVENTS.ESTIMATE_STATUS_CHANGED)
   handleEstimateStatusChanged(event: ChatbotEstimateStatusEvent): void {
@@ -248,53 +266,75 @@ export class ChatbotSseService implements OnModuleDestroy {
       status: event.status,
     });
 
-    // 이벤트 큐에 저장
     const queuedEvent = this.queueEvent(event.sessionId, {
       type: 'estimateStatusChanged',
       data: eventData,
     });
 
-    const subject = this.subscribers.get(event.sessionId);
-    if (!subject || subject.closed) {
+    const subs = this.subscribers.get(event.sessionId);
+    if (!subs || subs.size === 0) {
       this.logger.debug(
-        `No active SSE subscriber for session: ${event.sessionId}, estimate status event queued: ${queuedEvent.id}`,
+        `No SSE subscribers for session: ${event.sessionId}, estimate event queued: ${queuedEvent.id}`,
       );
       return;
     }
 
-    try {
-      subject.next({
-        type: 'estimateStatusChanged',
-        data: eventData,
-        id: queuedEvent.id,
-      });
-      this.logger.debug(
-        `SSE estimateStatusChanged sent for session: ${event.sessionId}, status: ${event.status}`,
-      );
-    } catch (error) {
-      this.logger.error(`Failed to send SSE estimateStatusChanged: ${error}`);
+    for (const subject of subs) {
+      if (subject.closed) continue;
+      try {
+        subject.next({
+          type: 'estimateStatusChanged',
+          data: eventData,
+          id: queuedEvent.id,
+        });
+      } catch (error) {
+        this.logger.error(
+          `Failed to send SSE estimateStatusChanged: ${error}`,
+        );
+      }
     }
   }
 
   /**
-   * Send a ping to keep connection alive
+   * Send a ping to keep all connections alive for a session
    */
   sendPing(sessionId: string): void {
-    const subject = this.subscribers.get(sessionId);
-    if (!subject || subject.closed) {
-      return;
-    }
+    const subs = this.subscribers.get(sessionId);
+    if (!subs) return;
 
-    subject.next({
+    const pingData: MessageEvent = {
       type: 'ping',
       data: JSON.stringify({ timestamp: Date.now() }),
-    });
+    };
+
+    for (const subject of subs) {
+      if (!subject.closed) {
+        subject.next(pingData);
+      }
+    }
   }
 
   /**
-   * Get active subscriber count (for monitoring)
+   * 세션 삭제 시 관련 구독자 및 이벤트 큐 정리
+   */
+  cleanupSession(sessionId: string): void {
+    const subs = this.subscribers.get(sessionId);
+    if (subs) {
+      subs.forEach((subject) => subject.complete());
+      this.subscribers.delete(sessionId);
+    }
+    this.eventQueues.delete(sessionId);
+    this.logger.debug(`Cleaned up SSE resources for session: ${sessionId}`);
+  }
+
+  /**
+   * Get total active subscriber count (for monitoring)
    */
   getActiveSubscriberCount(): number {
-    return this.subscribers.size;
+    let total = 0;
+    this.subscribers.forEach((subs) => {
+      total += subs.size;
+    });
+    return total;
   }
 }

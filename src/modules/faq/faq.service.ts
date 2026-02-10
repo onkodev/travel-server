@@ -33,14 +33,20 @@ export class FaqService {
     status?: string;
     source?: string;
     search?: string;
+    category?: string;
   }) {
-    const { page = 1, limit = 20, status, source, search } = params;
+    const { page = 1, limit = 20, status, source, search, category } = params;
     const skip = calculateSkip(page, limit);
 
     const where: Prisma.FaqWhereInput = {};
 
     if (status) where.status = status;
     if (source) where.source = source;
+    if (category === '__none') {
+      where.category = null;
+    } else if (category) {
+      where.category = category;
+    }
 
     if (search) {
       where.OR = [
@@ -83,6 +89,7 @@ export class FaqService {
     questionKo?: string;
     answerKo?: string;
     tags?: string[];
+    category?: string;
     source?: string;
     sourceEmailId?: string;
     sourceEmailSubject?: string;
@@ -96,6 +103,7 @@ export class FaqService {
         questionKo: data.questionKo || null,
         answerKo: data.answerKo || null,
         tags: data.tags || [],
+        category: data.category || null,
         source: data.source || 'manual',
         sourceEmailId: data.sourceEmailId,
         sourceEmailSubject: data.sourceEmailSubject,
@@ -224,11 +232,19 @@ export class FaqService {
 
   async bulkAction(
     ids: number[],
-    action: 'approve' | 'reject' | 'delete',
+    action: 'approve' | 'reject' | 'delete' | 'setCategory',
     userId: string,
     reason?: string,
+    category?: string,
   ) {
     const result = await this.prisma.$transaction(async (tx) => {
+      if (action === 'setCategory') {
+        return tx.faq.updateMany({
+          where: { id: { in: ids } },
+          data: { category: category || null },
+        });
+      }
+
       if (action === 'delete') {
         return tx.faq.deleteMany({ where: { id: { in: ids } } });
       }
@@ -275,25 +291,34 @@ export class FaqService {
 
   async getStats() {
     const cacheKey = 'faq:stats';
-    const cached = this.cache.get<{
-      total: number;
-      pending: number;
-      approved: number;
-      rejected: number;
-      fromGmail: number;
-    }>(cacheKey);
+    const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const [total, pending, approved, rejected, fromGmail] = await Promise.all([
-      this.prisma.faq.count(),
-      this.prisma.faq.count({ where: { status: 'pending' } }),
-      this.prisma.faq.count({ where: { status: 'approved' } }),
-      this.prisma.faq.count({ where: { status: 'rejected' } }),
-      this.prisma.faq.count({ where: { source: 'gmail' } }),
-    ]);
+    const [total, pending, approved, rejected, fromGmail, categoryCounts] =
+      await Promise.all([
+        this.prisma.faq.count(),
+        this.prisma.faq.count({ where: { status: 'pending' } }),
+        this.prisma.faq.count({ where: { status: 'approved' } }),
+        this.prisma.faq.count({ where: { status: 'rejected' } }),
+        this.prisma.faq.count({ where: { source: 'gmail' } }),
+        this.prisma.faq.groupBy({
+          by: ['category'],
+          _count: true,
+        }),
+      ]);
 
-    const result = { total, pending, approved, rejected, fromGmail };
-    this.cache.set(cacheKey, result, 60 * 1000); // 1분 캐시
+    const byCategory: Record<string, number> = {};
+    let uncategorized = 0;
+    for (const row of categoryCounts) {
+      if (row.category) {
+        byCategory[row.category] = row._count;
+      } else {
+        uncategorized = row._count;
+      }
+    }
+
+    const result = { total, pending, approved, rejected, fromGmail, byCategory, uncategorized };
+    this.cache.set(cacheKey, result, 60 * 1000);
     return result;
   }
 
@@ -509,6 +534,386 @@ export class FaqService {
       tags: r.tags,
       similarity: Number(r.similarity),
     }));
+  }
+
+  async checkDuplicates(
+    question: string,
+    threshold = 0.8,
+    excludeId?: number,
+  ): Promise<{
+    hasDuplicate: boolean;
+    duplicates: Array<{
+      id: number;
+      question: string;
+      questionKo: string | null;
+      similarity: number;
+      status: string;
+    }>;
+  }> {
+    const embedding = await this.embeddingService.generateEmbedding(question);
+    if (!embedding) {
+      return { hasDuplicate: false, duplicates: [] };
+    }
+
+    const vectorStr = `[${embedding.join(',')}]`;
+
+    const results = await this.prisma.$queryRawUnsafe<
+      Array<{
+        id: number;
+        question: string;
+        question_ko: string | null;
+        status: string;
+        similarity: number;
+      }>
+    >(
+      `SELECT id, question, question_ko, status,
+              1 - (embedding <=> $1::vector) as similarity
+       FROM faqs
+       WHERE status IN ('pending', 'approved')
+         AND embedding IS NOT NULL
+       ORDER BY embedding <=> $1::vector
+       LIMIT 5`,
+      vectorStr,
+    );
+
+    const duplicates = results
+      .filter((r) => Number(r.similarity) >= threshold)
+      .filter((r) => !excludeId || r.id !== excludeId)
+      .map((r) => ({
+        id: r.id,
+        question: r.question,
+        questionKo: r.question_ko,
+        similarity: Number(r.similarity),
+        status: r.status,
+      }));
+
+    return { hasDuplicate: duplicates.length > 0, duplicates };
+  }
+
+  // ============================================================================
+  // Duplicate Scan (기존 FAQ 간 중복 탐색)
+  // ============================================================================
+
+  async scanDuplicates(threshold = 0.92): Promise<{
+    groups: Array<{
+      faqs: Array<{
+        id: number;
+        question: string;
+        questionKo: string | null;
+        status: string;
+        category: string | null;
+      }>;
+      maxSimilarity: number;
+    }>;
+    totalGroups: number;
+  }> {
+    // 유사 페어 탐색 (CROSS JOIN LATERAL)
+    const pairs = await this.prisma.$queryRawUnsafe<
+      Array<{ id1: number; id2: number; similarity: number }>
+    >(
+      `SELECT f1.id as id1, f2.id as id2,
+              1 - (f1.embedding <=> f2.embedding) as similarity
+       FROM faqs f1
+       CROSS JOIN LATERAL (
+         SELECT id, embedding
+         FROM faqs
+         WHERE id > f1.id
+           AND status IN ('pending', 'approved')
+           AND embedding IS NOT NULL
+         ORDER BY embedding <=> f1.embedding
+         LIMIT 5
+       ) f2
+       WHERE f1.status IN ('pending', 'approved')
+         AND f1.embedding IS NOT NULL
+         AND 1 - (f1.embedding <=> f2.embedding) >= $1`,
+      threshold,
+    );
+
+    if (pairs.length === 0) {
+      return { groups: [], totalGroups: 0 };
+    }
+
+    // Union-Find로 그룹 클러스터링
+    const parent = new Map<number, number>();
+    const find = (x: number): number => {
+      if (!parent.has(x)) parent.set(x, x);
+      if (parent.get(x) !== x) parent.set(x, find(parent.get(x)!));
+      return parent.get(x)!;
+    };
+    const union = (a: number, b: number) => {
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) parent.set(ra, rb);
+    };
+
+    const maxSim = new Map<number, number>(); // root → max similarity
+    for (const { id1, id2, similarity } of pairs) {
+      union(id1, id2);
+    }
+
+    // 그룹별 ID 수집 + 최대 유사도
+    const groupMap = new Map<number, Set<number>>();
+    const groupSim = new Map<number, number>();
+    for (const { id1, id2, similarity } of pairs) {
+      const root = find(id1);
+      if (!groupMap.has(root)) groupMap.set(root, new Set());
+      groupMap.get(root)!.add(id1).add(id2);
+      groupSim.set(root, Math.max(groupSim.get(root) || 0, Number(similarity)));
+    }
+
+    // FAQ 상세 정보 일괄 조회
+    const allIds = [...new Set([...groupMap.values()].flatMap((s) => [...s]))];
+    const faqDetails = await this.prisma.faq.findMany({
+      where: { id: { in: allIds } },
+      select: { id: true, question: true, questionKo: true, status: true, category: true },
+    });
+    const faqMap = new Map(faqDetails.map((f) => [f.id, f]));
+
+    // 그룹 조립 (유사도 높은 순 정렬)
+    const groups = [...groupMap.entries()]
+      .map(([root, ids]) => ({
+        faqs: [...ids]
+          .sort((a, b) => a - b)
+          .map((id) => faqMap.get(id))
+          .filter(Boolean) as Array<{
+            id: number;
+            question: string;
+            questionKo: string | null;
+            status: string;
+            category: string | null;
+          }>,
+        maxSimilarity: groupSim.get(root) || 0,
+      }))
+      .filter((g) => g.faqs.length >= 2)
+      .sort((a, b) => b.maxSimilarity - a.maxSimilarity);
+
+    return { groups, totalGroups: groups.length };
+  }
+
+  // ============================================================================
+  // Auto-Categorization (Embedding-based)
+  // ============================================================================
+
+  private static readonly VALID_CATEGORIES = [
+    'general', 'booking', 'tour', 'payment',
+    'transportation', 'accommodation', 'visa', 'other',
+  ];
+
+  async autoCategorizeFaqs(): Promise<{
+    total: number;
+    categorized: number;
+    failed: number;
+    embeddingsGenerated: number;
+  }> {
+    // Step 1: 임베딩 없는 FAQ에 임베딩 backfill
+    const embeddingsGenerated = await this.backfillMissingEmbeddings();
+
+    // Step 2: 카테고리별 centroid 계산
+    const centroids = await this.prisma.$queryRawUnsafe<
+      Array<{ category: string; cnt: number }>
+    >(
+      `SELECT category, COUNT(*)::int as cnt
+       FROM faqs
+       WHERE category IS NOT NULL AND embedding IS NOT NULL
+       GROUP BY category
+       HAVING COUNT(*) >= 2`,
+    );
+
+    if (centroids.length === 0) {
+      this.logger.warn('분류된 seed FAQ가 없어 Gemini fallback 사용');
+      const geminiResult = await this.autoCategorizeFaqsWithGemini();
+      return { ...geminiResult, embeddingsGenerated };
+    }
+
+    this.logger.log(
+      `centroid: ${centroids.map((c) => `${c.category}(${c.cnt}건)`).join(', ')}`,
+    );
+
+    // Step 3: 미분류 FAQ → 가장 가까운 centroid 카테고리 배정 (SQL)
+    const results = await this.prisma.$queryRawUnsafe<
+      Array<{ id: number; best_category: string; similarity: number }>
+    >(
+      `WITH centroids AS (
+        SELECT category, AVG(embedding) as centroid
+        FROM faqs
+        WHERE category IS NOT NULL AND embedding IS NOT NULL
+        GROUP BY category
+        HAVING COUNT(*) >= 2
+      ),
+      ranked AS (
+        SELECT f.id, c.category as best_category,
+               1 - (f.embedding <=> c.centroid) as similarity,
+               ROW_NUMBER() OVER (PARTITION BY f.id ORDER BY f.embedding <=> c.centroid) as rn
+        FROM faqs f
+        CROSS JOIN centroids c
+        WHERE f.category IS NULL AND f.embedding IS NOT NULL
+      )
+      SELECT id, best_category, similarity::float
+      FROM ranked
+      WHERE rn = 1`,
+    );
+
+    if (results.length === 0) {
+      return { total: 0, categorized: 0, failed: 0, embeddingsGenerated };
+    }
+
+    // Step 4: 카테고리별 묶어서 일괄 업데이트
+    const LOW_CONFIDENCE_THRESHOLD = 0.3;
+    const byCategory = new Map<string, number[]>();
+
+    for (const { id, best_category, similarity } of results) {
+      const category = similarity < LOW_CONFIDENCE_THRESHOLD ? 'other' : best_category;
+      const ids = byCategory.get(category) || [];
+      ids.push(id);
+      byCategory.set(category, ids);
+    }
+
+    let categorized = 0;
+    let failed = 0;
+
+    for (const [category, ids] of byCategory) {
+      try {
+        const { count } = await this.prisma.faq.updateMany({
+          where: { id: { in: ids } },
+          data: { category },
+        });
+        categorized += count;
+      } catch {
+        failed += ids.length;
+      }
+    }
+
+    this.cache.clear();
+    this.logger.log(
+      `자동 분류 완료: 임베딩 ${embeddingsGenerated}건 생성, ${results.length}건 중 ${categorized}건 분류`,
+    );
+    return { total: results.length, categorized, failed, embeddingsGenerated };
+  }
+
+  /** 임베딩 없는 모든 FAQ에 임베딩 생성 */
+  private async backfillMissingEmbeddings(): Promise<number> {
+    const BATCH_SIZE = 100;
+    let generated = 0;
+
+    while (true) {
+      const ids = await this.prisma.$queryRawUnsafe<Array<{ id: number }>>(
+        `SELECT id FROM faqs WHERE embedding IS NULL ORDER BY id LIMIT $1`,
+        BATCH_SIZE,
+      );
+
+      if (ids.length === 0) break;
+
+      const faqs = await this.prisma.faq.findMany({
+        where: { id: { in: ids.map((r) => r.id) } },
+        select: { id: true, question: true, answer: true, questionKo: true, answerKo: true },
+      });
+
+      const result = await this.processEmbeddingBatch(faqs);
+      generated += result.success;
+
+      this.logger.log(`임베딩 backfill 진행중: ${generated}건 생성...`);
+    }
+
+    if (generated > 0) {
+      this.logger.log(`임베딩 backfill 완료: ${generated}건`);
+    }
+    return generated;
+  }
+
+  // Gemini fallback (seed FAQ가 없을 때)
+  private async autoCategorizeFaqsWithGemini(): Promise<{
+    total: number;
+    categorized: number;
+    failed: number;
+  }> {
+    const uncategorized = await this.prisma.faq.findMany({
+      where: { category: null },
+      select: { id: true, question: true, answer: true, questionKo: true, answerKo: true },
+      orderBy: { id: 'asc' },
+    });
+
+    if (uncategorized.length === 0) {
+      return { total: 0, categorized: 0, failed: 0 };
+    }
+
+    const BATCH_SIZE = 50;
+    let categorized = 0;
+    let failed = 0;
+
+    for (let i = 0; i < uncategorized.length; i += BATCH_SIZE) {
+      const batch = uncategorized.slice(i, i + BATCH_SIZE);
+      try {
+        const results = await this.classifyBatchCategories(batch);
+
+        for (const { id, category } of results) {
+          try {
+            await this.prisma.faq.update({
+              where: { id },
+              data: { category },
+            });
+            categorized++;
+          } catch {
+            failed++;
+          }
+        }
+      } catch (error) {
+        this.logger.error(`카테고리 배치 분류 실패 (offset ${i}):`, error);
+        failed += batch.length;
+      }
+    }
+
+    this.cache.clear();
+    this.logger.log(
+      `Gemini 자동 분류: ${uncategorized.length}건 중 ${categorized}건 성공, ${failed}건 실패`,
+    );
+    return { total: uncategorized.length, categorized, failed };
+  }
+
+  private async classifyBatchCategories(
+    faqs: Array<{ id: number; question: string; answer: string; questionKo: string | null; answerKo: string | null }>,
+  ): Promise<Array<{ id: number; category: string }>> {
+    const categories = [
+      'general - 일반 문의, 회사/서비스 소개, 운영시간, 연락처',
+      'booking - 예약, 일정, 취소, 인원, 변경, 확정',
+      'tour - 투어 상세, 일정표, 소요시간, 코스, 가이드, 관광지',
+      'payment - 가격, 결제, 환불, 보증금, 할인',
+      'transportation - 공항 픽업, 교통편, 버스, 택시, 지하철, 이동',
+      'accommodation - 호텔, 게스트하우스, 숙소, 체크인/아웃',
+      'visa - 비자, 여권, 입국 요건, 출입국',
+      'other - 위 카테고리에 해당하지 않는 질문',
+    ];
+
+    const faqList = faqs
+      .map((f) => {
+        const q = f.questionKo || f.question;
+        return `id=${f.id} Q: ${q}`;
+      })
+      .join('\n');
+
+    const prompt = `You are classifying FAQs for a Korea travel tour company.
+Classify each FAQ into exactly one category.
+
+Categories:
+${categories.join('\n')}
+
+FAQs:
+${faqList}
+
+Reply ONLY JSON array: [{"id":1,"category":"booking"}]
+Use exact category key. No explanation.`;
+
+    const result = await this.geminiCore.callGemini(prompt, {
+      temperature: 0,
+      maxOutputTokens: 4096,
+    });
+
+    const jsonStr = result.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+    const parsed: Array<{ id: number; category: string }> = JSON.parse(jsonStr);
+
+    const validSet = new Set(FaqService.VALID_CATEGORIES);
+
+    return parsed
+      .filter((r) => validSet.has(r.category))
+      .map((r) => ({ id: r.id, category: r.category }));
   }
 
   // ============================================================================

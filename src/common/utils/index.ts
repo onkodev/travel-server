@@ -7,3 +7,4 @@ export * from './validation.util';
 export * from './chatbot.util';
 export { MemoryCache } from './memory-cache';
 export * from './supabase-error.util';
+export * from './html.util';

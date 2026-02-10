@@ -368,7 +368,8 @@ export class ChatbotController {
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
 
-    const subject = this.chatbotSseService.getOrCreateSubject(sessionId);
+    // 각 연결마다 독립적인 Subject 생성 (다중 구독자 지원)
+    const subject = this.chatbotSseService.createSubscriber(sessionId);
 
     // Ping every 30 seconds to keep connection alive
     const ping$ = interval(30000).pipe(
@@ -381,9 +382,9 @@ export class ChatbotController {
       ),
     );
 
-    // Cleanup on disconnect
+    // Cleanup on disconnect - 이 연결의 Subject만 제거 (다른 구독자에 영향 없음)
     res.on('close', () => {
-      this.chatbotSseService.removeSubscriber(sessionId);
+      this.chatbotSseService.removeSubscriber(sessionId, subject);
     });
 
     // Merge events and pings, complete when subject completes
@@ -394,6 +395,7 @@ export class ChatbotController {
           ({
             type: event.type,
             data: event.data,
+            id: event.id,
           }) as MessageEvent,
       ),
     );

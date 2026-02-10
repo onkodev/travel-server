@@ -46,12 +46,11 @@ export class FileUploadController {
           'image/png',
           'image/gif',
           'image/webp',
-          'image/svg+xml',
         ];
         if (!allowedMimes.includes(file.mimetype)) {
           return cb(
             new BadRequestException(
-              '이미지 파일만 업로드 가능합니다 (JPEG, PNG, GIF, WebP, SVG)',
+              '이미지 파일만 업로드 가능합니다 (JPEG, PNG, GIF, WebP)',
             ),
             false,
           );
@@ -63,7 +62,7 @@ export class FileUploadController {
   @ApiOperation({
     summary: 'S3 파일 업로드',
     description:
-      '이미지 파일을 AWS S3에 업로드합니다. (최대 10MB, JPEG/PNG/GIF/WebP/SVG)',
+      '이미지 파일을 AWS S3에 업로드합니다. (최대 10MB, JPEG/PNG/GIF/WebP)',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({

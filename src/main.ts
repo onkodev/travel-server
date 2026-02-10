@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import compression from 'compression';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters';
 
@@ -9,6 +10,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'], // 에러, 경고, 로그 출력
   });
+
+  // 보안 헤더 (XSS, Clickjacking 등 방어)
+  app.use(helmet());
 
   // Gzip 압축 (응답 크기 60% 이상 감소)
   app.use(compression());

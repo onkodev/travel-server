@@ -16,6 +16,7 @@ export class GeoIpService {
   private readonly logger = new Logger(GeoIpService.name);
   private cache = new Map<string, { data: GeoIpData; timestamp: number }>();
   private readonly CACHE_TTL = 24 * 60 * 60 * 1000; // 24시간
+  private readonly MAX_CACHE_SIZE = 10000;
 
   /**
    * IP 주소로 지리 정보 조회
@@ -63,7 +64,8 @@ export class GeoIpService {
         lon: data.lon,
       };
 
-      // 캐시 저장
+      // 캐시 저장 (크기 제한)
+      this.evictIfNeeded();
       this.cache.set(ip, { data: result, timestamp: Date.now() });
 
       return result;
@@ -120,6 +122,7 @@ export class GeoIpService {
               isp: item.isp || null,
             };
             results.set(item.query, result);
+            this.evictIfNeeded();
             this.cache.set(item.query, { data: result, timestamp: Date.now() });
           }
         }
@@ -137,6 +140,15 @@ export class GeoIpService {
     }
 
     return results;
+  }
+
+  private evictIfNeeded(): void {
+    if (this.cache.size < this.MAX_CACHE_SIZE) return;
+    // 가장 오래된 항목 삭제 (Map은 삽입 순서를 유지)
+    const firstKey = this.cache.keys().next().value;
+    if (firstKey !== undefined) {
+      this.cache.delete(firstKey);
+    }
   }
 
   private isPrivateIp(ip: string): boolean {

@@ -7,63 +7,63 @@ datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
   directUrl  = env("DIRECT_URL")
-  extensions = [pgvector(map: "vector")]
+  extensions = [uuid_ossp(map: "uuid-ossp", schema: "extensions"), vector]
 }
 
 model Estimate {
-  id               Int       @id @default(autoincrement())
-  createdAt        DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  shareHash        String?   @unique @map("share_hash") @db.VarChar(32)
-  source           String    @default("manual") @db.VarChar(20)
-  title            String    @db.VarChar(255)
-  customerName     String?   @map("customer_name") @db.VarChar(100)
-  customerEmail    String?   @map("customer_email") @db.VarChar(255)
-  nationality      String?   @db.VarChar(50)
-  startDate        DateTime? @map("start_date") @db.Date
-  endDate          DateTime? @map("end_date") @db.Date
-  travelDays       Int       @default(1) @map("travel_days")
-  adultsCount      Int?      @default(1) @map("adults_count")
-  childrenCount    Int?      @default(0) @map("children_count")
-  infantsCount     Int?      @default(0) @map("infants_count")
-  totalTravelers   Int?      @default(dbgenerated("((adults_count + children_count) + infants_count)")) @map("total_travelers")
-  tourType         String?   @map("tour_type") @db.VarChar(30)
-  travelerType     String?   @map("traveler_type") @db.VarChar(20)
-  priceRange       String?   @map("price_range") @db.VarChar(20)
-  interests        String[]
-  regions          String[]
-  items            Json      @default("[]")
-  subtotal         Decimal?  @default(0) @db.Decimal(12, 2)
-  manualAdjustment Decimal?  @default(0) @map("manual_adjustment") @db.Decimal(12, 2)
-  adjustmentReason String?   @map("adjustment_reason")
-  totalAmount      Decimal?  @default(0) @map("total_amount") @db.Decimal(12, 2)
-  currency         String?   @default("USD") @db.VarChar(3)
-  displayOptions   Json?     @default("{\"place\": true, \"price\": true, \"contents\": true, \"accommodation\": true, \"transportation\": true}") @map("display_options")
-  comment          String?
-  timeline         Json?
-  requestContent   String?   @map("request_content")
-  revisionHistory  Json?     @default("[]") @map("revision_history")
-  isPinned         Boolean?  @default(false) @map("is_pinned")
-  viewedAt         DateTime? @map("viewed_at") @db.Timestamptz(6)
-  sentAt           DateTime? @map("sent_at") @db.Timestamptz(6)
-  respondedAt      DateTime? @map("responded_at") @db.Timestamptz(6)
-  completedAt      DateTime? @map("completed_at") @db.Timestamptz(6)
-  userId           String?   @map("user_id") @db.Uuid
-  chatSessionId    String?   @map("chat_session_id") @db.Uuid
-  statusManual        String?   @map("status_manual")
-  statusAi            String?   @map("status_ai")
-  keywords            String[]  @default([])
-  groupType           String?   @map("group_type")
-  budgetLevel         String?   @map("budget_level")
-  specialNeeds        String[]  @default([]) @map("special_needs")
-  validDate           DateTime? @map("valid_date") @db.Date
-  revisionRequested   Boolean   @default(false) @map("revision_requested")
-  revisionNote        String?   @map("revision_note")
-  cancelReason        String?   @map("cancel_reason")
-  revisedAt           DateTime? @map("revised_at") @db.Timestamptz(6)
-  customerResponse    String?   @map("customer_response")
-  internalMemo        String?   @map("internal_memo")
-  customerPhone       String?   @map("customer_phone") @db.VarChar(50)
+  id                Int       @id @default(autoincrement())
+  createdAt         DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  shareHash         String?   @unique @map("share_hash") @db.VarChar(32)
+  source            String    @default("manual") @db.VarChar(20)
+  title             String    @db.VarChar(255)
+  customerName      String?   @map("customer_name") @db.VarChar(100)
+  customerEmail     String?   @map("customer_email") @db.VarChar(255)
+  nationality       String?   @db.VarChar(50)
+  startDate         DateTime? @map("start_date") @db.Date
+  endDate           DateTime? @map("end_date") @db.Date
+  travelDays        Int       @default(1) @map("travel_days")
+  adultsCount       Int?      @default(1) @map("adults_count")
+  childrenCount     Int?      @default(0) @map("children_count")
+  infantsCount      Int?      @default(0) @map("infants_count")
+  totalTravelers    Int?      @default(dbgenerated("((adults_count + children_count) + infants_count)")) @map("total_travelers")
+  tourType          String?   @map("tour_type") @db.VarChar(30)
+  travelerType      String?   @map("traveler_type") @db.VarChar(20)
+  priceRange        String?   @map("price_range") @db.VarChar(20)
+  interests         String[]
+  regions           String[]
+  items             Json      @default("[]")
+  subtotal          Decimal?  @default(0) @db.Decimal(12, 2)
+  manualAdjustment  Decimal?  @default(0) @map("manual_adjustment") @db.Decimal(12, 2)
+  adjustmentReason  String?   @map("adjustment_reason")
+  totalAmount       Decimal?  @default(0) @map("total_amount") @db.Decimal(12, 2)
+  currency          String?   @default("USD") @db.VarChar(3)
+  displayOptions    Json?     @default("{\"place\": true, \"price\": true, \"contents\": true, \"accommodation\": true, \"transportation\": true}") @map("display_options")
+  comment           String?
+  timeline          Json?
+  requestContent    String?   @map("request_content")
+  revisionHistory   Json?     @default("[]") @map("revision_history")
+  isPinned          Boolean?  @default(false) @map("is_pinned")
+  viewedAt          DateTime? @map("viewed_at") @db.Timestamptz(6)
+  sentAt            DateTime? @map("sent_at") @db.Timestamptz(6)
+  respondedAt       DateTime? @map("responded_at") @db.Timestamptz(6)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6)
+  userId            String?   @map("user_id") @db.Uuid
+  chatSessionId     String?   @map("chat_session_id") @db.Uuid
+  statusManual      String?   @map("status_manual")
+  statusAi          String?   @map("status_ai")
+  keywords          String[]  @default([])
+  groupType         String?   @map("group_type")
+  budgetLevel       String?   @map("budget_level")
+  specialNeeds      String[]  @default([]) @map("special_needs")
+  validDate         DateTime? @map("valid_date") @db.Date
+  revisedAt         DateTime? @map("revised_at") @db.Timestamptz(6)
+  customerResponse  String?   @map("customer_response")
+  internalMemo      String?   @map("internal_memo")
+  customerPhone     String?   @map("customer_phone") @db.VarChar(50)
+  cancelReason      String?   @map("cancel_reason")
+  revisionNote      String?   @map("revision_note")
+  revisionRequested Boolean   @default(false) @map("revision_requested")
 
   @@index([chatSessionId], map: "idx_estimates_chat_session")
   @@index([createdAt(sort: Desc)], map: "idx_estimates_created_at")
@@ -240,11 +240,11 @@ model Payment {
 model ItineraryTemplate {
   id        Int      @id @default(autoincrement())
   name      String   @db.VarChar(100)
-  region    String?  @db.VarChar(30)
-  category  String?  @db.VarChar(50)
   items     Json     @default("[]")
   userId    String?  @map("user_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  region    String?  @db.VarChar(30)
+  category  String?  @db.VarChar(50)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([userId], map: "idx_itinerary_templates_user_id")
@@ -303,9 +303,6 @@ model ChatbotFlow {
   isCompleted     Boolean          @default(false) @map("is_completed")
   tourType        String?          @map("tour_type")
   isFirstVisit    Boolean?         @map("is_first_visit")
-  hasPlan         Boolean?         @map("has_plan")
-  planDetails     String?          @map("plan_details")
-  isFlexible      Boolean?         @map("is_flexible")
   interestMain    String[]         @default([]) @map("interest_main")
   interestSub     String[]         @default([]) @map("interest_sub")
   region          String?          @default("seoul")
@@ -318,7 +315,6 @@ model ChatbotFlow {
   seniorsCount    Int?             @default(0) @map("seniors_count")
   budgetRange     String?          @map("budget_range")
   needsPickup     Boolean?         @map("needs_pickup")
-  needsGuide      Boolean?         @map("needs_guide")
   userId          String?          @map("user_id") @db.Uuid
   customerName    String?          @map("customer_name")
   customerEmail   String?          @map("customer_email")
@@ -346,11 +342,15 @@ model ChatbotFlow {
   timezone        String?
   visitorId       String?          @map("visitor_id") @db.Uuid
   ageRange        String?          @map("age_range")
-  adminTags       String[]         @default([]) @map("admin_tags")
+  hasPlan         Boolean?         @map("has_plan")
+  isFlexible      Boolean?         @map("is_flexible")
+  planDetails     String?          @map("plan_details")
+  needsGuide      Boolean?         @map("needs_guide")
   adminMemo       String?          @map("admin_memo")
-  infoMismatch    Boolean          @default(false) @map("info_mismatch")
-  guestName       String?          @map("guest_name")
+  adminTags       String[]         @default([]) @map("admin_tags")
   guestEmail      String?          @map("guest_email")
+  guestName       String?          @map("guest_name")
+  infoMismatch    Boolean          @default(false) @map("info_mismatch")
   visitor         VisitorSession?  @relation(fields: [visitorId], references: [id])
   messages        ChatbotMessage[]
 
@@ -442,23 +442,23 @@ model PageView {
 }
 
 model Goods {
-  id           Int       @id @default(autoincrement())
-  name         String    @db.VarChar(255)
-  nameKor      String?   @map("name_kor") @db.VarChar(255)
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(255)
+  nameKor      String?  @map("name_kor") @db.VarChar(255)
   description  String?
-  category     String    @db.VarChar(50)
-  thumbnailUrl String?   @map("thumbnail_url") @db.VarChar(500)
-  imageUrls    String[]  @map("image_urls")
-  price        Decimal   @default(0) @db.Decimal(10, 2)
-  currency     String    @default("USD") @db.VarChar(3)
-  stock        Int       @default(0)
+  category     String   @db.VarChar(50)
+  thumbnailUrl String?  @map("thumbnail_url") @db.VarChar(500)
+  imageUrls    String[] @map("image_urls")
+  price        Decimal  @default(0) @db.Decimal(10, 2)
+  currency     String   @default("USD") @db.VarChar(3)
+  stock        Int      @default(0)
   options      Json?
   tags         String[]
-  status       String    @default("draft") @db.VarChar(20)
-  isFeatured   Boolean   @default(false) @map("is_featured")
-  viewCount    Int       @default(0) @map("view_count")
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  status       String   @default("draft") @db.VarChar(20)
+  isFeatured   Boolean  @default(false) @map("is_featured")
+  viewCount    Int      @default(0) @map("view_count")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([category], map: "idx_goods_category")
   @@index([status], map: "idx_goods_status")
@@ -472,7 +472,7 @@ model Contact {
   name      String    @db.VarChar(100)
   email     String    @db.VarChar(255)
   message   String
-  status    String    @default("pending") @db.VarChar(20) // pending, replied, closed
+  status    String    @default("pending") @db.VarChar(20)
   reply     String?
   repliedAt DateTime? @map("replied_at") @db.Timestamptz(6)
   repliedBy String?   @map("replied_by") @db.Uuid
@@ -484,55 +484,53 @@ model Contact {
   @@map("contacts")
 }
 
-// ============================================================================
-// FAQ System
-// ============================================================================
-
 model Faq {
-  id                  Int          @id @default(autoincrement())
-  question            String
-  answer              String
-  questionKo          String?      @map("question_ko")
-  answerKo            String?      @map("answer_ko")
-  status              String       @default("pending") @db.VarChar(20) // pending, approved, rejected
-  source              String       @default("manual") @db.VarChar(20) // manual, gmail
-  sourceEmailId       String?      @map("source_email_id")
-  sourceEmailSubject  String?      @map("source_email_subject")
-  confidence          Decimal?     @db.Decimal(3, 2) // AI 신뢰도 0.00~1.00
-  sourceContext       Json?        @map("source_context") // { questionSource, answerSource }
-  tags                String[]
-  viewCount           Int          @default(0) @map("view_count")
-  helpfulCount        Int          @default(0) @map("helpful_count")
-  notHelpfulCount     Int          @default(0) @map("not_helpful_count")
-  approvedAt          DateTime?    @map("approved_at") @db.Timestamptz(6)
-  approvedBy          String?      @map("approved_by") @db.Uuid
-  rejectionReason     String?      @map("rejection_reason")
-  embedding           Unsupported("vector(768)")? @map("embedding")
-  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                 Int                    @id @default(autoincrement())
+  question           String
+  answer             String
+  status             String                 @default("pending") @db.VarChar(20)
+  source             String                 @default("manual") @db.VarChar(20)
+  sourceEmailId      String?                @map("source_email_id")
+  sourceEmailSubject String?                @map("source_email_subject")
+  confidence         Decimal?               @db.Decimal(3, 2)
+  tags               String[]
+  viewCount          Int                    @default(0) @map("view_count")
+  helpfulCount       Int                    @default(0) @map("helpful_count")
+  notHelpfulCount    Int                    @default(0) @map("not_helpful_count")
+  approvedAt         DateTime?              @map("approved_at") @db.Timestamptz(6)
+  approvedBy         String?                @map("approved_by") @db.Uuid
+  rejectionReason    String?                @map("rejection_reason")
+  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sourceContext      Json?                  @map("source_context")
+  embedding          Unsupported("vector")? @map("embedding")
+  answerKo           String?                @map("answer_ko")
+  questionKo         String?                @map("question_ko")
+  category           String?                @db.VarChar(30)
 
   @@index([status], map: "idx_faqs_status")
   @@index([source], map: "idx_faqs_source")
   @@index([createdAt(sort: Desc)], map: "idx_faqs_created_at")
   @@index([tags], map: "idx_faqs_tags", type: Gin)
+  @@index([category], map: "idx_faqs_category")
   @@map("faqs")
 }
 
 model FaqChatLog {
-  id              Int       @id @default(autoincrement())
-  message         String
-  answer          String
-  matchedFaqIds          Int[]     @default([]) @map("matched_faq_ids")
-  matchedSimilarities    Float[]   @default([]) @map("matched_similarities")
-  topSimilarity          Decimal?  @map("top_similarity") @db.Decimal(5, 4)
-  noMatch                Boolean   @default(false) @map("no_match")
-  responseTier           String?   @map("response_tier") @db.VarChar(20) // direct, rag, no_match
-  visitorId       String?   @map("visitor_id") @db.Uuid
-  ipAddress       String?   @map("ip_address")
-  country         String?   @db.VarChar(10)
-  countryName     String?   @map("country_name") @db.VarChar(100)
-  city            String?   @db.VarChar(100)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                  Int      @id @default(autoincrement())
+  message             String
+  answer              String
+  matchedFaqIds       Int[]    @default([]) @map("matched_faq_ids")
+  topSimilarity       Decimal? @map("top_similarity") @db.Decimal(5, 4)
+  noMatch             Boolean  @default(false) @map("no_match")
+  visitorId           String?  @map("visitor_id") @db.Uuid
+  ipAddress           String?  @map("ip_address")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  city                String?  @db.VarChar(100)
+  country             String?  @db.VarChar(10)
+  countryName         String?  @map("country_name") @db.VarChar(100)
+  matchedSimilarities Float[]  @default([]) @map("matched_similarities")
+  responseTier        String?  @map("response_tier") @db.VarChar(20)
 
   @@index([createdAt(sort: Desc)], map: "idx_faq_chat_logs_created_at")
   @@index([noMatch], map: "idx_faq_chat_logs_no_match")
@@ -547,14 +545,14 @@ model GmailSyncState {
   lastSyncAt           DateTime? @map("last_sync_at") @db.Timestamptz(6)
   totalProcessed       Int       @default(0) @map("total_processed")
   totalExtracted       Int       @default(0) @map("total_extracted")
-  totalAccountMessages Int       @default(0) @map("total_account_messages")
-  nextPageToken        String?   @map("next_page_token") // Gmail API 페이지네이션 토큰 (이어서 가져오기)
-  fullScanCompleted    Boolean   @default(false) @map("full_scan_completed") // 전체 이메일 스캔 완료 여부
-  syncStatus           String    @default("idle") @map("sync_status") @db.VarChar(20) // idle, syncing, error
-  syncProgress         Json?     @map("sync_progress") // { status, target, fetched, processed, extracted, skipped, startedAt, completedAt? }
+  syncStatus           String    @default("idle") @map("sync_status") @db.VarChar(20)
   lastError            String?   @map("last_error")
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  totalAccountMessages Int       @default(0) @map("total_account_messages")
+  syncProgress         Json?     @map("sync_progress")
+  nextPageToken        String?   @map("next_page_token")
+  fullScanCompleted    Boolean   @default(false) @map("full_scan_completed")
 
   @@map("gmail_sync_states")
 }

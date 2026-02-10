@@ -1,6 +1,5 @@
 import {
   Injectable,
-  InternalServerErrorException,
   Logger,
   OnModuleInit,
 } from '@nestjs/common';
@@ -128,6 +127,33 @@ export class GmailSyncService implements OnModuleInit {
     });
 
     return { totalAccountMessages };
+  }
+
+  /**
+   * 동기화 상태 초기화 (stale pageToken, 에러 상태 등)
+   */
+  async resetSync() {
+    if (this.isSyncRunning) {
+      return { reset: false, message: '동기화 진행 중에는 초기화할 수 없습니다' };
+    }
+
+    const existing = await this.prisma.gmailSyncState.findFirst();
+    if (!existing) {
+      return { reset: false, message: '동기화 상태가 없습니다' };
+    }
+
+    await this.prisma.gmailSyncState.update({
+      where: { id: existing.id },
+      data: {
+        syncStatus: 'idle',
+        syncProgress: Prisma.DbNull,
+        nextPageToken: null,
+        lastError: null,
+      },
+    });
+
+    this.logger.log('동기화 상태 초기화 완료 (pageToken, 에러, 진행률 클리어)');
+    return { reset: true, message: '동기화 상태가 초기화되었습니다' };
   }
 
   // ============================================================================
@@ -262,22 +288,42 @@ export class GmailSyncService implements OnModuleInit {
       while (progress.fetched < targetCount) {
         const batchSize = Math.min(100, targetCount - progress.fetched);
 
-        const { threads, nextPageToken: npt } =
-          await this.gmailService.fetchThreads({
-            maxResults: batchSize,
-            query,
-            pageToken: nextPageToken,
-          });
+        try {
+          const { threads, nextPageToken: npt } =
+            await this.gmailService.fetchThreads({
+              maxResults: batchSize,
+              query,
+              pageToken: nextPageToken,
+            });
 
-        allThreads.push(...threads);
-        progress.fetched += threads.length;
-        nextPageToken = npt;
+          allThreads.push(...threads);
+          progress.fetched += threads.length;
+          nextPageToken = npt;
 
-        await this.updateProgress(accountEmail, progress);
+          await this.updateProgress(accountEmail, progress);
 
-        this.logger.log(`이메일 가져오기: ${progress.fetched}/${targetCount}`);
+          this.logger.log(`이메일 가져오기: ${progress.fetched}/${targetCount}`);
 
-        if (!nextPageToken || threads.length === 0) break;
+          if (!nextPageToken || threads.length === 0) break;
+        } catch (fetchError) {
+          // pageToken이 만료/무효한 경우 → 초기화 후 재시도
+          if (nextPageToken) {
+            this.logger.warn(
+              `pageToken으로 가져오기 실패, pageToken 초기화 후 재시도: ${
+                fetchError instanceof Error ? fetchError.message : fetchError
+              }`,
+            );
+            nextPageToken = undefined;
+            // DB에서도 stale pageToken 제거
+            await this.prisma.gmailSyncState.update({
+              where: { accountEmail },
+              data: { nextPageToken: null },
+            });
+            continue; // 처음부터 다시 시도
+          }
+          // pageToken 없이도 실패하면 에러 전파
+          throw fetchError;
+        }
       }
 
       // target을 실제 가져온 수로 보정
@@ -348,6 +394,7 @@ export class GmailSyncService implements OnModuleInit {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`동기화 실패: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
 
       await this.prisma.gmailSyncState.update({
         where: { accountEmail },
@@ -357,10 +404,6 @@ export class GmailSyncService implements OnModuleInit {
           syncProgress: Prisma.DbNull,
         },
       });
-
-      throw new InternalServerErrorException(
-        'Gmail 동기화 처리 중 오류가 발생했습니다',
-      );
     } finally {
       this.isSyncRunning = false;
     }
@@ -485,42 +528,72 @@ export class GmailSyncService implements OnModuleInit {
       return { extractedCount: 0, skipped: false, failed: true };
     }
 
-    // 추출된 FAQ를 DB에 저장 (status: pending) — 일괄 삽입
+    // 추출된 FAQ를 DB에 저장 (status: pending) — 중복 체크 후 일괄 삽입
+    let nonDuplicateFaqs: ExtractedFaqItem[] = [];
     if (extractedFaqs.length > 0) {
-      await this.prisma.faq.createMany({
-        data: extractedFaqs.map((faq) => ({
-          question: faq.question,
-          answer: faq.answer,
-          questionKo: faq.questionKo || null,
-          answerKo: faq.answerKo || null,
-          tags: faq.tags || [],
-          source: 'gmail',
-          sourceEmailId: thread.id,
-          sourceEmailSubject: thread.subject,
-          confidence: faq.confidence,
-          sourceContext:
-            faq.questionSource || faq.answerSource
-              ? {
-                  questionSource: faq.questionSource || '',
-                  answerSource: faq.answerSource || '',
-                }
-              : undefined,
-          status: 'pending',
-        })),
-      });
+      // 중복 체크: similarity >= 0.9 인 기존 FAQ가 있으면 skip
+      for (const faq of extractedFaqs) {
+        try {
+          const { hasDuplicate } = await this.faqService.checkDuplicates(
+            faq.question,
+            0.9,
+          );
+          if (hasDuplicate) {
+            this.logger.debug(
+              `중복 FAQ 건너뜀: "${faq.question.substring(0, 50)}..."`,
+            );
+            continue;
+          }
+        } catch {
+          // 중복 체크 실패 시 FAQ는 그대로 저장
+        }
+        nonDuplicateFaqs.push(faq);
+      }
+
+      if (nonDuplicateFaqs.length < extractedFaqs.length) {
+        this.logger.log(
+          `중복 제거: ${extractedFaqs.length}건 중 ${extractedFaqs.length - nonDuplicateFaqs.length}건 건너뜀`,
+        );
+      }
+
+      if (nonDuplicateFaqs.length > 0) {
+        await this.prisma.faq.createMany({
+          data: nonDuplicateFaqs.map((faq) => ({
+            question: faq.question,
+            answer: faq.answer,
+            questionKo: faq.questionKo || null,
+            answerKo: faq.answerKo || null,
+            tags: faq.tags || [],
+            category: faq.category || null,
+            source: 'gmail',
+            sourceEmailId: thread.id,
+            sourceEmailSubject: thread.subject,
+            confidence: faq.confidence,
+            sourceContext:
+              faq.questionSource || faq.answerSource
+                ? {
+                    questionSource: faq.questionSource || '',
+                    answerSource: faq.answerSource || '',
+                  }
+                : undefined,
+            status: 'pending',
+          })),
+        });
+      }
     }
 
     // 스레드 처리 완료 표시
+    const savedCount = nonDuplicateFaqs.length;
     await this.prisma.emailThread.update({
       where: { id: emailThread.id },
       data: {
         isProcessed: true,
-        extractedFaqCount: extractedFaqs.length,
+        extractedFaqCount: savedCount,
       },
     });
 
     return {
-      extractedCount: extractedFaqs.length,
+      extractedCount: savedCount,
       skipped: false,
       failed: false,
     };

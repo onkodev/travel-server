@@ -36,6 +36,12 @@ export class GmailController {
     return this.gmailSyncService.refreshMessageCount();
   }
 
+  @Post('reset')
+  @ApiOperation({ summary: '동기화 상태 초기화 (pageToken, 에러 등)' })
+  async resetSync() {
+    return this.gmailSyncService.resetSync();
+  }
+
   @Post('batch')
   @ApiOperation({ summary: 'Gmail 일괄 가져오기 (백그라운드 실행)' })
   async batchSync(@Body() body: BatchSyncDto) {
