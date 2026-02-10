@@ -449,6 +449,14 @@ export class EstimateService {
       displayOptions,
       timeline,
       revisionHistory,
+      totalTravelers: _tt,
+      paidAt: _pa,
+      paidAmount: _pam,
+      revisedAt: _ra,
+      viewedAt: _va,
+      sentAt: _sa,
+      respondedAt: _rsa,
+      completedAt: _ca,
       ...cleanData
     } = data;
 
@@ -494,6 +502,8 @@ export class EstimateService {
       'shareHash', // 읽기 전용
       'totalTravelers',
       'seniorsCount', // DB에 없는 필드
+      'paidAt',
+      'paidAmount', // DB에 없는 필드
       'chatSessionId',
       'userId', // 관계 필드
       'items',
@@ -503,11 +513,26 @@ export class EstimateService {
       'validDate',
       'startDate',
       'endDate', // 날짜 필드 (별도 처리)
+      // DateTime 필드 (문자열 → Date 변환 필요)
+      'revisedAt',
+      'viewedAt',
+      'sentAt',
+      'respondedAt',
+      'completedAt',
     ] as const;
 
     const cleanData = omit(data as Record<string, unknown>, [
       ...EXCLUDE_FIELDS,
     ]);
+
+    // Decimal 필드 NaN/Infinity 방어 (PrismaClientValidationError 방지)
+    const DECIMAL_FIELDS = ['subtotal', 'manualAdjustment', 'totalAmount'] as const;
+    for (const field of DECIMAL_FIELDS) {
+      if (field in cleanData) {
+        const v = Number(cleanData[field]);
+        cleanData[field] = Number.isFinite(v) ? v : 0;
+      }
+    }
 
     const estimate = await this.prisma.estimate.update({
       where: { id },
@@ -522,6 +547,22 @@ export class EstimateService {
         }),
         ...(data.endDate !== undefined && {
           endDate: toDateTime(data.endDate),
+        }),
+        // DateTime 필드 변환 (문자열 → Date)
+        ...(data.revisedAt !== undefined && {
+          revisedAt: toDateTime(data.revisedAt),
+        }),
+        ...(data.viewedAt !== undefined && {
+          viewedAt: toDateTime(data.viewedAt),
+        }),
+        ...(data.sentAt !== undefined && {
+          sentAt: toDateTime(data.sentAt),
+        }),
+        ...(data.respondedAt !== undefined && {
+          respondedAt: toDateTime(data.respondedAt),
+        }),
+        ...(data.completedAt !== undefined && {
+          completedAt: toDateTime(data.completedAt),
         }),
         // JSON 필드
         ...(data.items !== undefined && {

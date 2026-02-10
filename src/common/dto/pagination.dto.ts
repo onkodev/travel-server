@@ -22,14 +22,14 @@ export class PaginationQueryDto {
     description: '페이지당 항목 수',
     example: 20,
     minimum: 1,
-    maximum: 1000,
+    maximum: 100,
     default: 20,
   })
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '페이지당 항목 수는 정수여야 합니다' })
   @Min(1, { message: '페이지당 항목 수는 1 이상이어야 합니다' })
-  @Max(1000, { message: '페이지당 항목 수는 1000 이하여야 합니다' })
+  @Max(100, { message: '페이지당 항목 수는 100 이하여야 합니다' })
   limit?: number = 20;
 }
 
@@ -97,8 +97,20 @@ export function createPaginatedResponse<T>(
 }
 
 /**
+ * 페이지당 최대 항목 수
+ */
+export const MAX_PAGE_LIMIT = 100;
+
+/**
+ * limit 안전 보정 (1~100 범위)
+ */
+export function safeLimit(limit: number): number {
+  return Math.min(Math.max(1, limit), MAX_PAGE_LIMIT);
+}
+
+/**
  * Prisma skip 값 계산 헬퍼
  */
 export function calculateSkip(page: number, limit: number): number {
-  return (page - 1) * limit;
+  return (page - 1) * safeLimit(limit);
 }

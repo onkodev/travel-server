@@ -230,7 +230,7 @@ export class TourService {
       this.handleSupabaseError(error, '투어 생성');
     }
 
-    this.cache.clear();
+    this.invalidateTourCache();
     return toCamelCase(tour);
   }
 
@@ -293,7 +293,7 @@ export class TourService {
       this.handleSupabaseError(error, '투어 수정');
     }
 
-    this.cache.clear();
+    this.invalidateTourCache(id);
     return toCamelCase(tour);
   }
 
@@ -307,8 +307,19 @@ export class TourService {
       this.handleSupabaseError(error, '투어 삭제');
     }
 
-    this.cache.clear();
+    this.invalidateTourCache(id);
     return { success: true };
+  }
+
+  // 선택적 캐시 무효화
+  private invalidateTourCache(tourId?: number) {
+    this.cache.deleteByPrefix('public_tours_');
+    if (tourId) {
+      this.cache.delete(`tour_${tourId}_admin`);
+      this.cache.delete(`tour_${tourId}_auth`);
+    }
+    this.cache.delete('tour_categories');
+    this.cache.delete('tour_tags');
   }
 
   // 카테고리 목록 조회 - admin 프로젝트 전용 (1시간 캐싱)

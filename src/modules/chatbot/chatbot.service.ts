@@ -360,15 +360,19 @@ export class ChatbotService {
 
   // Plan 업데이트 (계획유무 - 클라이언트 Step 3)
   async updatePlan(sessionId: string, dto: UpdatePlanDto) {
-    await this.validateSessionExists(sessionId);
-    return this.prisma.chatbotFlow.update({
-      where: { sessionId },
-      data: {
-        hasPlan: dto.hasPlan,
-        planDetails: dto.planDetails || null,
-        isFlexible: dto.isFlexible,
-        // currentStep은 변경하지 않음 - 클라이언트가 flow 데이터로 step 계산
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const flow = await tx.chatbotFlow.findUnique({ where: { sessionId } });
+      if (!flow) {
+        throw new NotFoundException('세션을 찾을 수 없습니다');
+      }
+      return tx.chatbotFlow.update({
+        where: { sessionId },
+        data: {
+          hasPlan: dto.hasPlan,
+          planDetails: dto.planDetails || null,
+          isFlexible: dto.isFlexible,
+        },
+      });
     });
   }
 
@@ -733,26 +737,29 @@ export class ChatbotService {
       }
     }
 
-    // 관리자 이메일 발송
-    try {
-      const adminEmail =
-        this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL') ||
-        this.configService.get<string>('ADMIN_EMAIL') ||
-        'admin@tumakr.com';
+    // 관리자 + 고객 이메일 병렬 발송
+    const adminEmail =
+      this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL') ||
+      this.configService.get<string>('ADMIN_EMAIL') ||
+      'admin@tumakr.com';
 
-      const travelDateStr = flow.travelDate
-        ? new Date(flow.travelDate).toLocaleDateString('en-US', {
-            month: '2-digit',
-            day: '2-digit',
-            year: 'numeric',
-          })
-        : '';
+    const travelDateStr = flow.travelDate
+      ? new Date(flow.travelDate).toLocaleDateString('en-US', {
+          month: '2-digit',
+          day: '2-digit',
+          year: 'numeric',
+        })
+      : '';
 
-      const labels = this.resolveLabels(flow);
-      const adminUrl =
-        this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
+    const labels = this.resolveLabels(flow);
+    const adminUrl =
+      this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
 
-      await this.emailService.sendEmail({
+    const emailPromises: Promise<void>[] = [];
+
+    // 관리자 이메일
+    emailPromises.push(
+      this.emailService.sendEmail({
         to: adminEmail,
         subject: `[New Inquiry] ${flow.customerName || 'Customer'} - ${flow.tourType || 'Tour'} Request`,
         html: chatbotInquiryAdminTemplate({
@@ -788,38 +795,42 @@ export class ChatbotService {
           sessionId,
           adminUrl,
         }),
-      });
-      notificationResults.adminEmail.sent = true;
-      this.logger.log(`Admin email sent for session: ${sessionId}`);
-    } catch (error) {
-      notificationResults.adminEmail.error = error.message;
-      this.logger.error(`Failed to send admin email: ${error.message}`);
-    }
+      }).then(() => {
+        notificationResults.adminEmail.sent = true;
+        this.logger.log(`Admin email sent for session: ${sessionId}`);
+      }).catch((error) => {
+        notificationResults.adminEmail.error = error.message;
+        this.logger.error(`Failed to send admin email: ${error.message}`);
+      }),
+    );
 
-    // 고객 확인 이메일 발송
+    // 고객 확인 이메일
     if (flow.customerEmail) {
-      try {
-        const surveySummary = this.stepResponseService.buildSurveySummary(
-          flow as Parameters<
-            ChatbotStepResponseService['buildSurveySummary']
-          >[0],
-        );
-        await this.emailService.sendContactConfirmation({
+      const surveySummary = this.stepResponseService.buildSurveySummary(
+        flow as Parameters<
+          ChatbotStepResponseService['buildSurveySummary']
+        >[0],
+      );
+      emailPromises.push(
+        this.emailService.sendContactConfirmation({
           to: flow.customerEmail,
           customerName: flow.customerName || 'Customer',
           message: surveySummary,
-        });
-        notificationResults.customerEmail.sent = true;
-        this.logger.log(
-          `Confirmation email sent to customer: ${flow.customerEmail}`,
-        );
-      } catch (error) {
-        notificationResults.customerEmail.error = error.message;
-        this.logger.error(`Failed to send customer email: ${error.message}`);
-      }
+        }).then(() => {
+          notificationResults.customerEmail.sent = true;
+          this.logger.log(
+            `Confirmation email sent to customer: ${flow.customerEmail}`,
+          );
+        }).catch((error) => {
+          notificationResults.customerEmail.error = error.message;
+          this.logger.error(`Failed to send customer email: ${error.message}`);
+        }),
+      );
     } else {
       notificationResults.customerEmail.skipped = true;
     }
+
+    await Promise.all(emailPromises);
 
     // 견적이 있으면 상태 업데이트
     let estimateStatus: string | null = ESTIMATE_STATUS.PENDING;
@@ -1282,14 +1293,14 @@ export class ChatbotService {
     return { count: createdMessages.length, messages: createdMessages };
   }
 
-  // 메시지 목록 조회
+  // 메시지 목록 조회 (최근 500건)
   async getMessages(sessionId: string) {
-    // 세션 존재만 간단히 확인 (getFlow 호출 제거로 중복 쿼리 방지)
     await this.validateSessionExists(sessionId);
 
     return this.prisma.chatbotMessage.findMany({
       where: { sessionId },
       orderBy: { createdAt: 'asc' },
+      take: 500,
     });
   }
 

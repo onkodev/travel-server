@@ -182,7 +182,7 @@ export class PaymentService {
     });
   }
 
-  // 환불 처리
+  // 환불 처리 (트랜잭션으로 race condition 방지)
   async processRefund(
     id: number,
     data: {
@@ -191,23 +191,28 @@ export class PaymentService {
       paypalRefundId?: string;
     },
   ) {
-    const payment = await this.prisma.payment.findUnique({ where: { id } });
-    if (!payment) {
-      throw new NotFoundException('결제를 찾을 수 없습니다');
-    }
-    if (payment.status !== 'completed') {
-      throw new BadRequestException('완료된 결제만 환불할 수 있습니다');
-    }
+    return this.prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.findUnique({ where: { id } });
+      if (!payment) {
+        throw new NotFoundException('결제를 찾을 수 없습니다');
+      }
+      if (payment.status !== 'completed') {
+        throw new BadRequestException('완료된 결제만 환불할 수 있습니다');
+      }
+      if (data.refundedAmount > Number(payment.amount)) {
+        throw new BadRequestException('환불 금액이 결제 금액을 초과할 수 없습니다');
+      }
 
-    return this.prisma.payment.update({
-      where: { id },
-      data: {
-        status: 'refunded',
-        refundedAmount: data.refundedAmount,
-        refundReason: data.refundReason,
-        paypalRefundId: data.paypalRefundId,
-        refundedAt: new Date(),
-      },
+      return tx.payment.update({
+        where: { id },
+        data: {
+          status: 'refunded',
+          refundedAmount: data.refundedAmount,
+          refundReason: data.refundReason,
+          paypalRefundId: data.paypalRefundId,
+          refundedAt: new Date(),
+        },
+      });
     });
   }
 

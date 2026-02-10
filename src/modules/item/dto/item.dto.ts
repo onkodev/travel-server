@@ -1,10 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsNumber,
   IsOptional,
+  IsInt,
   IsArray,
   IsIn,
+  Min,
+  Max,
   MaxLength,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto';
@@ -54,6 +58,20 @@ export class ItemDto {
 }
 
 export class ItemQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({
+    description: '페이지당 항목 수 (아이템은 최대 500)',
+    example: 20,
+    minimum: 1,
+    maximum: 500,
+    default: 20,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500, { message: '페이지당 항목 수는 500 이하여야 합니다' })
+  override limit?: number = 20;
+
   @ApiPropertyOptional({
     description: '아이템 타입 필터',
     enum: ['place', 'accommodation', 'transportation', 'contents', 'service'],

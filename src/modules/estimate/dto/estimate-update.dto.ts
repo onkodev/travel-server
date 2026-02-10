@@ -262,11 +262,6 @@ export class UpdateEstimateDto {
   @IsString()
   validDate?: string;
 
-  @ApiPropertyOptional({ description: '결제 금액' })
-  @IsOptional()
-  @Type(() => Number)
-  paidAmount?: number;
-
   @ApiPropertyOptional({ description: '고객 응답' })
   @IsOptional()
   @IsString()

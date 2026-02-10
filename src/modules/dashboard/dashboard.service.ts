@@ -418,7 +418,8 @@ export class DashboardService {
       const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const entry = monthMap.get(monthStr);
       if (entry) {
-        entry.revenue += Number(b.totalAmount) || 0;
+        const amt = Number(b.totalAmount);
+        entry.revenue += Number.isFinite(amt) ? amt : 0;
         entry.count += 1;
       }
     });

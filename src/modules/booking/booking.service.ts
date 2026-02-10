@@ -74,8 +74,8 @@ export class BookingService {
 
     if (dateFrom || dateTo) {
       where.bookingDate = {};
-      if (dateFrom) where.bookingDate.gte = dateFrom;
-      if (dateTo) where.bookingDate.lte = dateTo;
+      if (dateFrom) where.bookingDate.gte = new Date(dateFrom);
+      if (dateTo) where.bookingDate.lte = new Date(dateTo);
     }
 
     const [bookings, total] = await Promise.all([

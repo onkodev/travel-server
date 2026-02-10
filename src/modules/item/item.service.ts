@@ -122,23 +122,25 @@ export class ItemService {
   // 아이템 생성
   async createItem(data: Prisma.ItemCreateInput) {
     const item = await this.prisma.item.create({ data });
-    this.cache.clear();
+    this.invalidateItemCache(item.type);
     return convertDecimalFields(item);
   }
 
   // 아이템 업데이트
   async updateItem(id: number, data: Prisma.ItemUpdateInput) {
-    const existing = await this.prisma.item.findUnique({ where: { id } });
-    if (!existing) {
-      throw new NotFoundException('아이템을 찾을 수 없습니다');
+    try {
+      const item = await this.prisma.item.update({
+        where: { id },
+        data,
+      });
+      this.invalidateItemCache(item.type);
+      return convertDecimalFields(item);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        throw new NotFoundException('아이템을 찾을 수 없습니다');
+      }
+      throw error;
     }
-
-    const item = await this.prisma.item.update({
-      where: { id },
-      data,
-    });
-    this.cache.clear();
-    return convertDecimalFields(item);
   }
 
   // 아이템 복제
@@ -176,27 +178,24 @@ export class ItemService {
       },
     });
 
-    this.cache.clear();
+    this.invalidateItemCache(newItem.type);
     return convertDecimalFields(newItem);
   }
 
   // 아이템 삭제
   async deleteItem(id: number) {
-    // 존재 여부 확인
-    const item = await this.prisma.item.findUnique({
-      where: { id },
-    });
-
-    if (!item) {
-      throw new NotFoundException('아이템을 찾을 수 없습니다');
+    try {
+      const item = await this.prisma.item.delete({
+        where: { id },
+      });
+      this.invalidateItemCache(item.type);
+      return { success: true, message: '삭제되었습니다' };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        throw new NotFoundException('아이템을 찾을 수 없습니다');
+      }
+      throw error;
     }
-
-    await this.prisma.item.delete({
-      where: { id },
-    });
-
-    this.cache.clear();
-    return { success: true, message: '삭제되었습니다' };
   }
 
   // 타입별 아이템 조회 (캐싱 적용)
@@ -255,6 +254,15 @@ export class ItemService {
     const result = { data: items.map(convertDecimalFields) };
     this.cache.set(cacheKey, result);
     return result;
+  }
+
+  // 선택적 캐시 무효화: 해당 타입과 지역 캐시만 삭제
+  private invalidateItemCache(type?: string) {
+    if (type) {
+      this.cache.delete(`items_type_${type}`);
+    }
+    // 지역 캐시는 키 패턴으로 삭제
+    this.cache.deleteByPrefix('items_region_');
   }
 
   // interests → DB categories 매핑

@@ -3,6 +3,7 @@ import {
   CanActivate,
   ExecutionContext,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { SupabaseService } from '../../supabase/supabase.service';
@@ -11,6 +12,8 @@ import { toUserRole, AuthenticatedUser } from '../types';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
+  private readonly logger = new Logger(AuthGuard.name);
+
   constructor(
     private supabaseService: SupabaseService,
     private reflector: Reflector,
@@ -59,6 +62,10 @@ export class AuthGuard implements CanActivate {
 
     // 프로필에서 role 정보 가져오기
     const profile = await this.supabaseService.getUserProfile(user.id);
+
+    if (!profile) {
+      this.logger.warn(`프로필 없는 사용자 접근: ${user.id}`);
+    }
 
     // 사용자 정보에 role 포함 (타입 안전)
     request.user = {

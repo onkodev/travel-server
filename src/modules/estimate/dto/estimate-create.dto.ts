@@ -12,7 +12,6 @@ import {
 import {
   EstimateItemExtendedDto,
   DisplayOptionsDto,
-  TimelineEntryDto,
   RevisionHistoryEntryDto,
 } from './estimate-types.dto';
 
@@ -214,10 +213,11 @@ export class CreateEstimateDto {
   @IsString()
   comment?: string;
 
-  @ApiPropertyOptional({ description: '타임라인', type: [TimelineEntryDto] })
+  @ApiPropertyOptional({
+    description: '타임라인 (Record<number, string> 형태)',
+  })
   @IsOptional()
-  @IsArray()
-  timeline?: TimelineEntryDto[];
+  timeline?: Record<number, string>;
 
   @ApiPropertyOptional({ description: '요청 내용' })
   @IsOptional()
@@ -266,6 +266,16 @@ export class CreateEstimateDto {
   @IsOptional()
   @IsNumber()
   paidAmount?: number;
+
+  @ApiPropertyOptional({ description: '고객 응답' })
+  @IsOptional()
+  @IsString()
+  customerResponse?: string;
+
+  @ApiPropertyOptional({ description: '내부 메모' })
+  @IsOptional()
+  @IsString()
+  internalMemo?: string;
 
   @ApiPropertyOptional({ description: '사용자 ID' })
   @IsOptional()
