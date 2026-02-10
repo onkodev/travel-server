@@ -14,6 +14,7 @@ export const NOTIFICATION_TYPES = {
   MODIFICATION_REQUEST: 'modification_request',
   ESTIMATE_SENT: 'estimate_sent',
   CUSTOMER_MESSAGE: 'customer_message',
+  GENERAL_INQUIRY: 'general_inquiry',
 } as const;
 
 export type NotificationType =

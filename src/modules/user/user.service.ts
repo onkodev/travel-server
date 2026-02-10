@@ -197,6 +197,70 @@ export class UserService {
     };
   }
 
+  // 관리자용: 특정 사용자의 견적 목록
+  async getUserEstimates(userId: string) {
+    const estimates = await this.prisma.estimate.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        statusAi: true,
+        totalAmount: true,
+        travelDays: true,
+        startDate: true,
+        customerName: true,
+        customerEmail: true,
+        createdAt: true,
+      },
+    });
+    return estimates.map(convertDecimalFields);
+  }
+
+  // 관리자용: 특정 사용자의 챗봇 상담 목록
+  async getUserChatbotFlows(userId: string) {
+    return this.prisma.chatbotFlow.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        sessionId: true,
+        id: true,
+        currentStep: true,
+        tourType: true,
+        customerName: true,
+        customerEmail: true,
+        region: true,
+        travelDate: true,
+        duration: true,
+        estimateId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  // 관리자용: 특정 사용자의 결제 목록
+  async getUserPayments(userId: string) {
+    const estimates = await this.prisma.estimate.findMany({
+      where: { userId },
+      select: { id: true, title: true },
+    });
+    const estimateMap = new Map(estimates.map((e) => [e.id, e.title]));
+    const estimateIds = estimates.map((e) => e.id);
+
+    if (estimateIds.length === 0) return [];
+
+    const payments = await this.prisma.payment.findMany({
+      where: { estimateId: { in: estimateIds } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return payments.map((p) => ({
+      ...convertDecimalFields(p),
+      estimateTitle: p.estimateId ? estimateMap.get(p.estimateId) || null : null,
+    }));
+  }
+
   // 사용자의 견적 + 진행중 상담 조회
   async getMyEstimates(userId: string) {
     // 1. 사용자의 ChatbotFlow 조회 (견적 유무 무관)

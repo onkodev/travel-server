@@ -146,6 +146,45 @@ export class UserController {
     return this.userService.getMyStats(userId);
   }
 
+  @Get(':id/estimates')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(RolesGuard)
+  @ApiOperation({
+    summary: '사용자 견적 목록',
+    description: '특정 사용자의 견적 목록을 조회합니다.',
+  })
+  @ApiParam({ name: 'id', description: '사용자 ID (Supabase UUID)' })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getUserEstimates(@Param('id') id: string) {
+    return this.userService.getUserEstimates(id);
+  }
+
+  @Get(':id/chatbot-flows')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(RolesGuard)
+  @ApiOperation({
+    summary: '사용자 챗봇 상담 목록',
+    description: '특정 사용자의 챗봇 상담 목록을 조회합니다.',
+  })
+  @ApiParam({ name: 'id', description: '사용자 ID (Supabase UUID)' })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getUserChatbotFlows(@Param('id') id: string) {
+    return this.userService.getUserChatbotFlows(id);
+  }
+
+  @Get(':id/payments')
+  @Roles(UserRole.ADMIN)
+  @UseGuards(RolesGuard)
+  @ApiOperation({
+    summary: '사용자 결제 목록',
+    description: '특정 사용자의 결제 목록을 조회합니다.',
+  })
+  @ApiParam({ name: 'id', description: '사용자 ID (Supabase UUID)' })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getUserPayments(@Param('id') id: string) {
+    return this.userService.getUserPayments(id);
+  }
+
   @Get(':id')
   @Roles(UserRole.ADMIN)
   @UseGuards(RolesGuard)
