@@ -1,11 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GeminiCoreService } from '../core/gemini-core.service';
 import { parseJsonResponse } from '../core/response-parser.util';
-import {
-  ESTIMATE_ANALYSIS_PROMPT,
-  ESTIMATE_ANALYSIS_CONFIG,
-  EstimateAnalysisParams,
-} from '../prompts/estimate.prompts';
+import { AiPromptService } from '../../ai-prompt/ai-prompt.service';
+import { PromptKey } from '../../ai-prompt/prompt-registry';
 import { EstimateItemForAnalysis } from '../types';
 
 // Re-export for backward compatibility
@@ -24,7 +21,10 @@ export interface EstimateAnalysisResult {
 export class EstimateAiService {
   private readonly logger = new Logger(EstimateAiService.name);
 
-  constructor(private geminiCore: GeminiCoreService) {}
+  constructor(
+    private geminiCore: GeminiCoreService,
+    private aiPromptService: AiPromptService,
+  ) {}
 
   /**
    * 견적 분석 (DB 업데이트 없이 결과만 반환)
@@ -35,7 +35,6 @@ export class EstimateAiService {
   }): Promise<EstimateAnalysisResult | null> {
     const { requestContent, items } = params;
 
-    // 아이템 정보 요약
     const itemsSummary =
       items.length > 0
         ? items
@@ -46,17 +45,18 @@ export class EstimateAiService {
             .join('\n')
         : '아이템 없음';
 
-    const promptParams: EstimateAnalysisParams = {
-      requestContent,
-      itemsSummary,
-    };
-
-    const prompt = ESTIMATE_ANALYSIS_PROMPT(promptParams);
-
-    const text = await this.geminiCore.callGemini(
-      prompt,
-      ESTIMATE_ANALYSIS_CONFIG,
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.ESTIMATE_ANALYSIS,
+      {
+        requestContent: requestContent || '내용 없음',
+        itemsSummary,
+      },
     );
+
+    const text = await this.geminiCore.callGemini(built.text, {
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
+    });
 
     interface ParsedResult {
       regions?: string[];

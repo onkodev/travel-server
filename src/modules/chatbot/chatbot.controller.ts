@@ -27,7 +27,7 @@ import {
 } from '@nestjs/swagger';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { extractIpAddress, parseBooleanQuery } from '../../common/utils';
+import { parseBooleanQuery } from '../../common/utils';
 import { ChatbotService } from './chatbot.service';
 import { ChatbotAnalyticsService } from './chatbot-analytics.service';
 import { ChatbotSseService } from './chatbot-sse.service';
@@ -35,6 +35,9 @@ import { AiEstimateService } from './ai-estimate.service';
 import { ConversationalEstimateService } from './conversational-estimate.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthGuard } from '../../common/guards/auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../../common/types';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { RequireUserId } from '../../common/decorators/require-user.decorator';
 import { SupabaseService } from '../../supabase/supabase.service';
@@ -65,6 +68,7 @@ import {
   TravelChatDto,
   TravelChatResponseDto,
   AdminFlowQueryDto,
+  UpdateGenerationConfigDto,
 } from './dto';
 import { StepResponseDto, FlowStartResponseDto } from './dto/step-response.dto';
 import { ChatbotFlowDto } from './dto/chatbot-flow.dto';
@@ -96,10 +100,6 @@ export class ChatbotController {
     type: FlowStartResponseDto,
   })
   async startFlow(@Body() dto: StartFlowDto, @Req() req: Request) {
-    const ipAddress = extractIpAddress(req);
-    const userAgent = req.headers['user-agent'];
-    const referer = req.headers['referer'] as string;
-
     // 선택적으로 userId 추출 (로그인한 경우)
     let userId: string | undefined;
     const authHeader = req.headers.authorization;
@@ -113,13 +113,7 @@ export class ChatbotController {
       }
     }
 
-    return this.chatbotService.startFlow(
-      dto,
-      ipAddress,
-      userAgent,
-      referer,
-      userId,
-    );
+    return this.chatbotService.startFlow(dto, userId);
   }
 
   @Get('categories')
@@ -156,7 +150,8 @@ export class ChatbotController {
 
   @Get('admin/flows')
   @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '챗봇 플로우 목록 조회 (관리자)',
@@ -180,7 +175,8 @@ export class ChatbotController {
 
   @Get('admin/stats')
   @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '챗봇 플로우 통계 (관리자)',
@@ -193,7 +189,8 @@ export class ChatbotController {
 
   @Get('admin/funnel')
   @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '퍼널 분석 (관리자)',
@@ -209,7 +206,8 @@ export class ChatbotController {
 
   @Get('admin/leads')
   @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '유망 리드 목록 (관리자)',
@@ -225,7 +223,8 @@ export class ChatbotController {
 
   @Get('admin/countries')
   @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '국가별 통계 (관리자)',
@@ -241,7 +240,8 @@ export class ChatbotController {
 
   @Get('admin/flow/:sessionId')
   @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '플로우 상세 조회 (관리자)',
@@ -261,7 +261,8 @@ export class ChatbotController {
 
   @Post('admin/bulk-delete')
   @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '일괄 삭제 (관리자)',
@@ -270,17 +271,50 @@ export class ChatbotController {
   @ApiResponse({ status: 200, description: '삭제 성공' })
   async bulkDeleteFlows(
     @Body() body: { sessionIds: string[] },
-    @CurrentUser('role') userRole: string,
   ) {
-    if (userRole !== 'admin') {
-      throw new ForbiddenException('관리자만 일괄 삭제할 수 있습니다.');
-    }
     return this.chatbotService.bulkDelete(body.sessionIds);
+  }
+
+  @Get('admin/generation-config')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @SkipThrottle({ default: true, strict: true })
+  @ApiOperation({
+    summary: 'AI 생성 설정 조회',
+    description: 'AI 견적 생성 파라미터 설정을 조회합니다.',
+  })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getGenerationConfig() {
+    return this.prisma.aiGenerationConfig.upsert({
+      where: { id: 1 },
+      update: {},
+      create: { id: 1 },
+    });
+  }
+
+  @Patch('admin/generation-config')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @SkipThrottle({ default: true, strict: true })
+  @ApiOperation({
+    summary: 'AI 생성 설정 업데이트',
+    description: 'AI 견적 생성 파라미터를 업데이트합니다.',
+  })
+  @ApiResponse({ status: 200, description: '업데이트 성공' })
+  async updateGenerationConfig(@Body() dto: UpdateGenerationConfigDto) {
+    return this.prisma.aiGenerationConfig.upsert({
+      where: { id: 1 },
+      update: dto,
+      create: { id: 1, ...dto },
+    });
   }
 
   @Patch('admin/flow/:sessionId/meta')
   @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '플로우 태그/메모 업데이트 (관리자)',
@@ -331,6 +365,7 @@ export class ChatbotController {
 
   @Get('by-estimate/:estimateId')
   @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard)
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: 'estimateId로 플로우 조회',
@@ -359,10 +394,13 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: 'SSE 연결 성공' })
-  subscribeToEvents(
+  async subscribeToEvents(
     @Param('sessionId') sessionId: string,
     @Res({ passthrough: true }) res: Response,
-  ): Observable<MessageEvent> {
+  ): Promise<Observable<MessageEvent>> {
+    // 세션 존재 여부 검증 (UUID 형식 + DB 존재)
+    await this.chatbotService.getFlow(sessionId);
+
     // Set headers for SSE (passthrough allows NestJS to still handle response)
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -445,7 +483,10 @@ export class ChatbotController {
     type: ErrorResponseDto,
   })
   async getFlow(@Param('sessionId') sessionId: string) {
-    return this.chatbotService.getFlow(sessionId);
+    const flow = await this.chatbotService.getFlow(sessionId);
+    // 공개 엔드포인트에서 PII 제거
+    const { ipAddress, userAgent, pageVisits, ...safeFlow } = flow as Record<string, unknown>;
+    return safeFlow;
   }
 
   @Get(':sessionId/step/:step')
@@ -758,10 +799,10 @@ export class ChatbotController {
 
   @Post(':sessionId/messages/batch')
   @Public()
-  @SkipThrottle({ default: true, strict: true })
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: '메시지 배치 저장',
-    description: '여러 메시지를 한 번에 저장합니다. Rate limit 적용 제외.',
+    description: '여러 메시지를 한 번에 저장합니다.',
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 201, description: '메시지 배치 저장 성공' })
@@ -819,8 +860,9 @@ export class ChatbotController {
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateSessionTitleDto,
     @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: string,
   ) {
-    return this.chatbotService.updateSessionTitle(sessionId, dto.title, userId);
+    return this.chatbotService.updateSessionTitle(sessionId, dto.title, userId, userRole);
   }
 
   @Patch(':sessionId/link-user')
@@ -901,68 +943,7 @@ export class ChatbotController {
     type: ErrorResponseDto,
   })
   async generateAiEstimate(@Param('sessionId') sessionId: string) {
-    const result =
-      await this.aiEstimateService.generateFirstEstimate(sessionId);
-
-    // 생성된 견적의 items 조회
-    const estimate = await this.prisma.estimate.findUnique({
-      where: { id: result.estimateId },
-      select: { items: true },
-    });
-
-    const items = (estimate?.items || []) as unknown as Array<{
-      isTbd?: boolean;
-      dayNumber?: number;
-      orderIndex?: number;
-      itemId?: number;
-      type?: string;
-      note?: string;
-      itemInfo?: {
-        nameKor?: string;
-        nameEng?: string;
-        descriptionEng?: string;
-        images?: Array<{ url: string; type?: string }>;
-        lat?: number;
-        lng?: number;
-        addressEnglish?: string;
-      };
-    }>;
-
-    // images 배열에서 URL만 추출하는 헬퍼
-    const extractImageUrls = (
-      images?: Array<{ url: string; type?: string }>,
-    ): string[] => {
-      if (!images || !Array.isArray(images)) return [];
-      return images.map((img) => img.url).filter(Boolean);
-    };
-
-    return {
-      ...result,
-      items: items.map((item) => ({
-        id: String(item.itemId || `tbd-${item.dayNumber}`),
-        type: item.type || 'place',
-        itemId: item.itemId || null,
-        itemName: item.itemInfo?.nameKor || item.itemInfo?.nameEng,
-        name: item.itemInfo?.nameKor,
-        nameEng: item.itemInfo?.nameEng,
-        dayNumber: item.dayNumber || 1,
-        orderIndex: item.orderIndex || 0,
-        isTbd: item.isTbd || false,
-        note: item.note,
-        itemInfo: item.itemInfo
-          ? {
-              nameKor: item.itemInfo.nameKor,
-              nameEng: item.itemInfo.nameEng,
-              descriptionEng: item.itemInfo.descriptionEng,
-              images: extractImageUrls(item.itemInfo.images),
-              lat: item.itemInfo.lat,
-              lng: item.itemInfo.lng,
-              addressEnglish: item.itemInfo.addressEnglish,
-            }
-          : undefined,
-      })),
-      hasTbdDays: items.some((item) => item.isTbd),
-    };
+    return this.aiEstimateService.generateFirstEstimate(sessionId);
   }
 
   @Patch('estimate/:estimateId/modify')
@@ -1037,7 +1018,7 @@ export class ChatbotController {
   }
 
   @Post(':sessionId/itinerary/modify')
-  @Public()
+  @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @ApiOperation({
@@ -1072,7 +1053,7 @@ export class ChatbotController {
   }
 
   @Post(':sessionId/itinerary/regenerate-day/:dayNumber')
-  @Public()
+  @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({

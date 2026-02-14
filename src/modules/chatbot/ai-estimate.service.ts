@@ -10,33 +10,81 @@ import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
   normalizeImages,
+  extractImageUrls,
   calculateTotalPax,
-  formatPaxString,
 } from '../../common/utils';
 import { EstimateItem } from '../../common/types';
+import { EmailRagService, type PipelineLog } from '../email-rag/email-rag.service';
+import type { DraftResult } from '../email-rag/dto';
 
 // Re-export for backward compatibility
 export type { EstimateItem };
 
-// UUID 생성 헬퍼 (레거시 호환 - generateEstimateItemId 사용 권장)
 function generateItemId(): string {
   return randomUUID();
 }
 
-// 템플릿 후보
-interface TemplateCandidate {
-  id: number;
+// 매칭 tier 정보 포함
+type MatchTier = 'geminiId' | 'exact' | 'partial' | 'fuzzy';
+
+interface MatchedItemInfo {
   name: string;
-  items: EstimateItem[];
-  regions: string[];
-  interests: string[];
-  travelDays: number;
-  score: number;
-  scoreDetails?: {
-    daysScore: number;
-    daysReason: string;
-    interestScore: number;
-    matchedInterests: string[];
+  itemId: number;
+  tier: MatchTier;
+  score?: number; // 퍼지 매칭 시 유사도 점수
+}
+
+// AiEstimateMetadata 타입
+interface AiEstimateMetadata {
+  generatedAt: string;
+  generationTimeMs: number;
+  source: 'rag' | 'tbd';
+  ragSearch: {
+    query: string;
+    resultsCount: number;
+    sources: Array<{
+      emailThreadId: number;
+      subject: string | null;
+      similarity: number;
+    }>;
+  } | null;
+  itemMatching: {
+    totalDraftItems: number;
+    matchedCount: number;
+    tbdCount: number;
+    matchedItems: MatchedItemInfo[];
+    tbdItems: Array<{ name: string; reason: string }>;
+  };
+  userAttractions: string[];
+  config: {
+    ragSearchLimit: number;
+    ragSimilarityMin: number;
+    geminiTemperature: number;
+  };
+  pipelineLog?: PipelineLog;
+  confidenceScore?: number; // 0-100
+}
+
+// 프론트엔드용 가공된 아이템
+export interface FormattedEstimateItem {
+  id: string;
+  type: string;
+  itemId: number | null;
+  itemName: string | undefined;
+  name: string | undefined;
+  nameEng: string | undefined;
+  dayNumber: number;
+  orderIndex: number;
+  isTbd: boolean;
+  note: string | undefined;
+  itemInfo?: {
+    nameKor: string | undefined;
+    nameEng: string | undefined;
+    descriptionEng: string | undefined;
+    images: string[];
+    lat: number | undefined;
+    lng: number | undefined;
+    addressEnglish: string | undefined;
   };
 }
 
@@ -68,6 +116,8 @@ interface ChatbotFlowData {
 @Injectable()
 export class AiEstimateService {
   private readonly logger = new Logger(AiEstimateService.name);
+  private configCache: { data: { aiEnabled: boolean; ragSearchLimit: number; ragSimilarityMin: number; geminiTemperature: number; geminiMaxTokens: number; placesPerDay: number; ragTimeout: number; customPromptAddon: string | null; fuzzyMatchThreshold: number; directThreshold: number; ragThreshold: number; noMatchResponse: string | null }; expiresAt: number } | null = null;
+  private static readonly CONFIG_TTL_MS = 30 * 60 * 1000; // 30분
 
   // 영어 → 한글 지역명 매핑
   private readonly REGION_MAP: Record<string, string> = {
@@ -86,242 +136,554 @@ export class AiEstimateService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private emailRagService: EmailRagService,
   ) {}
 
   /**
-   * 첫 견적 생성 - 단순화된 버전
-   * 1. 견본 데이터 매칭 (지역 + 일수 + 관심사)
-   * 2. 정확히 맞는 템플릿 → 그대로 사용
-   * 3. 일수 부족 시 → TBD로 채움
-   * 4. 사용자 attractions 반영
+   * AiGenerationConfig 로드 (인메모리 캐시, 5분 TTL)
+   */
+  private async loadConfig() {
+    if (this.configCache && Date.now() < this.configCache.expiresAt) {
+      return this.configCache.data;
+    }
+    const config = await this.prisma.aiGenerationConfig.upsert({
+      where: { id: 1 },
+      update: {},
+      create: { id: 1 },
+    });
+    this.configCache = { data: config, expiresAt: Date.now() + AiEstimateService.CONFIG_TTL_MS };
+    return config;
+  }
+
+  /**
+   * 첫 견적 생성 - Email RAG only
+   * 1. Email RAG 시도 (유사 이메일에서 장소 추천)
+   * 2. 실패 시 → TBD 견적 생성
+   * 3. 사용자 attractions 반영
    */
   async generateFirstEstimate(
     sessionId: string,
-  ): Promise<{ estimateId: number; shareHash: string }> {
+  ): Promise<{ estimateId: number; shareHash: string; items: FormattedEstimateItem[]; hasTbdDays: boolean }> {
+    const startTime = Date.now();
     this.logger.log(`[generateFirstEstimate] 시작 - sessionId: ${sessionId}`);
 
-    // 1. ChatbotFlow 데이터 조회
-    const flow = await this.getChatbotFlow(sessionId);
+    // Flow 조회 + Config 로드 병렬 실행
+    const [flow, config] = await Promise.all([
+      this.getChatbotFlow(sessionId),
+      this.loadConfig(),
+    ]);
     if (!flow) {
       throw new NotFoundException('Chatbot session not found.');
     }
 
-    const requestedDays = flow.duration || 3;
-    this.logger.log(
-      `[generateFirstEstimate] 요청 - region: ${flow.region}, days: ${requestedDays}, interests: ${flow.interestMain?.join(',')}`,
-    );
-
-    // 2. 견본 데이터 조회 및 매칭
-    const template = await this.findBestTemplate(flow);
-
-    if (!template) {
-      this.logger.warn(
-        '[generateFirstEstimate] 적합한 템플릿 없음 - TBD 견적 생성',
-      );
+    // AI 비활성화 시 TBD 견적만 생성
+    if (!config.aiEnabled) {
+      this.logger.log(`[generateFirstEstimate] AI disabled — TBD 견적 생성`);
       return this.generateTbdEstimate(flow);
     }
 
     this.logger.log(
-      `[generateFirstEstimate] 선택된 템플릿: ${template.name} (${template.travelDays}일, score: ${template.score})`,
+      `[generateFirstEstimate] 요청 - region: ${flow.region}, days: ${flow.duration || 3}, interests: ${flow.interestMain?.join(',')}`,
     );
 
-    // 3. 템플릿 아이템 복사
-    let items = this.copyTemplateItems(template.items, flow);
+    let items: EstimateItem[] = [];
+    let generationSource: 'rag' | 'tbd' = 'tbd';
 
-    // 4. 일수 조정 (부족하면 TBD 추가)
-    if (template.travelDays < requestedDays) {
-      items = this.addTbdDays(items, template.travelDays, requestedDays);
-      this.logger.log(
-        `[generateFirstEstimate] TBD 일정 추가: Day ${template.travelDays + 1} ~ Day ${requestedDays}`,
+    // Metadata 수집용 변수
+    let ragSearchQuery: string | null = null;
+    let ragSources: DraftResult['ragSources'] = [];
+    let matchedItems: MatchedItemInfo[] = [];
+    let tbdItems: Array<{ name: string; reason: string }> = [];
+    let totalDraftItems = 0;
+
+    // === Email RAG 시도 (실패해도 진행, timeout 시 Gemini fetch도 취소) ===
+    let ragDraft: (DraftResult & { searchQuery: string; pipelineLog: import('../email-rag/email-rag.service').PipelineLog }) | null = null;
+    const abortController = new AbortController();
+    try {
+      ragDraft = await Promise.race([
+        this.emailRagService.generateDraftFromFlow(flow, {
+          ragSearchLimit: config.ragSearchLimit,
+          ragSimilarityMin: config.ragSimilarityMin,
+          geminiTemperature: config.geminiTemperature,
+          geminiMaxTokens: config.geminiMaxTokens,
+          placesPerDay: config.placesPerDay,
+          customPromptAddon: config.customPromptAddon ?? undefined,
+          signal: abortController.signal,
+        }),
+        new Promise<null>((_, reject) =>
+          setTimeout(() => {
+            abortController.abort();
+            reject(new Error('RAG timeout'));
+          }, config.ragTimeout),
+        ),
+      ]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      this.logger.warn(
+        `[generateFirstEstimate] Email RAG failed: ${message}`,
       );
     }
 
-    // 5. 사용자 attractions 반영
+    if (ragDraft?.items?.length) {
+      ragSearchQuery = ragDraft.searchQuery;
+      ragSources = ragDraft.ragSources;
+      totalDraftItems = ragDraft.items.length;
+
+      const conversionResult = await this.convertRagDraftToItems(ragDraft, flow, config.fuzzyMatchThreshold);
+      items = conversionResult.items;
+      matchedItems = conversionResult.matchedItems;
+      tbdItems = conversionResult.tbdItems;
+
+      generationSource = 'rag';
+      this.logger.log(
+        `[generateFirstEstimate] RAG 성공: ${items.length}개 아이템, sources: ${ragDraft.ragSources.length}`,
+      );
+    }
+
+    // === RAG 실패 → TBD 견적 ===
+    if (items.length === 0) {
+      this.logger.warn(
+        '[generateFirstEstimate] RAG 실패 - TBD 견적 생성',
+      );
+
+      const metadata: AiEstimateMetadata = {
+        generatedAt: new Date().toISOString(),
+        generationTimeMs: Date.now() - startTime,
+        source: 'tbd',
+        ragSearch: ragSearchQuery ? {
+          query: ragSearchQuery,
+          resultsCount: 0,
+          sources: [],
+        } : null,
+        itemMatching: {
+          totalDraftItems: 0,
+          matchedCount: 0,
+          tbdCount: 0,
+          matchedItems: [],
+          tbdItems: [],
+        },
+        userAttractions: flow.attractions || [],
+        config: {
+          ragSearchLimit: config.ragSearchLimit,
+          ragSimilarityMin: config.ragSimilarityMin,
+          geminiTemperature: config.geminiTemperature,
+        },
+      };
+
+      return this.generateTbdEstimate(flow, metadata);
+    }
+
+    // 사용자 attractions 반영
     if (flow.attractions && flow.attractions.length > 0) {
       items = await this.applyUserAttractions(items, flow);
     }
 
-    // 6. Estimate 생성
-    const estimate = await this.createEstimate(flow, items, template);
-
-    // 7. ChatbotFlow 업데이트 (Step 7 진입 - isCompleted는 finalizeItinerary에서 설정)
-    await this.prisma.chatbotFlow.update({
-      where: { sessionId: flow.sessionId },
-      data: {
-        estimateId: estimate.id,
-        // isCompleted: false - 사용자가 "Send to Expert" 클릭 시 true로 변경
+    // Metadata 구성
+    const metadata: AiEstimateMetadata = {
+      generatedAt: new Date().toISOString(),
+      generationTimeMs: Date.now() - startTime,
+      source: generationSource,
+      ragSearch: ragSearchQuery ? {
+        query: ragSearchQuery,
+        resultsCount: ragSources.length,
+        sources: ragSources,
+      } : null,
+      itemMatching: {
+        totalDraftItems,
+        matchedCount: matchedItems.length,
+        tbdCount: tbdItems.length,
+        matchedItems,
+        tbdItems,
       },
+      userAttractions: flow.attractions || [],
+      config: {
+        ragSearchLimit: config.ragSearchLimit,
+        ragSimilarityMin: config.ragSimilarityMin,
+        geminiTemperature: config.geminiTemperature,
+      },
+      pipelineLog: ragDraft?.pipelineLog,
+    };
+
+    // 신뢰도 점수 계산
+    metadata.confidenceScore = this.calculateConfidenceScore(metadata);
+
+    // Estimate 생성 + Flow 연결 (트랜잭션)
+    const estimate = await this.prisma.$transaction(async (tx) => {
+      const est = await this.createEstimate(flow, items, {
+        generationSource,
+        ragSources: ragDraft?.ragSources,
+        aiMetadata: metadata,
+      }, tx);
+
+      await tx.chatbotFlow.update({
+        where: { sessionId: flow.sessionId },
+        data: { estimateId: est.id },
+      });
+
+      return est;
     });
+
+    // TBD 아이템 → SuggestedPlace fire-and-forget
+    if (tbdItems.length > 0) {
+      this.trackTbdItems(tbdItems, flow.region, estimate.id).catch((err) =>
+        this.logger.warn(`[SuggestedPlace tracking failed] ${err.message}`),
+      );
+    }
 
     this.logger.log(
-      `[generateFirstEstimate] 완료 - estimateId: ${estimate.id}`,
+      `[generateFirstEstimate] 완료 - estimateId: ${estimate.id}, source: ${generationSource}`,
     );
-    return { estimateId: estimate.id, shareHash: estimate.shareHash };
+
+    return {
+      estimateId: estimate.id,
+      shareHash: estimate.shareHash,
+      items: this.formatItemsForClient(items),
+      hasTbdDays: items.some((item) => item.isTbd),
+    };
   }
 
   /**
-   * 최적 템플릿 찾기
+   * EstimateItem[] → 클라이언트용 가공
    */
-  private async findBestTemplate(
-    flow: ChatbotFlowData,
-  ): Promise<TemplateCandidate | null> {
-    if (!flow.region) {
-      this.logger.warn('Region not selected, cannot find template');
-      return null;
-    }
-    const region = flow.region;
-    const regionKor = this.REGION_MAP[region] || region;
-    const requestedDays = flow.duration || 3;
-    const userInterests = [
-      ...(flow.interestMain || []),
-      ...(flow.interestSub || []),
-    ];
-
-    // 견본 데이터 조회
-    const templates = await this.prisma.estimate.findMany({
-      where: {
-        source: 'manual',
-        statusManual: 'archived',
-        OR: [
-          { regions: { has: region } },
-          { regions: { has: regionKor } },
-          { regions: { has: 'Seoul' } },
-        ],
-      },
-      select: {
-        id: true,
-        title: true,
-        items: true,
-        regions: true,
-        interests: true,
-        travelDays: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (templates.length === 0) {
-      return null;
-    }
-
-    // 점수 계산 및 정렬
-    const candidates: TemplateCandidate[] = templates.map((t) => {
-      let score = 0;
-      const templateInterests = t.interests || [];
-
-      // 일수 매칭 (가장 중요)
-      let daysScore = 0;
-      let daysReason = '';
-      if (t.travelDays === requestedDays) {
-        daysScore = 50;
-        daysReason = `정확히 ${requestedDays}일 일치`;
-      } else if (
-        t.travelDays === requestedDays - 1 ||
-        t.travelDays === requestedDays + 1
-      ) {
-        daysScore = 30;
-        daysReason = `1일 차이 (템플릿 ${t.travelDays}일 → 요청 ${requestedDays}일)`;
-      } else if (t.travelDays < requestedDays) {
-        daysScore = 20;
-        daysReason = `템플릿 ${t.travelDays}일 < 요청 ${requestedDays}일 (부족분 TBD 처리)`;
-      } else {
-        daysScore = 10;
-        daysReason = `템플릿 ${t.travelDays}일 > 요청 ${requestedDays}일`;
-      }
-      score += daysScore;
-
-      // 관심사 매칭
-      let interestScore = 0;
-      const matchedInterests: string[] = [];
-      if (userInterests.length > 0) {
-        templateInterests.forEach((ti) => {
-          const matched = userInterests.some(
-            (ui) =>
-              ui.toLowerCase().includes(ti.toLowerCase()) ||
-              ti.toLowerCase().includes(ui.toLowerCase()),
-          );
-          if (matched) {
-            matchedInterests.push(ti);
-            interestScore += 10;
+  private formatItemsForClient(items: EstimateItem[]): FormattedEstimateItem[] {
+    return items.map((item) => ({
+      id: String(item.itemId || `tbd-${item.dayNumber}`),
+      type: item.type || 'place',
+      itemId: item.itemId || null,
+      itemName: item.itemInfo?.nameKor || item.itemInfo?.nameEng,
+      name: item.itemInfo?.nameKor,
+      nameEng: item.itemInfo?.nameEng,
+      dayNumber: item.dayNumber || 1,
+      orderIndex: item.orderIndex || 0,
+      isTbd: item.isTbd || false,
+      note: item.note,
+      itemInfo: item.itemInfo
+        ? {
+            nameKor: item.itemInfo.nameKor,
+            nameEng: item.itemInfo.nameEng,
+            descriptionEng: item.itemInfo.descriptionEng,
+            images: extractImageUrls(item.itemInfo.images),
+            lat: item.itemInfo.lat,
+            lng: item.itemInfo.lng,
+            addressEnglish: item.itemInfo.addressEnglish,
           }
-        });
-        score += interestScore;
-      }
-
-      return {
-        id: t.id,
-        name: t.title,
-        items: t.items as unknown as EstimateItem[],
-        regions: t.regions || [],
-        interests: templateInterests,
-        travelDays: t.travelDays,
-        score,
-        scoreDetails: {
-          daysScore,
-          daysReason,
-          interestScore,
-          matchedInterests,
-        },
-      };
-    });
-
-    // 점수순 정렬
-    candidates.sort((a, b) => b.score - a.score);
-
-    // 최소 점수 이상인 템플릿 반환
-    const best = candidates[0];
-    if (best.score >= 20) {
-      return best;
-    }
-
-    return null;
-  }
-
-  /**
-   * 템플릿 아이템 복사 (인원수 반영)
-   */
-  private copyTemplateItems(
-    templateItems: EstimateItem[],
-    flow: ChatbotFlowData,
-  ): EstimateItem[] {
-    const totalPax = calculateTotalPax(flow);
-
-    return templateItems.map((item) => ({
-      ...item,
-      id: generateItemId(),
-      quantity: item.type === 'place' ? totalPax : item.quantity,
-      subtotal:
-        item.type === 'place'
-          ? (item.unitPrice ?? 0) * totalPax
-          : item.subtotal,
+        : undefined,
     }));
   }
 
   /**
-   * 부족한 일수를 TBD로 채우기
+   * TBD 아이템을 SuggestedPlace에 upsert (fire-and-forget)
    */
-  private addTbdDays(
-    items: EstimateItem[],
-    templateDays: number,
-    requestedDays: number,
-  ): EstimateItem[] {
-    const result = [...items];
+  private async trackTbdItems(
+    tbdItems: Array<{ name: string; reason: string }>,
+    region: string | null,
+    estimateId: number,
+  ) {
+    await Promise.allSettled(
+      tbdItems.map(async (item) => {
+        try {
+          await this.prisma.suggestedPlace.upsert({
+            where: { name: item.name },
+            update: {
+              count: { increment: 1 },
+              estimateIds: { push: estimateId },
+              lastSeenAt: new Date(),
+              sampleNote: item.reason || undefined,
+            },
+            create: {
+              name: item.name,
+              region: region || undefined,
+              source: 'rag',
+              estimateIds: [estimateId],
+              sampleNote: item.reason || undefined,
+            },
+          });
+        } catch (err) {
+          this.logger.warn(
+            `[trackTbdItems] Failed for "${item.name}": ${err.message}`,
+          );
+        }
+      }),
+    );
+  }
 
-    for (let day = templateDays + 1; day <= requestedDays; day++) {
-      result.push({
-        id: generateItemId(),
-        dayNumber: day,
-        orderIndex: 0,
-        type: 'place',
-        itemId: undefined,
-        isTbd: true,
-        note: '전문가 상담 후 확정 예정',
-        quantity: 1,
-        unitPrice: 0,
-        subtotal: 0,
+  /**
+   * RAG 초안을 EstimateItem[]으로 변환
+   * - Gemini가 반환한 itemId 우선 사용
+   * - DB에서 장소 이름 매칭 (정확 → 부분)
+   * - 미매칭 아이템 일괄 퍼지 매칭
+   * - 매칭 실패 시 TBD 아이템 생성
+   */
+  private async convertRagDraftToItems(
+    draft: DraftResult,
+    flow: ChatbotFlowData,
+    fuzzyThreshold = 0.3,
+  ): Promise<{
+    items: EstimateItem[];
+    matchedItems: MatchedItemInfo[];
+    tbdItems: Array<{ name: string; reason: string }>;
+  }> {
+    const totalPax = calculateTotalPax(flow);
+    const matchedItems: MatchedItemInfo[] = [];
+    const tbdItems: Array<{ name: string; reason: string }> = [];
+
+    // 결과를 인덱스 기반 Map으로 관리 (null placeholder 제거)
+    const resultMap = new Map<number, EstimateItem>();
+
+    // --- Tier 1 + Tier 2 DB 조회를 병렬 실행 (독립적 쿼리) ---
+    const directItemIds = draft.items
+      .filter((d) => d.itemId && d.itemId > 0)
+      .map((d) => d.itemId as number);
+
+    // Tier 2용 이름 목록은 directItemIds 결과와 무관하게 미리 준비
+    const allPlaceNames = draft.items
+      .filter((d) => !d.itemId || d.itemId <= 0)
+      .map((d) => d.placeName);
+
+    const itemSelect = {
+      id: true, nameKor: true, nameEng: true, descriptionEng: true,
+      images: true, lat: true, lng: true, addressEnglish: true, price: true,
+    } as const;
+
+    const [directItems, dbItems] = await Promise.all([
+      directItemIds.length > 0
+        ? this.prisma.item.findMany({
+            where: { id: { in: directItemIds }, type: 'place' },
+            select: itemSelect,
+          })
+        : Promise.resolve([] as Array<{
+            id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
+            images: unknown; lat: unknown; lng: unknown; addressEnglish: string | null; price: unknown;
+          }>),
+      allPlaceNames.length > 0
+        ? this.prisma.item.findMany({
+            where: {
+              type: 'place',
+              OR: allPlaceNames.map((name) => ({
+                OR: [
+                  { nameEng: { contains: name, mode: 'insensitive' as const } },
+                  { nameKor: { contains: name } },
+                ],
+              })),
+            },
+            select: itemSelect,
+          })
+        : Promise.resolve([] as Array<{
+            id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
+            images: unknown; lat: unknown; lng: unknown; addressEnglish: string | null; price: unknown;
+          }>),
+    ]);
+
+    const directItemMap = new Map(directItems.map((i) => [i.id, i]));
+
+    // 이름 → DB 아이템 맵 (빈 문자열 키 방지)
+    const itemMap = new Map<string, (typeof dbItems)[0]>();
+    for (const dbItem of dbItems) {
+      const engKey = dbItem.nameEng.toLowerCase().trim();
+      const korKey = dbItem.nameKor.toLowerCase().trim();
+      if (engKey) itemMap.set(engKey, dbItem);
+      if (korKey) itemMap.set(korKey, dbItem);
+    }
+
+    // --- 1차 + 2차 매칭 루프 ---
+    const unmatchedIndices: number[] = [];
+
+    for (let i = 0; i < draft.items.length; i++) {
+      const draftItem = draft.items[i];
+
+      // Tier 1: Gemini itemId 직접 매칭
+      if (draftItem.itemId && directItemMap.has(draftItem.itemId)) {
+        const dbMatch = directItemMap.get(draftItem.itemId)!;
+        resultMap.set(i, this.buildEstimateItem(draftItem, dbMatch, totalPax));
+        matchedItems.push({ name: draftItem.placeName, itemId: dbMatch.id, tier: 'geminiId' });
+        continue;
+      }
+
+      // Tier 2: 정확 매칭 (이름 완전 일치)
+      const matchKey = draftItem.placeName.toLowerCase().trim();
+      const exactMatch = itemMap.get(matchKey);
+      if (exactMatch) {
+        resultMap.set(i, this.buildEstimateItem(draftItem, exactMatch, totalPax));
+        matchedItems.push({ name: draftItem.placeName, itemId: exactMatch.id, tier: 'exact' });
+        continue;
+      }
+
+      // Tier 2b: 부분 매칭 (contains)
+      const partialMatch = dbItems.find(
+        (db) =>
+          db.nameEng.toLowerCase().includes(matchKey) ||
+          matchKey.includes(db.nameEng.toLowerCase()) ||
+          (draftItem.placeNameKor &&
+            db.nameKor.includes(draftItem.placeNameKor)),
+      );
+
+      if (partialMatch) {
+        resultMap.set(i, this.buildEstimateItem(draftItem, partialMatch, totalPax));
+        matchedItems.push({ name: draftItem.placeName, itemId: partialMatch.id, tier: 'partial' });
+      } else {
+        unmatchedIndices.push(i);
+      }
+    }
+
+    // --- Tier 3: 배치 퍼지 매칭 (1회 SQL 호출) ---
+    if (unmatchedIndices.length > 0) {
+      const fuzzyResults = await this.findItemsByFuzzyMatchBatch(
+        unmatchedIndices.map((i) => draft.items[i].placeName),
+        fuzzyThreshold,
+      );
+
+      for (const idx of unmatchedIndices) {
+        const draftItem = draft.items[idx];
+        const fuzzyMatch = fuzzyResults.get(draftItem.placeName);
+
+        if (fuzzyMatch) {
+          resultMap.set(idx, this.buildEstimateItem(draftItem, fuzzyMatch, totalPax));
+          matchedItems.push({
+            name: draftItem.placeName,
+            itemId: fuzzyMatch.id,
+            tier: 'fuzzy',
+            score: fuzzyMatch.sim,
+          });
+        } else {
+          // DB에 없는 장소 → TBD
+          resultMap.set(idx, {
+            id: generateItemId(),
+            dayNumber: draftItem.dayNumber,
+            orderIndex: draftItem.orderIndex,
+            type: 'place',
+            itemId: undefined,
+            isTbd: true,
+            itemName: draftItem.placeName,
+            name: draftItem.placeName,
+            nameEng: draftItem.placeName,
+            quantity: 1,
+            unitPrice: 0,
+            subtotal: 0,
+            note: `${draftItem.reason} (전문가 확인 필요)`,
+          });
+          tbdItems.push({ name: draftItem.placeName, reason: draftItem.reason || 'No DB match' });
+        }
+      }
+    }
+
+    // 원래 순서 유지하여 배열로 변환
+    const items: EstimateItem[] = [];
+    for (let i = 0; i < draft.items.length; i++) {
+      const item = resultMap.get(i);
+      if (item) items.push(item);
+    }
+
+    this.logger.log(
+      `[convertRagDraftToItems] ${draft.items.length} draft items → ` +
+      `geminiId: ${matchedItems.filter((m) => m.tier === 'geminiId').length}, ` +
+      `exact: ${matchedItems.filter((m) => m.tier === 'exact').length}, ` +
+      `partial: ${matchedItems.filter((m) => m.tier === 'partial').length}, ` +
+      `fuzzy: ${matchedItems.filter((m) => m.tier === 'fuzzy').length}, ` +
+      `tbd: ${tbdItems.length}`,
+    );
+
+    return { items, matchedItems, tbdItems };
+  }
+
+  /**
+   * DraftItem + DB 아이템 → EstimateItem 생성 헬퍼
+   */
+  private buildEstimateItem(
+    draftItem: { dayNumber: number; orderIndex: number; reason: string },
+    dbMatch: {
+      id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
+      images: unknown; lat: unknown; lng: unknown; addressEnglish: string | null; price: unknown;
+    },
+    totalPax: number,
+  ): EstimateItem {
+    const unitPrice = Number(dbMatch.price) || 0;
+    return {
+      id: generateItemId(),
+      dayNumber: draftItem.dayNumber,
+      orderIndex: draftItem.orderIndex,
+      type: 'place',
+      itemId: dbMatch.id,
+      isTbd: false,
+      quantity: totalPax,
+      unitPrice,
+      subtotal: unitPrice * totalPax,
+      note: draftItem.reason,
+      itemInfo: {
+        nameKor: dbMatch.nameKor,
+        nameEng: dbMatch.nameEng,
+        descriptionEng: dbMatch.descriptionEng || undefined,
+        images: normalizeImages(dbMatch.images),
+        lat: Number(dbMatch.lat),
+        lng: Number(dbMatch.lng),
+        addressEnglish: dbMatch.addressEnglish || undefined,
+      },
+    };
+  }
+
+  /**
+   * pg_trgm 배치 퍼지 매칭 (1회 SQL로 여러 장소명 동시 매칭)
+   */
+  private async findItemsByFuzzyMatchBatch(
+    placeNames: string[],
+    threshold = 0.3,
+  ): Promise<Map<string, {
+    id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
+    images: unknown; lat: number; lng: number; addressEnglish: string | null; price: number;
+    sim: number;
+  }>> {
+    if (placeNames.length === 0) return new Map();
+
+    const results = await this.prisma.$queryRaw<
+      Array<{
+        query_name: string;
+        id: number;
+        name_kor: string;
+        name_eng: string;
+        description_eng: string | null;
+        images: unknown;
+        lat: number;
+        lng: number;
+        address_english: string | null;
+        price: number;
+        sim: number;
+      }>
+    >`
+      SELECT DISTINCT ON (query_name)
+        query_name, id, name_kor, name_eng, description_eng, images, lat, lng, address_english, price,
+        GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
+      FROM items
+      CROSS JOIN unnest(${placeNames}::text[]) AS query_name
+      WHERE type = 'place'
+        AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
+      ORDER BY query_name, sim DESC
+    `;
+
+    const resultMap = new Map<string, {
+      id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
+      images: unknown; lat: number; lng: number; addressEnglish: string | null; price: number;
+      sim: number;
+    }>();
+
+    for (const r of results) {
+      resultMap.set(r.query_name, {
+        id: r.id,
+        nameKor: r.name_kor,
+        nameEng: r.name_eng,
+        descriptionEng: r.description_eng,
+        images: r.images,
+        lat: r.lat,
+        lng: r.lng,
+        addressEnglish: r.address_english,
+        price: r.price,
+        sim: Number(r.sim),
       });
     }
 
-    return result;
+    this.logger.log(
+      `[fuzzyMatchBatch] ${placeNames.length} queries → ${resultMap.size} matches`,
+    );
+
+    return resultMap;
   }
 
   /**
@@ -424,11 +786,53 @@ export class AiEstimateService {
   }
 
   /**
+   * 신뢰도 점수 계산 (0-100)
+   * confidence = (0.35 * matchRate) + (0.25 * avgRagSimilarity) + (0.20 * interestCoverage) + (0.20 * (1 - tbdRate))
+   */
+  private calculateConfidenceScore(metadata: AiEstimateMetadata): number {
+    const { itemMatching, ragSearch, pipelineLog } = metadata;
+
+    // matchRate: 매칭된 아이템 / 전체 아이템
+    const totalItems = itemMatching.totalDraftItems || 1;
+    const matchRate = itemMatching.matchedCount / totalItems;
+
+    // avgRagSimilarity: 상위 3개 RAG 소스 평균 유사도
+    const sources = ragSearch?.sources || [];
+    const topSources = sources.slice(0, 3);
+    const avgRagSimilarity = topSources.length > 0
+      ? topSources.reduce((sum, s) => sum + s.similarity, 0) / topSources.length
+      : 0;
+
+    // interestCoverage: 사용자 관심사가 장소에 반영된 비율
+    let interestCoverage = 0;
+    if (pipelineLog?.reranking?.keywords?.length) {
+      const totalKeywords = pipelineLog.reranking.keywords.length;
+      // 선택된 이메일에서 매칭된 고유 키워드 수
+      const matchedKeywords = new Set<string>();
+      for (const detail of pipelineLog.reranking.details.slice(0, topSources.length)) {
+        for (const kw of detail.matchedKeywords) {
+          matchedKeywords.add(kw);
+        }
+      }
+      interestCoverage = matchedKeywords.size / totalKeywords;
+    }
+
+    // tbdRate: TBD 아이템 / 전체 아이템
+    const tbdRate = itemMatching.tbdCount / totalItems;
+
+    const score = (0.35 * matchRate) + (0.25 * avgRagSimilarity) + (0.20 * interestCoverage) + (0.20 * (1 - tbdRate));
+
+    // 0-100으로 스케일
+    return Math.round(Math.min(100, Math.max(0, score * 100)));
+  }
+
+  /**
    * TBD 전용 견적 생성 (템플릿 없을 때)
    */
   private async generateTbdEstimate(
     flow: ChatbotFlowData,
-  ): Promise<{ estimateId: number; shareHash: string }> {
+    aiMetadata?: AiEstimateMetadata,
+  ): Promise<{ estimateId: number; shareHash: string; items: FormattedEstimateItem[]; hasTbdDays: boolean }> {
     const duration = flow.duration || 3;
     const items: EstimateItem[] = [];
 
@@ -453,17 +857,26 @@ export class AiEstimateService {
       finalItems = await this.applyUserAttractions(items, flow);
     }
 
-    const estimate = await this.createEstimate(flow, finalItems, null);
+    // Estimate 생성 + Flow 연결 (트랜잭션)
+    const estimate = await this.prisma.$transaction(async (tx) => {
+      const est = await this.createEstimate(flow, finalItems, {
+        aiMetadata,
+      }, tx);
 
-    await this.prisma.chatbotFlow.update({
-      where: { sessionId: flow.sessionId },
-      data: {
-        estimateId: estimate.id,
-        // isCompleted: false - 사용자가 "Send to Expert" 클릭 시 true로 변경
-      },
+      await tx.chatbotFlow.update({
+        where: { sessionId: flow.sessionId },
+        data: { estimateId: est.id },
+      });
+
+      return est;
     });
 
-    return { estimateId: estimate.id, shareHash: estimate.shareHash };
+    return {
+      estimateId: estimate.id,
+      shareHash: estimate.shareHash,
+      items: this.formatItemsForClient(finalItems),
+      hasTbdDays: finalItems.some((item) => item.isTbd),
+    };
   }
 
   /**
@@ -472,7 +885,12 @@ export class AiEstimateService {
   private async createEstimate(
     flow: ChatbotFlowData,
     items: EstimateItem[],
-    template: TemplateCandidate | null,
+    extra?: {
+      generationSource?: 'rag' | 'tbd';
+      ragSources?: DraftResult['ragSources'];
+      aiMetadata?: AiEstimateMetadata;
+    },
+    tx?: Prisma.TransactionClient,
   ): Promise<{ id: number; shareHash: string }> {
     const totalPax = calculateTotalPax(flow);
     const region = flow.region || 'unknown';
@@ -486,11 +904,8 @@ export class AiEstimateService {
     const customerName = flow.customerName || 'Guest';
     const title = `AI Quote - ${customerName} (${region} ${duration}D)`;
 
-    // TBD 여부 확인
-    const hasTbdItems = items.some((item) => item.isTbd);
-
-    // 내부 메모 생성 (관리자용 - 템플릿 선택 이유 상세)
-    const internalMemo = this.buildInternalMemo(flow, template);
+    // 내부 메모 생성 (관리자용)
+    const internalMemo = this.buildInternalMemo(flow, extra);
 
     // 고객 요청사항 (requestContent)
     const requestContent = this.buildRequestContent(flow);
@@ -499,7 +914,8 @@ export class AiEstimateService {
     const validDate = new Date();
     validDate.setDate(validDate.getDate() + 10);
 
-    const estimate = await this.prisma.estimate.create({
+    const db = tx || this.prisma;
+    const estimate = await db.estimate.create({
       data: {
         title,
         items: items as unknown as Prisma.InputJsonValue,
@@ -521,7 +937,7 @@ export class AiEstimateService {
         customerPhone: flow.customerPhone,
         nationality: flow.nationality,
         source: 'ai',
-        statusAi: hasTbdItems ? 'pending' : 'draft',
+        statusAi: 'draft',
         chatSessionId: flow.sessionId,
         shareHash,
         internalMemo,
@@ -535,6 +951,9 @@ export class AiEstimateService {
           contents: true,
           price: false, // AI 견적은 가격 숨김
         },
+        aiMetadata: extra?.aiMetadata
+          ? (extra.aiMetadata as unknown as Prisma.InputJsonValue)
+          : undefined,
       },
     });
 
@@ -542,133 +961,50 @@ export class AiEstimateService {
   }
 
   /**
-   * 내부 메모 생성 (관리자용 - 템플릿 선택 이유 상세)
+   * 내부 메모 생성 (관리자용)
    */
   private buildInternalMemo(
     flow: ChatbotFlowData,
-    template: TemplateCandidate | null,
+    extra?: {
+      generationSource?: 'rag' | 'tbd';
+      ragSources?: DraftResult['ragSources'];
+    },
   ): string {
     const lines: string[] = [];
 
-    lines.push(
-      '╔════════════════════════════════════════════════════════════════╗',
-    );
-    lines.push(
-      '║                    AI 견적 생성 리포트                          ║',
-    );
-    lines.push(
-      '╚════════════════════════════════════════════════════════════════╝',
-    );
+    lines.push('══════════════ AI 견적 생성 리포트 ══════════════');
     lines.push('');
     lines.push(`📅 생성 시간: ${new Date().toLocaleString('ko-KR')}`);
+    lines.push(
+      `🔧 생성 소스: ${extra?.generationSource === 'rag' ? 'Email RAG' : 'TBD (수동 필요)'}`,
+    );
     lines.push('');
 
-    // 템플릿 선택 정보
-    lines.push(
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    );
-    lines.push('📋 템플릿 선택 결과');
-    lines.push(
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    );
-
-    if (template) {
-      lines.push(`✅ 선택된 템플릿: ${template.name}`);
-      lines.push(`   - 템플릿 ID: ${template.id}`);
-      lines.push(`   - 템플릿 일수: ${template.travelDays}일`);
-      lines.push(
-        `   - 템플릿 관심사: ${template.interests.join(', ') || '없음'}`,
-      );
-      lines.push('');
-      lines.push(`📊 매칭 점수: ${template.score}점`);
-
-      if (template.scoreDetails) {
-        lines.push('');
-        lines.push('   [점수 상세]');
-        lines.push(`   • 일수 매칭: +${template.scoreDetails.daysScore}점`);
-        lines.push(`     → ${template.scoreDetails.daysReason}`);
+    // RAG 참조 이메일
+    if (extra?.generationSource === 'rag' && extra.ragSources?.length) {
+      lines.push('━━━ 📧 Email RAG 참조 이메일 ━━━');
+      for (const src of extra.ragSources) {
         lines.push(
-          `   • 관심사 매칭: +${template.scoreDetails.interestScore}점`,
+          `   • [유사도 ${(src.similarity * 100).toFixed(1)}%] ${src.subject || 'N/A'} (thread #${src.emailThreadId})`,
         );
-        if (template.scoreDetails.matchedInterests.length > 0) {
-          lines.push(
-            `     → 일치 항목: ${template.scoreDetails.matchedInterests.join(', ')}`,
-          );
-        } else {
-          lines.push('     → 일치 항목 없음');
-        }
       }
-    } else {
-      lines.push('⚠️ 적합한 템플릿 없음 - TBD 견적 생성');
-      lines.push('   → 전문가 상담 필요');
+      lines.push('');
     }
 
-    lines.push('');
-
-    // 고객 요청 정보 요약
-    lines.push(
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    );
-    lines.push('👤 고객 요청 정보 (입력값)');
-    lines.push(
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    );
+    // 고객 요청 정보
+    lines.push('━━━ 👤 고객 요청 정보 ━━━');
     lines.push(`• 지역: ${flow.region || 'Not selected'}`);
     lines.push(`• 요청 일수: ${flow.duration || 3}일`);
     lines.push(
       `• 인원: 성인 ${flow.adultsCount || 1}, 아동 ${flow.childrenCount || 0}, 유아 ${flow.infantsCount || 0}`,
     );
-
-    if (flow.interestMain?.length) {
-      lines.push(`• 관심사(주): ${flow.interestMain.join(', ')}`);
-    }
-    if (flow.interestSub?.length) {
-      lines.push(`• 관심사(부): ${flow.interestSub.join(', ')}`);
-    }
-    if (flow.attractions?.length) {
-      lines.push(`• 희망 명소: ${flow.attractions.join(', ')}`);
-    }
-    if (flow.isFirstVisit !== null) {
-      lines.push(`• 첫 방문 여부: ${flow.isFirstVisit ? '예' : '아니오'}`);
-    }
-    if (flow.budgetRange) {
-      lines.push(`• 예산 범위: ${flow.budgetRange}`);
-    }
-    if (flow.needsPickup !== null) {
-      lines.push(`• 픽업 필요: ${flow.needsPickup ? '예' : '아니오'}`);
-    }
-
-    lines.push('');
-
-    // 처리 결과
-    lines.push(
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    );
-    lines.push('⚙️ 처리 내용');
-    lines.push(
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    );
-
-    if (template) {
-      const requestedDays = flow.duration || 3;
-      if (template.travelDays < requestedDays) {
-        lines.push(
-          `• 일수 조정: ${template.travelDays}일 템플릿 → ${requestedDays}일 (Day ${template.travelDays + 1}~${requestedDays} TBD 추가)`,
-        );
-      } else if (template.travelDays === requestedDays) {
-        lines.push('• 일수 조정: 없음 (정확히 일치)');
-      } else {
-        lines.push(
-          `• 일수 조정: ${template.travelDays}일 템플릿 (요청보다 ${template.travelDays - requestedDays}일 많음)`,
-        );
-      }
-
-      if (flow.attractions?.length) {
-        lines.push(
-          `• 사용자 명소 반영: ${flow.attractions.length}개 추가 시도`,
-        );
-      }
-    }
+    if (flow.interestMain?.length) lines.push(`• 관심사(주): ${flow.interestMain.join(', ')}`);
+    if (flow.interestSub?.length) lines.push(`• 관심사(부): ${flow.interestSub.join(', ')}`);
+    if (flow.attractions?.length) lines.push(`• 희망 명소: ${flow.attractions.join(', ')}`);
+    if (flow.isFirstVisit !== null) lines.push(`• 첫 방문: ${flow.isFirstVisit ? '예' : '아니오'}`);
+    if (flow.budgetRange) lines.push(`• 예산: ${flow.budgetRange}`);
+    if (flow.needsPickup) lines.push('• 공항 픽업 필요');
+    if (flow.additionalNotes) lines.push(`• 추가 요청: ${flow.additionalNotes}`);
 
     return lines.join('\n');
   }

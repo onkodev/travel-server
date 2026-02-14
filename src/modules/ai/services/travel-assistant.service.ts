@@ -5,14 +5,11 @@ import {
   extractJsonAndText,
 } from '../core/response-parser.util';
 import {
-  TRAVEL_ASSISTANT_SYSTEM_PROMPT,
-  TRAVEL_ASSISTANT_CONFIG,
-  RANK_RECOMMENDATIONS_PROMPT,
-  RANK_RECOMMENDATIONS_CONFIG,
   buildContextInfo,
   TravelAssistantContext,
-  RankRecommendationsParams,
 } from '../prompts/conversation.prompts';
+import { AiPromptService } from '../../ai-prompt/ai-prompt.service';
+import { PromptKey } from '../../ai-prompt/prompt-registry';
 import { AvailableItem } from '../types';
 
 export interface ChatResponse {
@@ -36,11 +33,11 @@ export interface RankedItem {
 export class TravelAssistantService {
   private readonly logger = new Logger(TravelAssistantService.name);
 
-  constructor(private geminiCore: GeminiCoreService) {}
+  constructor(
+    private geminiCore: GeminiCoreService,
+    private aiPromptService: AiPromptService,
+  ) {}
 
-  /**
-   * 여행 도우미 대화형 응답 생성
-   */
   async chat(params: {
     userMessage: string;
     context?: TravelAssistantContext;
@@ -52,21 +49,23 @@ export class TravelAssistantService {
     const { userMessage, context, conversationHistory } = params;
 
     const contextInfo = buildContextInfo(context);
-    const systemPrompt = TRAVEL_ASSISTANT_SYSTEM_PROMPT({ contextInfo });
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.TRAVEL_ASSISTANT,
+      { contextInfo: contextInfo ? `\nUser's trip context:\n${contextInfo}` : '' },
+    );
 
-    // 대화 기록을 Gemini 형식으로 변환
     const history = conversationHistory?.map((msg) => ({
       role: msg.role === 'user' ? 'user' : 'model',
       parts: [{ text: msg.content }],
     }));
 
     const text = await this.geminiCore.callGemini(userMessage, {
-      ...TRAVEL_ASSISTANT_CONFIG,
-      systemPrompt,
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
+      systemPrompt: built.text,
       history,
     });
 
-    // 응답과 JSON 분리
     const { textContent, jsonContent } = extractJsonAndText(text);
 
     const response = textContent || text;
@@ -87,9 +86,6 @@ export class TravelAssistantService {
     return { response, intent, modificationData };
   }
 
-  /**
-   * 장소 추천 (사용자에게 보여줄 추천 목록 생성)
-   */
   async rankRecommendations(params: {
     availableItems: AvailableItem[];
     userRequest: string;
@@ -107,18 +103,20 @@ export class TravelAssistantService {
       )
       .join('\n');
 
-    const promptParams: RankRecommendationsParams = {
-      itemList,
-      userRequest,
-      interests: interests.join(', '),
-      limit,
-    };
-
-    const prompt = RANK_RECOMMENDATIONS_PROMPT(promptParams);
-    const text = await this.geminiCore.callGemini(
-      prompt,
-      RANK_RECOMMENDATIONS_CONFIG,
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.RANK_RECOMMENDATIONS,
+      {
+        itemList,
+        userRequest,
+        interests: interests.join(', '),
+        limit: String(limit),
+      },
     );
+
+    const text = await this.geminiCore.callGemini(built.text, {
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
+    });
 
     return parseJsonResponse(text, []);
   }

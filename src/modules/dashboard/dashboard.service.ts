@@ -173,8 +173,8 @@ export class DashboardService {
         (SELECT COUNT(*) FROM bookings WHERE status = 'confirmed') as confirmed_bookings,
         (SELECT COUNT(*) FROM bookings WHERE booking_date >= ${today} AND status != 'cancelled') as upcoming_bookings,
         -- 채팅 통계
-        (SELECT COUNT(*) FROM chatbot_flows) as total_chats,
-        (SELECT COUNT(*) FROM chatbot_flows WHERE is_completed = true) as completed_chats,
+        (SELECT COUNT(*) FROM chat_sessions) as total_chats,
+        (SELECT COUNT(*) FROM chat_sessions WHERE is_completed = true) as completed_chats,
         -- 아이템 통계
         (SELECT COUNT(*) FROM items) as total_items,
         (SELECT COUNT(*) FROM items WHERE type = 'place') as place_count,
@@ -182,8 +182,8 @@ export class DashboardService {
         (SELECT COUNT(*) FROM items WHERE type = 'transportation') as transportation_count,
         (SELECT COUNT(*) FROM items WHERE type = 'contents') as contents_count,
         -- 전환 퍼널
-        (SELECT COUNT(*) FROM chatbot_flows WHERE created_at >= ${thirtyDaysAgo}) as funnel_chatbot,
-        (SELECT COUNT(*) FROM chatbot_flows WHERE created_at >= ${thirtyDaysAgo} AND estimate_id IS NOT NULL) as funnel_estimate,
+        (SELECT COUNT(*) FROM chat_sessions WHERE created_at >= ${thirtyDaysAgo}) as funnel_chatbot,
+        (SELECT COUNT(*) FROM chat_sessions WHERE created_at >= ${thirtyDaysAgo} AND estimate_id IS NOT NULL) as funnel_estimate,
         (SELECT COUNT(*) FROM bookings WHERE created_at >= ${thirtyDaysAgo}) as funnel_booking,
         (SELECT COUNT(*) FROM bookings WHERE created_at >= ${thirtyDaysAgo} AND status IN ('confirmed', 'completed')) as funnel_confirmed
     `;
@@ -349,7 +349,7 @@ export class DashboardService {
       `,
       this.prisma.$queryRaw<Array<{ date: Date; count: bigint }>>`
         SELECT DATE(created_at) as date, COUNT(*) as count
-        FROM chatbot_flows
+        FROM chat_sessions
         WHERE created_at >= ${thirtyDaysAgo}
         GROUP BY DATE(created_at)
       `,
@@ -444,10 +444,11 @@ export class DashboardService {
         count: bigint;
       }>
     >`
-      SELECT country, country_name, COUNT(*) as count
-      FROM chatbot_flows
-      WHERE country IS NOT NULL
-      GROUP BY country, country_name
+      SELECT vs.country, vs.country_name, COUNT(*) as count
+      FROM chat_sessions cs
+      JOIN visitor_sessions vs ON cs.visitor_id = vs.id
+      WHERE vs.country IS NOT NULL
+      GROUP BY vs.country, vs.country_name
       ORDER BY COUNT(*) DESC
       LIMIT 10
     `;
@@ -520,8 +521,8 @@ export class DashboardService {
       }>
     >`
       SELECT
-        (SELECT COUNT(*) FROM chatbot_flows WHERE created_at >= ${thirtyDaysAgo}) as chatbot_started,
-        (SELECT COUNT(*) FROM chatbot_flows WHERE created_at >= ${thirtyDaysAgo} AND estimate_id IS NOT NULL) as estimate_created,
+        (SELECT COUNT(*) FROM chat_sessions WHERE created_at >= ${thirtyDaysAgo}) as chatbot_started,
+        (SELECT COUNT(*) FROM chat_sessions WHERE created_at >= ${thirtyDaysAgo} AND estimate_id IS NOT NULL) as estimate_created,
         (SELECT COUNT(*) FROM bookings WHERE created_at >= ${thirtyDaysAgo}) as booking_created,
         (SELECT COUNT(*) FROM bookings WHERE created_at >= ${thirtyDaysAgo} AND status IN ('confirmed', 'completed')) as booking_confirmed
     `;
@@ -569,7 +570,7 @@ export class DashboardService {
       }>
     >`
       SELECT tour_type, COUNT(*) as count
-      FROM chatbot_flows
+      FROM chat_sessions
       WHERE tour_type IS NOT NULL
       GROUP BY tour_type
       ORDER BY COUNT(*) DESC

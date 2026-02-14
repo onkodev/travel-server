@@ -18,9 +18,10 @@ import { TourApiService } from './tour-api.service';
 // Module imports
 import { ItemModule } from '../item/item.module';
 import { FileUploadModule } from '../file-upload/file-upload.module';
+import { AiPromptModule } from '../ai-prompt/ai-prompt.module';
 
 @Module({
-  imports: [ItemModule, FileUploadModule],
+  imports: [ItemModule, FileUploadModule, AiPromptModule],
   controllers: [AiController],
   providers: [
     // Core

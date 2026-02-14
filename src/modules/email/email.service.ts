@@ -16,12 +16,17 @@ export class EmailService {
   private replyToEmail: string;
 
   constructor(private configService: ConfigService) {
+    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY');
+    const secretAccessKey = this.configService.get<string>('AWS_SECRET_KEY');
+    if (!accessKeyId || !secretAccessKey) {
+      this.logger.warn('AWS credentials not configured — email sending will fail.');
+    }
     this.sesClient = new SESClient({
       region:
         this.configService.get<string>('AWS_SES_REGION') || 'ap-northeast-2',
       credentials: {
-        accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY') || '',
-        secretAccessKey: this.configService.get<string>('AWS_SECRET_KEY') || '',
+        accessKeyId: accessKeyId || '',
+        secretAccessKey: secretAccessKey || '',
       },
     });
     this.fromEmail =

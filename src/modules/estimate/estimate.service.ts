@@ -15,6 +15,8 @@ import {
   toDateTime,
   omit,
   sanitizeSearch,
+  extractImageUrls,
+  MemoryCache,
 } from '../../common/utils';
 import { CreateEstimateDto } from './dto/estimate-create.dto';
 import { UpdateEstimateDto } from './dto/estimate-update.dto';
@@ -54,6 +56,8 @@ export class EstimateService {
   // Item 정보 캐시 (enrichEstimateItems용)
   private itemCache: ItemCacheEntry | null = null;
   private readonly ITEM_CACHE_TTL = 30 * 60 * 1000; // 30분
+  // 통계 캐시 (2분 TTL)
+  private statsCache = new MemoryCache(2 * 60 * 1000);
 
   constructor(
     private prisma: PrismaService,
@@ -155,13 +159,12 @@ export class EstimateService {
       }
     }
 
-    // 검색
+    // 검색 (customerEmail 제외 — 프라이버시)
     const sanitized = sanitizeSearch(search);
     if (sanitized) {
       where.OR = [
         { title: { contains: sanitized, mode: 'insensitive' } },
         { customerName: { contains: sanitized, mode: 'insensitive' } },
-        { customerEmail: { contains: sanitized, mode: 'insensitive' } },
       ];
     }
 
@@ -212,6 +215,7 @@ export class EstimateService {
           currency: true,
           isPinned: true,
           chatSessionId: true,
+          aiMetadata: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -240,20 +244,6 @@ export class EstimateService {
     // 아이템 정보 보강 (itemInfo가 없는 경우)
     const enrichedEstimate = await this.enrichEstimateItems(estimate);
     return convertDecimalFields(enrichedEstimate);
-  }
-
-  // 이미지 배열에서 URL 문자열 배열로 변환하는 헬퍼
-  private extractImageUrls(images: unknown): string[] {
-    if (!images || !Array.isArray(images)) return [];
-    return images
-      .map((img) => {
-        if (typeof img === 'string') return img;
-        if (typeof img === 'object' && img !== null && 'url' in img) {
-          return (img as { url: string }).url;
-        }
-        return null;
-      })
-      .filter((url): url is string => Boolean(url));
   }
 
   // 아이템 정보 보강 헬퍼 (캐싱 적용)
@@ -322,7 +312,7 @@ export class EstimateService {
     // 아이템 정보 보강 + 이미지 포맷 정규화
     const enrichedItems = items.map((item) => {
       // 이미지 포맷 정규화 (항상 수행 - 객체 형식 → 문자열 배열 변환)
-      const normalizedImages = this.extractImageUrls(item.itemInfo?.images);
+      const normalizedImages = extractImageUrls(item.itemInfo?.images);
 
       // itemId가 없으면 이미지만 정규화하고 반환
       if (!item.itemId) {
@@ -355,7 +345,7 @@ export class EstimateService {
       }
 
       // DB 이미지 추출
-      const dbImages = this.extractImageUrls(itemRecord.images);
+      const dbImages = extractImageUrls(itemRecord.images);
 
       // itemInfo가 없거나 정보가 부족한 경우 전체 보강
       if (
@@ -414,8 +404,8 @@ export class EstimateService {
       const todayKST = toDateStr(new Date());
       const validDateKST = toDateStr(new Date(estimate.validDate));
 
-      this.logger.log(
-        `[유효기간 체크] today=${todayKST}, validDate=${validDateKST}, raw=${estimate.validDate}, expired=${todayKST > validDateKST}`,
+      this.logger.debug(
+        `[유효기간 체크] today=${todayKST}, validDate=${validDateKST}, expired=${todayKST > validDateKST}`,
       );
 
       if (todayKST > validDateKST) {
@@ -434,7 +424,16 @@ export class EstimateService {
 
     // 아이템 정보 보강 (itemInfo가 없는 경우)
     const enrichedEstimate = await this.enrichEstimateItems(updated);
-    return convertDecimalFields(enrichedEstimate);
+    const safe = convertDecimalFields(enrichedEstimate);
+
+    // 공개 접근 — 민감 필드 제거
+    const { customerEmail, customerPhone, ...publicEstimate } = safe;
+    return {
+      ...publicEstimate,
+      customerName: safe.customerName
+        ? safe.customerName.charAt(0) + '***'
+        : null,
+    };
   }
 
   // 견적 생성
@@ -489,6 +488,7 @@ export class EstimateService {
     const estimate = await this.prisma.estimate.create({
       data: prismaData,
     });
+    this.invalidateStatsCache();
     return convertDecimalFields(estimate);
   }
 
@@ -582,14 +582,17 @@ export class EstimateService {
       },
     });
 
+    this.invalidateStatsCache();
     return convertDecimalFields(estimate);
   }
 
   // 견적 삭제
   async deleteEstimate(id: number) {
-    return this.prisma.estimate.delete({
+    const result = await this.prisma.estimate.delete({
       where: { id },
     });
+    this.invalidateStatsCache();
+    return result;
   }
 
   // 견적 발송 처리
@@ -643,6 +646,15 @@ export class EstimateService {
             `Failed to send estimate email to ${estimate.customerEmail}:`,
             error,
           );
+          // internalMemo에 실패 기록 (관리자 대시보드에서 확인 가능)
+          this.prisma.estimate
+            .update({
+              where: { id: estimate.id },
+              data: {
+                internalMemo: `[자동] 이메일 발송 실패: ${error.message?.substring(0, 200) || 'unknown'}`,
+              },
+            })
+            .catch(() => {});
         });
     }
 
@@ -681,8 +693,16 @@ export class EstimateService {
     return convertDecimalFields(updatedEstimate);
   }
 
+  // 통계 캐시 무효화
+  private invalidateStatsCache(): void {
+    this.statsCache.deleteByPrefix('stats_');
+  }
+
   // 견적 통계
   async getStats() {
+    const cached = this.statsCache.get<{ total: number; pending: number; sent: number; completed: number }>('stats_overall');
+    if (cached) return cached;
+
     const [total, pending, sent, completed] = await Promise.all([
       this.prisma.estimate.count(),
       this.prisma.estimate.count({
@@ -706,11 +726,16 @@ export class EstimateService {
       }),
     ]);
 
-    return { total, pending, sent, completed };
+    const result = { total, pending, sent, completed };
+    this.statsCache.set('stats_overall', result);
+    return result;
   }
 
   // 수동 견적 상태별 통계 (SQL 최적화 버전)
   async getManualStats() {
+    const cached = this.statsCache.get<Record<string, unknown>>('stats_manual');
+    if (cached) return cached;
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const fiveDaysLater = new Date(today);
@@ -760,15 +785,20 @@ export class EstimateService {
       else stats.planning += item._count.id; // planning 및 기타 상태
     });
 
-    return {
+    const result = {
       total,
       ...stats,
       upcoming: upcomingCount,
     };
+    this.statsCache.set('stats_manual', result);
+    return result;
   }
 
   // AI 견적 상태별 통계 (SQL 최적화 버전)
   async getAIStats() {
+    const cached = this.statsCache.get<Record<string, unknown>>('stats_ai');
+    if (cached) return cached;
+
     // SQL groupBy로 직접 집계 (전체 레코드를 가져오지 않음)
     const [statusCounts, total] = await Promise.all([
       this.prisma.estimate.groupBy({
@@ -800,14 +830,18 @@ export class EstimateService {
       }
     });
 
-    return { total, ...stats };
+    const result = { total, ...stats };
+    this.statsCache.set('stats_ai', result);
+    return result;
   }
 
   // 수동 견적 상태 변경
   async updateManualStatus(id: number, status: string) {
     const updates: Prisma.EstimateUpdateInput = { statusManual: status };
     if (status === 'completed') updates.completedAt = new Date();
-    return this.prisma.estimate.update({ where: { id }, data: updates });
+    const result = await this.prisma.estimate.update({ where: { id }, data: updates });
+    this.invalidateStatsCache();
+    return result;
   }
 
   // AI 견적 상태 변경
@@ -821,6 +855,8 @@ export class EstimateService {
       where: { id },
       data: updates,
     });
+
+    this.invalidateStatsCache();
 
     // SSE 이벤트 발행 (채팅 세션이 연결된 경우)
     if (estimate.chatSessionId) {
@@ -895,11 +931,12 @@ export class EstimateService {
       displayOptions,
       timeline,
       revisionHistory: _rh,
+      aiMetadata,
       ...copyData
     } = original;
 
     // JsonValue null 처리 헬퍼
-    const toJsonInput = (value: Prisma.JsonValue) =>
+    const toJsonInput = (value: Prisma.JsonValue | null) =>
       value === null ? Prisma.JsonNull : value;
 
     const createData: Prisma.EstimateUncheckedCreateInput = {
@@ -907,6 +944,7 @@ export class EstimateService {
       items: toJsonInput(items),
       displayOptions: toJsonInput(displayOptions),
       timeline: toJsonInput(timeline),
+      aiMetadata: toJsonInput(aiMetadata),
       title: `${original.title}_copy`,
       shareHash: randomBytes(16).toString('hex'),
       statusManual: 'planning',
@@ -962,16 +1000,389 @@ export class EstimateService {
     return { prevId: prev?.id ?? null, nextId: next?.id ?? null };
   }
 
+  // 견적 요약 배치 조회
+  async getEstimateSummaries(ids: number[]) {
+    if (ids.length === 0) return [];
+
+    const estimates = await this.prisma.estimate.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        title: true,
+        statusManual: true,
+        statusAi: true,
+        source: true,
+        customerName: true,
+        customerEmail: true,
+        regions: true,
+        startDate: true,
+        endDate: true,
+        travelDays: true,
+        adultsCount: true,
+        childrenCount: true,
+        infantsCount: true,
+        totalAmount: true,
+        currency: true,
+        createdAt: true,
+      },
+    });
+
+    return estimates.map(convertDecimalFields);
+  }
+
+  // TBD 수동 매칭 해결
+  async resolveTbdItem(estimateId: number, itemIndex: number, itemId: number) {
+    // 읽기 전용 조회 (트랜잭션 밖)
+    const estimate = await this.prisma.estimate.findUnique({
+      where: { id: estimateId },
+    });
+    if (!estimate) throw new NotFoundException('견적을 찾을 수 없습니다');
+
+    // JSON items - use Record type for flexibility
+    const items = estimate.items as unknown as Record<string, unknown>[];
+    if (itemIndex < 0 || itemIndex >= items.length) {
+      throw new NotFoundException('아이템 인덱스가 유효하지 않습니다');
+    }
+    if (!items[itemIndex].isTbd) {
+      throw new NotFoundException('해당 아이템은 TBD가 아닙니다');
+    }
+
+    // DB에서 장소 조회
+    const place = await this.prisma.item.findUnique({
+      where: { id: itemId },
+      select: {
+        id: true, nameKor: true, nameEng: true, descriptionEng: true,
+        images: true, lat: true, lng: true, addressEnglish: true, price: true,
+      },
+    });
+    if (!place) throw new NotFoundException('장소를 찾을 수 없습니다');
+
+    // 기존 이름 저장 (SuggestedPlace 업데이트용)
+    const tbdName = (items[itemIndex].itemName || items[itemIndex].name || items[itemIndex].nameEng) as string | undefined;
+
+    // 아이템 업데이트
+    items[itemIndex] = {
+      ...items[itemIndex],
+      isTbd: false,
+      itemId: place.id,
+      itemName: place.nameKor || place.nameEng,
+      name: place.nameKor,
+      nameEng: place.nameEng,
+      itemInfo: {
+        nameKor: place.nameKor,
+        nameEng: place.nameEng,
+        descriptionEng: place.descriptionEng || undefined,
+        images: extractImageUrls(place.images),
+        lat: Number(place.lat),
+        lng: Number(place.lng),
+        addressEnglish: place.addressEnglish || undefined,
+      },
+    };
+
+    // aiMetadata 업데이트
+    const aiMetadata = (estimate.aiMetadata as Record<string, unknown>) || {};
+    const itemMatching = (aiMetadata.itemMatching as Record<string, unknown>) || {};
+    if (typeof itemMatching.tbdCount === 'number') itemMatching.tbdCount--;
+    if (typeof itemMatching.matchedCount === 'number') itemMatching.matchedCount++;
+    aiMetadata.itemMatching = itemMatching;
+
+    // confidenceScore 재계산 (간이)
+    const totalDraft = (itemMatching.totalDraftItems as number) || items.length;
+    const matchedCount = (itemMatching.matchedCount as number) || 0;
+    const tbdCount = (itemMatching.tbdCount as number) || 0;
+    const matchRate = matchedCount / (totalDraft || 1);
+    const tbdRate = tbdCount / (totalDraft || 1);
+    const ragSources = ((aiMetadata.ragSearch as Record<string, unknown>)?.sources as Array<{ similarity: number }>) || [];
+    const avgSim = ragSources.slice(0, 3).reduce((s, r) => s + (r.similarity || 0), 0) / (Math.min(ragSources.length, 3) || 1);
+    aiMetadata.confidenceScore = Math.round(Math.min(100, Math.max(0,
+      ((0.35 * matchRate) + (0.25 * avgSim) + (0.20 * 0.5) + (0.20 * (1 - tbdRate))) * 100
+    )));
+
+    // 쓰기 작업은 $transaction으로 래핑 (estimate + SuggestedPlace 원자적 업데이트)
+    await this.prisma.$transaction(async (tx) => {
+      await tx.estimate.update({
+        where: { id: estimateId },
+        data: {
+          items: items as unknown as Prisma.InputJsonValue,
+          aiMetadata: aiMetadata as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+      // SuggestedPlace 업데이트 (트랜잭션 내에서 실패하면 전체 롤백)
+      if (tbdName) {
+        await tx.suggestedPlace.updateMany({
+          where: { name: tbdName, status: 'pending' },
+          data: { linkedItemId: itemId, status: 'resolved', resolveMethod: 'manual' },
+        });
+      }
+    });
+
+    return this.getEstimate(estimateId);
+  }
+
+  // Suggested Places 조회
+  async getSuggestedPlaces(query: {
+    status?: string;
+    sort?: string;
+    limit?: number;
+  }) {
+    const validStatuses = ['pending', 'resolved', 'rejected'];
+    const validSorts = ['count', 'recent'];
+
+    const where: Prisma.SuggestedPlaceWhereInput = {};
+    if (query.status && validStatuses.includes(query.status)) {
+      where.status = query.status;
+    }
+
+    const orderBy: Prisma.SuggestedPlaceOrderByWithRelationInput =
+      (query.sort && validSorts.includes(query.sort) && query.sort === 'recent')
+        ? { lastSeenAt: 'desc' }
+        : { count: 'desc' };
+
+    const take = Math.min(Math.max(query.limit || 50, 1), 200);
+
+    const places = await this.prisma.suggestedPlace.findMany({
+      where,
+      orderBy,
+      take,
+    });
+
+    return places;
+  }
+
+  // Suggested Place 일괄 해결
+  async resolveSuggestedPlace(suggestedPlaceId: number, itemId: number) {
+    const sp = await this.prisma.suggestedPlace.findUnique({
+      where: { id: suggestedPlaceId },
+    });
+    if (!sp) throw new NotFoundException('Suggested place를 찾을 수 없습니다');
+
+    // 장소 조회
+    const place = await this.prisma.item.findUnique({
+      where: { id: itemId },
+      select: {
+        id: true, nameKor: true, nameEng: true, descriptionEng: true,
+        images: true, lat: true, lng: true, addressEnglish: true, price: true,
+      },
+    });
+    if (!place) throw new NotFoundException('장소를 찾을 수 없습니다');
+
+    // 해당 장소가 있는 모든 견적의 TBD 아이템 일괄 해결
+    let resolvedCount = 0;
+    const updates: Prisma.PrismaPromise<unknown>[] = [];
+    if (sp.estimateIds.length > 0) {
+      const estimates = await this.prisma.estimate.findMany({
+        where: { id: { in: sp.estimateIds } },
+      });
+
+      for (const estimate of estimates) {
+        const items = estimate.items as unknown as Record<string, unknown>[];
+        let modified = false;
+
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.isTbd && (item.itemName === sp.name || item.name === sp.name || item.nameEng === sp.name)) {
+            items[i] = {
+              ...item,
+              isTbd: false,
+              itemId: place.id,
+              itemName: place.nameKor || place.nameEng,
+              name: place.nameKor,
+              nameEng: place.nameEng,
+              itemInfo: {
+                nameKor: place.nameKor,
+                nameEng: place.nameEng,
+                descriptionEng: place.descriptionEng || undefined,
+                images: extractImageUrls(place.images),
+                lat: Number(place.lat),
+                lng: Number(place.lng),
+                addressEnglish: place.addressEnglish || undefined,
+              },
+            };
+            modified = true;
+            resolvedCount++;
+          }
+        }
+
+        if (modified) {
+          updates.push(
+            this.prisma.estimate.update({
+              where: { id: estimate.id },
+              data: { items: items as unknown as Prisma.InputJsonValue },
+            }),
+          );
+        }
+      }
+
+      if (updates.length > 0) {
+        await this.prisma.$transaction(updates);
+      }
+    }
+
+    // SuggestedPlace 업데이트
+    await this.prisma.suggestedPlace.update({
+      where: { id: suggestedPlaceId },
+      data: { linkedItemId: itemId, status: 'resolved', resolveMethod: 'manual_bulk' },
+    });
+
+    return { resolved: resolvedCount, suggestedPlaceId, itemId };
+  }
+
+  // Suggested Place 거부
+  async rejectSuggestedPlace(suggestedPlaceId: number) {
+    await this.prisma.suggestedPlace.update({
+      where: { id: suggestedPlaceId },
+      data: { status: 'rejected' },
+    });
+    return { success: true };
+  }
+
+  // RAG 품질 통계
+  async getRagQualityStats(query: { from?: string; to?: string }) {
+    const where: Prisma.EstimateWhereInput = {
+      source: 'ai',
+      aiMetadata: { not: Prisma.JsonNull },
+    };
+
+    if (query.from || query.to) {
+      where.createdAt = {};
+      if (query.from) where.createdAt.gte = new Date(query.from);
+      if (query.to) {
+        const endDate = new Date(query.to);
+        endDate.setHours(23, 59, 59, 999);
+        where.createdAt.lte = endDate;
+      }
+    }
+
+    const estimates = await this.prisma.estimate.findMany({
+      where,
+      select: { aiMetadata: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    // 집계
+    let totalConfidence = 0;
+    let confidenceCount = 0;
+    let totalMatchRate = 0;
+    let totalTbdRate = 0;
+    let matchRateCount = 0;
+    let totalRagSimilarity = 0;
+    let ragSimCount = 0;
+    const tierCounts: Record<string, number> = { geminiId: 0, exact: 0, partial: 0, fuzzy: 0, tbd: 0 };
+    const emailRefCounts: Record<string, { subject: string | null; count: number; totalSim: number }> = {};
+    const interestMatchRates: Record<string, { matched: number; total: number }> = {};
+
+    // 일별 추이 데이터
+    const dailyData: Record<string, { confidence: number[]; matchRate: number[] }> = {};
+
+    for (const est of estimates) {
+      const meta = est.aiMetadata as Record<string, unknown>;
+      if (!meta) continue;
+
+      const dateKey = est.createdAt ? est.createdAt.toISOString().slice(0, 10) : 'unknown';
+      if (!dailyData[dateKey]) dailyData[dateKey] = { confidence: [], matchRate: [] };
+
+      // 신뢰도 점수
+      if (typeof meta.confidenceScore === 'number') {
+        totalConfidence += meta.confidenceScore;
+        confidenceCount++;
+        dailyData[dateKey].confidence.push(meta.confidenceScore);
+      }
+
+      // 매칭 통계
+      const matching = meta.itemMatching as Record<string, unknown> | undefined;
+      if (matching) {
+        const total = (matching.totalDraftItems as number) || 0;
+        const matched = (matching.matchedCount as number) || 0;
+        const tbd = (matching.tbdCount as number) || 0;
+
+        if (total > 0) {
+          totalMatchRate += matched / total;
+          totalTbdRate += tbd / total;
+          matchRateCount++;
+          dailyData[dateKey].matchRate.push(matched / total);
+        }
+
+        // tier 분포
+        const matchedItems = (matching.matchedItems as Array<{ tier?: string }>) || [];
+        for (const item of matchedItems) {
+          if (item.tier && tierCounts[item.tier] !== undefined) {
+            tierCounts[item.tier]++;
+          }
+        }
+        tierCounts.tbd += tbd;
+      }
+
+      // RAG 소스
+      const ragSearch = meta.ragSearch as Record<string, unknown> | undefined;
+      if (ragSearch) {
+        const sources = (ragSearch.sources as Array<{ emailThreadId: number; subject: string | null; similarity: number }>) || [];
+        for (const src of sources) {
+          totalRagSimilarity += src.similarity;
+          ragSimCount++;
+
+          const key = String(src.emailThreadId);
+          if (!emailRefCounts[key]) {
+            emailRefCounts[key] = { subject: src.subject, count: 0, totalSim: 0 };
+          }
+          emailRefCounts[key].count++;
+          emailRefCounts[key].totalSim += src.similarity;
+        }
+      }
+    }
+
+    // 일별 추이 (avgMatchRate를 0-1 소수로 통일)
+    const dailyTrends = Object.entries(dailyData)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, data]) => ({
+        date,
+        avgConfidence: data.confidence.length > 0
+          ? Math.round(data.confidence.reduce((a, b) => a + b, 0) / data.confidence.length)
+          : null,
+        avgMatchRate: data.matchRate.length > 0
+          ? Math.round((data.matchRate.reduce((a, b) => a + b, 0) / data.matchRate.length) * 1000) / 1000
+          : null,
+        count: data.confidence.length || data.matchRate.length,
+      }));
+
+    // 이메일 top 10
+    const topEmails = Object.entries(emailRefCounts)
+      .sort(([, a], [, b]) => b.count - a.count)
+      .slice(0, 10)
+      .map(([threadId, data]) => ({
+        emailThreadId: Number(threadId),
+        subject: data.subject,
+        refCount: data.count,
+        avgSimilarity: Math.round((data.totalSim / data.count) * 1000) / 1000,
+      }));
+
+    return {
+      totalEstimates: estimates.length,
+      avgConfidenceScore: confidenceCount > 0 ? Math.round(totalConfidence / confidenceCount) : null,
+      avgMatchRate: matchRateCount > 0 ? Math.round((totalMatchRate / matchRateCount) * 1000) / 1000 : null,
+      avgTbdRate: matchRateCount > 0 ? Math.round((totalTbdRate / matchRateCount) * 1000) / 1000 : null,
+      avgRagSimilarity: ragSimCount > 0 ? Math.round((totalRagSimilarity / ragSimCount) * 1000) / 1000 : null,
+      tierDistribution: tierCounts,
+      topEmails,
+      dailyTrends,
+    };
+  }
+
   // 일괄 삭제
   async bulkDelete(ids: number[]) {
-    return this.prisma.estimate.deleteMany({ where: { id: { in: ids } } });
+    const result = await this.prisma.estimate.deleteMany({ where: { id: { in: ids } } });
+    this.invalidateStatsCache();
+    return result;
   }
 
   // 일괄 상태 변경
   async bulkUpdateStatus(ids: number[], status: string) {
-    return this.prisma.estimate.updateMany({
+    const result = await this.prisma.estimate.updateMany({
       where: { id: { in: ids } },
       data: { statusManual: status },
     });
+    this.invalidateStatsCache();
+    return result;
   }
 }

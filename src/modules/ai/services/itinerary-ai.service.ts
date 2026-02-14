@@ -1,20 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GeminiCoreService } from '../core/gemini-core.service';
 import { parseJsonResponse } from '../core/response-parser.util';
-import {
-  MODIFICATION_INTENT_PROMPT,
-  MODIFICATION_INTENT_CONFIG,
-  SELECT_BEST_ITEM_PROMPT,
-  SELECT_BEST_ITEM_CONFIG,
-  SELECT_MULTIPLE_ITEMS_PROMPT,
-  SELECT_MULTIPLE_ITEMS_CONFIG,
-  DAY_TIMELINE_PROMPT,
-  DAY_TIMELINE_CONFIG,
-  ModificationIntentParams,
-  SelectBestItemParams,
-  SelectMultipleItemsParams,
-  DayTimelineParams,
-} from '../prompts/itinerary.prompts';
+import { AiPromptService } from '../../ai-prompt/ai-prompt.service';
+import { PromptKey } from '../../ai-prompt/prompt-registry';
 import { AvailableItem, TimelineItem } from '../types';
 
 export interface ModificationIntent {
@@ -43,11 +31,11 @@ export type { AvailableItem, TimelineItem };
 export class ItineraryAiService {
   private readonly logger = new Logger(ItineraryAiService.name);
 
-  constructor(private geminiCore: GeminiCoreService) {}
+  constructor(
+    private geminiCore: GeminiCoreService,
+    private aiPromptService: AiPromptService,
+  ) {}
 
-  /**
-   * 일정 수정 의도 파싱
-   */
   async parseModificationIntent(params: {
     userMessage: string;
     currentItinerary: Array<{ dayNumber: number; name: string; type: string }>;
@@ -60,18 +48,20 @@ export class ItineraryAiService {
       .map((item) => `Day ${item.dayNumber}: ${item.name} (${item.type})`)
       .join('\n');
 
-    const promptParams: ModificationIntentParams = {
-      itineraryText,
-      interests: interests?.join(', ') || 'Not specified',
-      region: region || 'Not specified',
-      userMessage,
-    };
-
-    const prompt = MODIFICATION_INTENT_PROMPT(promptParams);
-    const text = await this.geminiCore.callGemini(
-      prompt,
-      MODIFICATION_INTENT_CONFIG,
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.MODIFICATION_INTENT,
+      {
+        itineraryText,
+        interests: interests?.join(', ') || 'Not specified',
+        region: region || 'Not specified',
+        userMessage,
+      },
     );
+
+    const text = await this.geminiCore.callGemini(built.text, {
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
+    });
 
     const defaultResult: ModificationIntent = {
       action: 'general_feedback',
@@ -82,9 +72,6 @@ export class ItineraryAiService {
     return parseJsonResponse(text, defaultResult);
   }
 
-  /**
-   * DB Item 목록에서 최적의 아이템 선택
-   */
   async selectBestItem(params: {
     availableItems: AvailableItem[];
     userRequest: string;
@@ -102,25 +89,24 @@ export class ItineraryAiService {
       )
       .join('\n');
 
-    const promptParams: SelectBestItemParams = {
-      itemList,
-      userRequest,
-      interests: interests.join(', '),
-      context,
-    };
-
-    const prompt = SELECT_BEST_ITEM_PROMPT(promptParams);
-    const text = await this.geminiCore.callGemini(
-      prompt,
-      SELECT_BEST_ITEM_CONFIG,
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.SELECT_BEST_ITEM,
+      {
+        itemList,
+        userRequest,
+        interests: interests.join(', '),
+        context: context ? `Context: ${context}` : '',
+      },
     );
+
+    const text = await this.geminiCore.callGemini(built.text, {
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
+    });
 
     return parseJsonResponse(text, null);
   }
 
-  /**
-   * DB Item 목록에서 여러 아이템 선택 (일차 재생성용)
-   */
   async selectMultipleItems(params: {
     availableItems: AvailableItem[];
     count: number;
@@ -139,26 +125,25 @@ export class ItineraryAiService {
       )
       .join('\n');
 
-    const promptParams: SelectMultipleItemsParams = {
-      itemList,
-      count,
-      interests: interests.join(', '),
-      dayNumber,
-      region,
-    };
-
-    const prompt = SELECT_MULTIPLE_ITEMS_PROMPT(promptParams);
-    const text = await this.geminiCore.callGemini(
-      prompt,
-      SELECT_MULTIPLE_ITEMS_CONFIG,
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.SELECT_MULTIPLE_ITEMS,
+      {
+        dayNumber: String(dayNumber),
+        region,
+        interests: interests.join(', '),
+        count: String(count),
+        itemList,
+      },
     );
+
+    const text = await this.geminiCore.callGemini(built.text, {
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
+    });
 
     return parseJsonResponse(text, []);
   }
 
-  /**
-   * 단일 일차 타임라인 생성
-   */
   async generateDayTimeline(params: {
     dayNumber: number;
     items: TimelineItem[];
@@ -174,13 +159,15 @@ export class ItineraryAiService {
       .map((item) => `- ${item.name} (${item.type})`)
       .join('\n');
 
-    const promptParams: DayTimelineParams = {
-      dayNumber,
-      itemList,
-    };
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.DAY_TIMELINE,
+      { dayNumber: String(dayNumber), itemList },
+    );
 
-    const prompt = DAY_TIMELINE_PROMPT(promptParams);
-    const text = await this.geminiCore.callGemini(prompt, DAY_TIMELINE_CONFIG);
+    const text = await this.geminiCore.callGemini(built.text, {
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
+    });
 
     if (text.trim()) {
       return { success: true, timeline: text.trim() };

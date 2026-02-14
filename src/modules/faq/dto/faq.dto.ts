@@ -217,7 +217,7 @@ export class BulkActionDto {
 }
 
 export class ScanDuplicatesDto {
-  @ApiPropertyOptional({ description: '유사도 임계값 (기본 0.85)', default: 0.85 })
+  @ApiPropertyOptional({ description: '유사도 임계값 (기본 0.96)', default: 0.96 })
   @IsOptional()
   @Type(() => Number)
   @Min(0.7)
@@ -251,6 +251,28 @@ export class CheckDuplicateDto {
   @Type(() => Number)
   @IsNumber()
   excludeId?: number;
+}
+
+// ============================================================================
+// Auto Review DTO
+// ============================================================================
+
+export class AutoReviewFaqsDto {
+  @ApiPropertyOptional({ description: '배치 크기 (기본 100)', default: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(10)
+  @Max(200)
+  batchSize?: number;
+
+  @ApiPropertyOptional({
+    description: 'true일 경우 실제 DB 변경 없이 결과만 반환',
+    default: false,
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  dryRun?: boolean;
 }
 
 // ============================================================================

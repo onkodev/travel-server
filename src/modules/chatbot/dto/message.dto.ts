@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsIn,
   IsArray,
+  ArrayMaxSize,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -27,10 +28,10 @@ class MessageOptionDto {
 }
 
 export class SaveMessageDto {
-  @ApiProperty({ description: '메시지 역할', enum: ['bot', 'user', 'admin'] })
+  @ApiProperty({ description: '메시지 역할', enum: ['bot', 'user'] })
   @IsString()
-  @IsIn(['bot', 'user', 'admin'])
-  role: 'bot' | 'user' | 'admin';
+  @IsIn(['bot', 'user'])
+  role: 'bot' | 'user';
 
   @ApiProperty({ description: '메시지 내용' })
   @IsString()
@@ -58,6 +59,7 @@ export class SaveMessageDto {
 export class SaveMessageBatchDto {
   @ApiProperty({ description: '메시지 배열', type: [SaveMessageDto] })
   @IsArray()
+  @ArrayMaxSize(50, { message: 'Maximum 50 messages per batch.' })
   @ValidateNested({ each: true })
   @Type(() => SaveMessageDto)
   messages: SaveMessageDto[];

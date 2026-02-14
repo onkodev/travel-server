@@ -11,7 +11,10 @@
 export class MemoryCache {
   private store = new Map<string, { data: unknown; expiresAt: number }>();
 
-  constructor(private readonly defaultTtl: number) {}
+  constructor(
+    private readonly defaultTtl: number,
+    private readonly maxSize = 500,
+  ) {}
 
   get<T>(key: string): T | null {
     const entry = this.store.get(key);
@@ -24,6 +27,9 @@ export class MemoryCache {
   }
 
   set(key: string, data: unknown, ttl?: number): void {
+    if (this.store.size >= this.maxSize) {
+      this.evict();
+    }
     this.store.set(key, {
       data,
       expiresAt: Date.now() + (ttl ?? this.defaultTtl),
@@ -44,5 +50,22 @@ export class MemoryCache {
 
   clear(): void {
     this.store.clear();
+  }
+
+  private evict(): void {
+    const now = Date.now();
+    // 만료된 항목 먼저 제거
+    for (const [key, entry] of this.store) {
+      if (now > entry.expiresAt) this.store.delete(key);
+    }
+    // 아직 초과하면 가장 오래된 20% 제거
+    if (this.store.size >= this.maxSize) {
+      const oldest = [...this.store.entries()].sort(
+        ([, a], [, b]) => a.expiresAt - b.expiresAt,
+      );
+      for (const [key] of oldest.slice(0, Math.ceil(this.maxSize * 0.2))) {
+        this.store.delete(key);
+      }
+    }
   }
 }

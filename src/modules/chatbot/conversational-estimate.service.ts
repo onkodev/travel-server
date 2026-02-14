@@ -19,6 +19,17 @@ import { EstimateItem } from '../../common/types';
 export type { EstimateItem };
 export type { ModificationIntent };
 
+interface FlowWithEstimate {
+  sessionId: string;
+  estimateId: number | null;
+  region: string | null;
+  duration: number | null;
+  interestMain: string[];
+  interestSub: string[];
+  attractions: string[];
+  estimate: { id: number; items: unknown };
+}
+
 @Injectable()
 export class ConversationalEstimateService {
   private readonly logger = new Logger(ConversationalEstimateService.name);
@@ -50,7 +61,7 @@ export class ConversationalEstimateService {
     }
 
     const estimate = await this.prisma.estimate.findUnique({
-      where: { id: flow.estimateId },
+      where: { id: flow.estimateId! },
       select: { id: true, items: true },
     });
 
@@ -84,13 +95,36 @@ export class ConversationalEstimateService {
   async modifyItinerary(
     sessionId: string,
     userMessage: string,
+    preParsedIntent?: {
+      action: string;
+      dayNumber?: number;
+      itemName?: string;
+      category?: string;
+    },
+    preloadedData?: {
+      flow: { sessionId: string; estimateId: number | null; region: string | null; duration: number | null; interestMain: string[]; interestSub: string[]; attractions: string[] };
+      estimate: { id: number; items: unknown };
+    },
   ): Promise<{
     success: boolean;
     updatedItems: EstimateItem[];
     botMessage: string;
     intent: ModificationIntent;
   }> {
-    const intent = await this.parseModificationIntent(sessionId, userMessage);
+    let intent: ModificationIntent;
+    if (preParsedIntent) {
+      // travelAssistantService.chat()에서 이미 감지한 intent 재사용 (Gemini 호출 스킵)
+      intent = {
+        action: preParsedIntent.action as ModificationIntent['action'],
+        dayNumber: preParsedIntent.dayNumber,
+        itemName: preParsedIntent.itemName,
+        category: preParsedIntent.category,
+        confidence: 0.8,
+        explanation: 'Pre-parsed from travel assistant',
+      };
+    } else {
+      intent = await this.parseModificationIntent(sessionId, userMessage);
+    }
 
     this.logger.log(`Modification intent: ${JSON.stringify(intent)}`);
 
@@ -105,17 +139,21 @@ export class ConversationalEstimateService {
       };
     }
 
-    const flow = await this.prisma.chatbotFlow.findUnique({
-      where: { sessionId },
-    });
+    const flow =
+      preloadedData?.flow ??
+      (await this.prisma.chatbotFlow.findUnique({
+        where: { sessionId },
+      }));
 
     if (!flow?.estimateId) {
       throw new BadRequestException('No estimate found.');
     }
 
-    const estimate = await this.prisma.estimate.findUnique({
-      where: { id: flow.estimateId },
-    });
+    const estimate =
+      preloadedData?.estimate ??
+      (await this.prisma.estimate.findUnique({
+        where: { id: flow.estimateId! },
+      }));
 
     if (!estimate) {
       throw new BadRequestException('Estimate not found.');
@@ -168,7 +206,7 @@ export class ConversationalEstimateService {
     }
 
     const estimate = await this.prisma.estimate.findUnique({
-      where: { id: flow.estimateId },
+      where: { id: flow.estimateId! },
     });
 
     if (!estimate) {
@@ -210,7 +248,7 @@ export class ConversationalEstimateService {
 
     // 견적 상태를 pending으로 변경 (전문가 검토 대기)
     await this.prisma.estimate.update({
-      where: { id: flow.estimateId },
+      where: { id: flow.estimateId! },
       data: { statusAi: 'pending' },
     });
 
@@ -225,7 +263,7 @@ export class ConversationalEstimateService {
   // ========== Private handlers ==========
 
   private async handleRegenerateDay(
-    flow: any,
+    flow: FlowWithEstimate,
     intent: ModificationIntent,
   ): Promise<{
     success: boolean;
@@ -368,7 +406,7 @@ export class ConversationalEstimateService {
 
     // DB 업데이트
     await this.prisma.estimate.update({
-      where: { id: flow.estimateId },
+      where: { id: flow.estimateId! },
       data: { items: updatedItems as unknown as Prisma.InputJsonValue },
     });
 
@@ -384,7 +422,7 @@ export class ConversationalEstimateService {
   }
 
   private async handleAddItem(
-    flow: any,
+    flow: FlowWithEstimate,
     intent: ModificationIntent,
   ): Promise<{
     success: boolean;
@@ -432,9 +470,26 @@ export class ConversationalEstimateService {
         );
       }
 
-      // 정확히 매칭되는 아이템이 있으면 바로 사용
+      // 이름 유사도 기준으로 정렬 (정확한 매칭 우선)
       const requestedLower = intent.itemName.toLowerCase();
-      const foundItem = exactMatch.find((item) => {
+      const sortedResults = [...exactMatch].sort((a, b) => {
+        const aKor = (a.nameKor || '').toLowerCase();
+        const bKor = (b.nameKor || '').toLowerCase();
+        const aEng = (a.nameEng || '').toLowerCase();
+        const bEng = (b.nameEng || '').toLowerCase();
+        // 요청된 이름과의 길이 차이가 작을수록 우선 (더 정확한 매칭)
+        const aDiff = Math.min(
+          Math.abs(aKor.length - requestedLower.length),
+          Math.abs(aEng.length - requestedLower.length),
+        );
+        const bDiff = Math.min(
+          Math.abs(bKor.length - requestedLower.length),
+          Math.abs(bEng.length - requestedLower.length),
+        );
+        return aDiff - bDiff;
+      });
+
+      const foundItem = sortedResults.find((item) => {
         const nameEng = (item.nameEng || '').toLowerCase();
         const nameKor = (item.nameKor || '').toLowerCase();
         return (
@@ -595,9 +650,9 @@ export class ConversationalEstimateService {
    * 아이템을 일정에 추가하는 헬퍼 메서드
    */
   private async addItemToItinerary(
-    flow: any,
+    flow: FlowWithEstimate,
     items: EstimateItem[],
-    dbItem: any,
+    dbItem: { id: number; type?: string; nameEng: string; nameKor: string; descriptionEng?: string | null; images?: unknown },
     intent: ModificationIntent,
     reason: string,
   ): Promise<{
@@ -633,7 +688,7 @@ export class ConversationalEstimateService {
     const updatedItems = [...items, newItem];
 
     await this.prisma.estimate.update({
-      where: { id: flow.estimateId },
+      where: { id: flow.estimateId! },
       data: { items: updatedItems as unknown as Prisma.InputJsonValue },
     });
 
@@ -651,7 +706,7 @@ export class ConversationalEstimateService {
    * - 관리자가 나중에 실제 아이템과 매칭
    */
   private async addTbdItemToItinerary(
-    flow: any,
+    flow: FlowWithEstimate,
     items: EstimateItem[],
     placeName: string,
     intent: ModificationIntent,
@@ -683,7 +738,7 @@ export class ConversationalEstimateService {
     const updatedItems = [...items, newItem];
 
     await this.prisma.estimate.update({
-      where: { id: flow.estimateId },
+      where: { id: flow.estimateId! },
       data: { items: updatedItems as unknown as Prisma.InputJsonValue },
     });
 
@@ -696,7 +751,7 @@ export class ConversationalEstimateService {
   }
 
   private async handleRemoveItem(
-    flow: any,
+    flow: FlowWithEstimate,
     intent: ModificationIntent,
   ): Promise<{
     success: boolean;
@@ -753,7 +808,7 @@ export class ConversationalEstimateService {
     }
 
     await this.prisma.estimate.update({
-      where: { id: flow.estimateId },
+      where: { id: flow.estimateId! },
       data: { items: updatedItems as unknown as Prisma.InputJsonValue },
     });
 
@@ -766,7 +821,7 @@ export class ConversationalEstimateService {
   }
 
   private async handleReplaceItem(
-    flow: any,
+    flow: FlowWithEstimate,
     intent: ModificationIntent,
   ): Promise<{
     success: boolean;
@@ -880,7 +935,7 @@ export class ConversationalEstimateService {
     };
 
     await this.prisma.estimate.update({
-      where: { id: flow.estimateId },
+      where: { id: flow.estimateId! },
       data: { items: updatedItems as unknown as Prisma.InputJsonValue },
     });
 
@@ -957,15 +1012,15 @@ export class ConversationalEstimateService {
       context.interests = interests;
     }
 
-    // 견적이 있으면 현재 일정 추가
+    // 견적이 있으면 현재 일정 추가 (수정 분기에서도 재사용하므로 전체 조회)
+    let estimateRecord: { id: number; items: unknown } | null = null;
     if (flow.estimateId) {
-      const estimate = await this.prisma.estimate.findUnique({
-        where: { id: flow.estimateId },
-        select: { items: true },
+      estimateRecord = await this.prisma.estimate.findUnique({
+        where: { id: flow.estimateId! },
       });
 
-      if (estimate?.items) {
-        const items = estimate.items as unknown as EstimateItem[];
+      if (estimateRecord?.items) {
+        const items = estimateRecord.items as unknown as EstimateItem[];
         context.currentItinerary = items.map((item) => ({
           dayNumber: item.dayNumber,
           name: item.itemName || item.name || item.nameEng || 'Unknown',
@@ -988,7 +1043,12 @@ export class ConversationalEstimateService {
       aiResult.modificationData
     ) {
       try {
-        const modResult = await this.modifyItinerary(sessionId, userMessage);
+        const modResult = await this.modifyItinerary(
+          sessionId,
+          userMessage,
+          aiResult.modificationData,
+          estimateRecord ? { flow, estimate: estimateRecord } : undefined,
+        );
         this.logger.log(
           `Modification result: success=${modResult.success}, itemCount=${modResult.updatedItems?.length}`,
         );

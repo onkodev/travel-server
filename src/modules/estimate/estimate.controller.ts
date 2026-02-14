@@ -19,7 +19,7 @@ import {
   ApiBearerAuth,
   ApiParam,
 } from '@nestjs/swagger';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/types';
@@ -42,6 +42,7 @@ import {
   ManualEstimateStatsDto,
   AIEstimateStatsDto,
   AdjacentIdsDto,
+  BatchSummariesDto,
 } from './dto';
 import {
   ErrorResponseDto,
@@ -138,6 +139,7 @@ export class EstimateController {
 
   @Public()
   @Get('share/:shareHash')
+  @Throttle({ default: { limit: 15, ttl: 60000 } })
   @ApiOperation({
     summary: '공유 링크로 견적 조회',
     description:
@@ -153,6 +155,50 @@ export class EstimateController {
   @Header('Cache-Control', 'no-store')
   async getEstimateByShareHash(@Param('shareHash') shareHash: string) {
     return this.estimateService.getEstimateByShareHash(shareHash);
+  }
+
+  @Get('suggested-places')
+  @ApiOperation({ summary: 'TBD 장소 목록 조회' })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getSuggestedPlaces(
+    @Query('status') status?: string,
+    @Query('sort') sort?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.estimateService.getSuggestedPlaces({
+      status,
+      sort,
+      limit: limit ? parseInt(limit) : undefined,
+    });
+  }
+
+  @Patch('suggested-places/:id/resolve')
+  @ApiOperation({ summary: 'Suggested Place 일괄 매칭' })
+  @ApiParam({ name: 'id', description: 'Suggested Place ID' })
+  @ApiResponse({ status: 200, description: '매칭 성공' })
+  async resolveSuggestedPlace(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { itemId: number },
+  ) {
+    return this.estimateService.resolveSuggestedPlace(id, body.itemId);
+  }
+
+  @Patch('suggested-places/:id/reject')
+  @ApiOperation({ summary: 'Suggested Place 거부' })
+  @ApiParam({ name: 'id', description: 'Suggested Place ID' })
+  @ApiResponse({ status: 200, description: '거부 성공' })
+  async rejectSuggestedPlace(@Param('id', ParseIntPipe) id: number) {
+    return this.estimateService.rejectSuggestedPlace(id);
+  }
+
+  @Get('stats/rag-quality')
+  @ApiOperation({ summary: 'RAG 품질 통계 조회' })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getRagQualityStats(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.estimateService.getRagQualityStats({ from, to });
   }
 
   @Post('bulk-delete')
@@ -183,6 +229,16 @@ export class EstimateController {
     return this.estimateService.bulkUpdateStatus(body.ids, body.status);
   }
 
+  @Post('batch-summaries')
+  @ApiOperation({
+    summary: '견적 요약 배치 조회',
+    description: '여러 견적의 요약 정보를 한 번에 조회합니다.',
+  })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getEstimateSummaries(@Body() body: BatchSummariesDto) {
+    return this.estimateService.getEstimateSummaries(body.ids);
+  }
+
   @Post('sync-status')
   @ApiOperation({
     summary: '견적 상태 자동 동기화',
@@ -197,6 +253,17 @@ export class EstimateController {
   async syncEstimateStatus() {
     await this.estimateSchedulerService.runManualStatusUpdate();
     return { success: true, message: '견적 상태가 동기화되었습니다.' };
+  }
+
+  @Patch(':id/resolve-tbd')
+  @ApiOperation({ summary: 'TBD 아이템 수동 매칭' })
+  @ApiParam({ name: 'id', description: '견적 ID' })
+  @ApiResponse({ status: 200, description: '매칭 성공' })
+  async resolveTbdItem(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { itemIndex: number; itemId: number },
+  ) {
+    return this.estimateService.resolveTbdItem(id, body.itemIndex, body.itemId);
   }
 
   @Get(':id')

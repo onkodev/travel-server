@@ -7,7 +7,7 @@ datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
   directUrl  = env("DIRECT_URL")
-  extensions = [uuid_ossp(map: "uuid-ossp", schema: "extensions"), vector]
+  extensions = [uuid_ossp(map: "uuid-ossp", schema: "extensions"), vector, pg_trgm(schema: "extensions")]
 }
 
 model Estimate {
@@ -64,6 +64,7 @@ model Estimate {
   cancelReason      String?   @map("cancel_reason")
   revisionNote      String?   @map("revision_note")
   revisionRequested Boolean   @default(false) @map("revision_requested")
+  aiMetadata        Json?     @map("ai_metadata")
 
   @@index([chatSessionId], map: "idx_estimates_chat_session")
   @@index([createdAt(sort: Desc)], map: "idx_estimates_created_at")
@@ -73,18 +74,14 @@ model Estimate {
   @@index([isPinned], map: "idx_estimates_is_pinned")
   @@index([priceRange], map: "idx_estimates_price_range")
   @@index([regions], map: "idx_estimates_regions", type: Gin)
-  @@index([source], map: "idx_estimates_source")
   @@index([source, isPinned(sort: Desc), createdAt(sort: Desc)], map: "idx_estimates_source_pinned_created")
-  @@index([startDate], map: "idx_estimates_start_date")
   @@index([statusAi], map: "idx_estimates_status_ai")
-  @@index([statusManual], map: "idx_estimates_status_manual")
   @@index([title(ops: raw("gin_trgm_ops"))], map: "idx_estimates_title_trgm", type: Gin)
   @@index([totalAmount], map: "idx_estimates_total_amount")
   @@index([totalTravelers], map: "idx_estimates_total_travelers")
   @@index([tourType], map: "idx_estimates_tour_type")
   @@index([travelDays], map: "idx_estimates_travel_days")
   @@index([travelerType], map: "idx_estimates_traveler_type")
-  @@index([userId], map: "idx_estimates_user_id")
   @@index([userId, createdAt(sort: Desc)], map: "idx_estimates_user_created")
   @@index([statusManual, startDate], map: "idx_estimates_status_start")
   @@map("estimates")
@@ -98,9 +95,9 @@ model Item {
   description      String    @default("")
   tourApiContentId String?   @map("tour_api_content_id") @db.VarChar(50)
   keyword          String?
-  price            Decimal   @default(0) @db.Decimal(15, 2)
-  weekdayPrice     Decimal?  @map("weekday_price") @db.Decimal(15, 2)
-  weekendPrice     Decimal?  @map("weekend_price") @db.Decimal(15, 2)
+  price            Decimal   @default(0) @db.Decimal(12, 2)
+  weekdayPrice     Decimal?  @map("weekday_price") @db.Decimal(12, 2)
+  weekendPrice     Decimal?  @map("weekend_price") @db.Decimal(12, 2)
   address          String?
   addressEnglish   String?   @map("address_english")
   lat              Decimal   @default(0) @db.Decimal(18, 10)
@@ -121,10 +118,9 @@ model Item {
   @@index([tourApiContentId], map: "idx_items_tour_api_content_id")
   @@index([type], map: "idx_items_type")
   @@index([type, createdAt(sort: Desc)], map: "idx_items_type_created")
-  @@index([area])
-  @@index([categories], type: Gin)
-  @@index([region])
-  @@index([type])
+  @@index([area], map: "idx_items_area")
+  @@index([categories], map: "idx_items_categories", type: Gin)
+  @@index([region], map: "idx_items_region")
   @@map("items")
 }
 
@@ -135,12 +131,12 @@ model Tour {
   description        String?
   thumbnailUrl       String?    @map("thumbnail_url") @db.VarChar(500)
   imageUrls          String[]   @map("image_urls")
-  price              Decimal    @default(0) @db.Decimal(10, 2)
+  price              Decimal    @default(0) @db.Decimal(12, 2)
   currency           String     @default("USD") @db.VarChar(3)
   durationMinutes    Int?       @map("duration_minutes")
   meetingPoint       String?    @map("meeting_point")
-  latitude           Decimal?   @db.Decimal(10, 7)
-  longitude          Decimal?   @db.Decimal(10, 7)
+  lat                Decimal?   @db.Decimal(18, 10)
+  lng                Decimal?   @db.Decimal(18, 10)
   includedItems      String[]   @map("included_items")
   excludedItems      String[]   @map("excluded_items")
   tags               String[]
@@ -182,8 +178,8 @@ model Booking {
   customerPhone     String?   @map("customer_phone") @db.VarChar(50)
   customerCountry   String?   @map("customer_country") @db.VarChar(50)
   participantCount  Int       @default(1) @map("participant_count")
-  unitPrice         Decimal   @default(0) @map("unit_price") @db.Decimal(10, 2)
-  totalAmount       Decimal   @map("total_amount") @db.Decimal(10, 2)
+  unitPrice         Decimal   @default(0) @map("unit_price") @db.Decimal(12, 2)
+  totalAmount       Decimal   @map("total_amount") @db.Decimal(12, 2)
   currency          String    @default("USD") @db.VarChar(3)
   specialRequests   String?   @map("special_requests")
   status            String    @default("pending") @db.VarChar(20)
@@ -211,7 +207,7 @@ model Payment {
   id              Int       @id @default(autoincrement())
   bookingId       Int?      @map("booking_id")
   estimateId      Int?      @map("estimate_id")
-  amount          Decimal   @db.Decimal(10, 2)
+  amount          Decimal   @db.Decimal(12, 2)
   currency        String    @default("USD") @db.VarChar(3)
   paymentMethod   String    @default("paypal") @map("payment_method") @db.VarChar(50)
   status          String    @default("pending") @db.VarChar(20)
@@ -220,7 +216,7 @@ model Payment {
   paypalRefundId  String?   @map("paypal_refund_id") @db.VarChar(100)
   payerEmail      String?   @map("payer_email") @db.VarChar(255)
   payerId         String?   @map("payer_id") @db.VarChar(100)
-  refundedAmount  Decimal   @default(0) @map("refunded_amount") @db.Decimal(10, 2)
+  refundedAmount  Decimal   @default(0) @map("refunded_amount") @db.Decimal(12, 2)
   refundReason    String?   @map("refund_reason")
   refundedAt      DateTime? @map("refunded_at") @db.Timestamptz(6)
   failureReason   String?   @map("failure_reason")
@@ -273,6 +269,7 @@ model Review {
   @@index([tourId, createdAt(sort: Desc)], map: "idx_reviews_tour_created")
   @@index([tourId], map: "idx_reviews_tour_id")
   @@index([tourId, isVisible], map: "idx_reviews_tour_visible")
+  @@index([bookingId], map: "idx_reviews_booking_id")
   @@map("reviews")
 }
 
@@ -323,23 +320,10 @@ model ChatbotFlow {
   referralSource  String?          @map("referral_source")
   additionalNotes String?          @map("additional_notes")
   estimateId      Int?             @map("estimate_id")
-  ipAddress       String?          @map("ip_address")
-  userAgent       String?          @map("user_agent")
-  referrerUrl     String?          @map("referrer_url")
-  landingPage     String?          @map("landing_page")
-  utmSource       String?          @map("utm_source")
-  utmMedium       String?          @map("utm_medium")
-  utmCampaign     String?          @map("utm_campaign")
-  utmTerm         String?          @map("utm_term")
-  utmContent      String?          @map("utm_content")
   pageVisits      Json?            @map("page_visits")
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   title           String?          @default("New conversation")
-  city            String?
-  country         String?
-  countryName     String?          @map("country_name")
-  timezone        String?
   visitorId       String?          @map("visitor_id") @db.Uuid
   ageRange        String?          @map("age_range")
   hasPlan         Boolean?         @map("has_plan")
@@ -354,16 +338,15 @@ model ChatbotFlow {
   visitor         VisitorSession?  @relation(fields: [visitorId], references: [id])
   messages        ChatbotMessage[]
 
-  @@index([sessionId], map: "idx_chatbot_flows_session_id")
-  @@index([userId], map: "idx_chatbot_flows_user_id")
-  @@index([estimateId], map: "idx_chatbot_flows_estimate_id")
-  @@index([isCompleted], map: "idx_chatbot_flows_is_completed")
-  @@index([currentStep], map: "idx_chatbot_flows_current_step")
-  @@index([createdAt(sort: Desc)], map: "idx_chatbot_flows_created_at")
-  @@index([utmSource], map: "idx_chatbot_flows_utm_source")
-  @@index([visitorId], map: "idx_chatbot_flows_visitor_id")
-  @@index([country], map: "idx_chatbot_flows_country")
-  @@map("chatbot_flows")
+  @@index([sessionId], map: "idx_chat_sessions_session_id")
+  @@index([userId], map: "idx_chat_sessions_user_id")
+  @@index([estimateId], map: "idx_chat_sessions_estimate_id")
+  @@index([isCompleted], map: "idx_chat_sessions_is_completed")
+  @@index([currentStep], map: "idx_chat_sessions_current_step")
+  @@index([createdAt(sort: Desc)], map: "idx_chat_sessions_created_at")
+  @@index([visitorId], map: "idx_chat_sessions_visitor_id")
+  @@index([isCompleted, createdAt(sort: Desc)], map: "idx_chat_sessions_completed_date")
+  @@map("chat_sessions")
 }
 
 model ChatbotMessage {
@@ -376,9 +359,9 @@ model ChatbotMessage {
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   flow        ChatbotFlow @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
 
-  @@index([sessionId], map: "idx_chatbot_messages_session_id")
-  @@index([createdAt], map: "idx_chatbot_messages_created_at")
-  @@map("chatbot_messages")
+  @@index([sessionId], map: "idx_chat_messages_session_id")
+  @@index([createdAt], map: "idx_chat_messages_created_at")
+  @@map("chat_messages")
 }
 
 model VisitorSession {
@@ -413,6 +396,7 @@ model VisitorSession {
   hasBooking     Boolean       @default(false) @map("has_booking")
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   chatbotFlows   ChatbotFlow[]
+  faqChatLogs    FaqChatLog[]
   pageViews      PageView[]
 
   @@index([fingerprint], map: "idx_visitor_sessions_fingerprint")
@@ -449,7 +433,7 @@ model Goods {
   category     String   @db.VarChar(50)
   thumbnailUrl String?  @map("thumbnail_url") @db.VarChar(500)
   imageUrls    String[] @map("image_urls")
-  price        Decimal  @default(0) @db.Decimal(10, 2)
+  price        Decimal  @default(0) @db.Decimal(12, 2)
   currency     String   @default("USD") @db.VarChar(3)
   stock        Int      @default(0)
   options      Json?
@@ -517,24 +501,22 @@ model Faq {
 }
 
 model FaqChatLog {
-  id                  Int      @id @default(autoincrement())
+  id                  Int             @id @default(autoincrement())
   message             String
   answer              String
-  matchedFaqIds       Int[]    @default([]) @map("matched_faq_ids")
-  topSimilarity       Decimal? @map("top_similarity") @db.Decimal(5, 4)
-  noMatch             Boolean  @default(false) @map("no_match")
-  visitorId           String?  @map("visitor_id") @db.Uuid
-  ipAddress           String?  @map("ip_address")
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  city                String?  @db.VarChar(100)
-  country             String?  @db.VarChar(10)
-  countryName         String?  @map("country_name") @db.VarChar(100)
-  matchedSimilarities Float[]  @default([]) @map("matched_similarities")
-  responseTier        String?  @map("response_tier") @db.VarChar(20)
+  matchedFaqIds       Int[]           @default([]) @map("matched_faq_ids")
+  topSimilarity       Decimal?        @map("top_similarity") @db.Decimal(5, 4)
+  noMatch             Boolean         @default(false) @map("no_match")
+  visitorId           String?         @map("visitor_id") @db.Uuid
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  matchedSimilarities Float[]         @default([]) @map("matched_similarities")
+  responseTier        String?         @map("response_tier") @db.VarChar(20)
+  visitor             VisitorSession? @relation(fields: [visitorId], references: [id])
 
   @@index([createdAt(sort: Desc)], map: "idx_faq_chat_logs_created_at")
   @@index([noMatch], map: "idx_faq_chat_logs_no_match")
   @@index([responseTier], map: "idx_faq_chat_logs_response_tier")
+  @@index([visitorId], map: "idx_faq_chat_logs_visitor_id")
   @@map("faq_chat_logs")
 }
 
@@ -571,7 +553,95 @@ model EmailThread {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  embedding         Unsupported("vector")? @map("embedding")
+
   @@index([isProcessed], map: "idx_email_threads_is_processed")
   @@index([createdAt(sort: Desc)], map: "idx_email_threads_created_at")
   @@map("email_threads")
 }
+
+model AiGenerationConfig {
+  id                Int       @id @default(1)
+  aiEnabled         Boolean   @default(true) @map("ai_enabled")
+  ragSearchLimit    Int       @default(5) @map("rag_search_limit")
+  ragSimilarityMin  Float     @default(0.3) @map("rag_similarity_min")
+  ragTimeout        Int       @default(25000) @map("rag_timeout")
+  geminiTemperature Float     @default(0.7) @map("gemini_temperature")
+  geminiMaxTokens   Int       @default(4096) @map("gemini_max_tokens")
+  placesPerDay      Int       @default(4) @map("places_per_day")
+  customPromptAddon     String?   @map("custom_prompt_addon")
+  fuzzyMatchThreshold   Float     @default(0.3) @map("fuzzy_match_threshold")
+  directThreshold       Float     @default(0.7) @map("direct_threshold")
+  ragThreshold          Float     @default(0.5) @map("rag_threshold")
+  noMatchResponse       String?   @map("no_match_response")
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("ai_generation_configs")
+}
+
+model SuggestedPlace {
+  id              Int       @id @default(autoincrement())
+  name            String    @db.VarChar(255)
+  nameKor         String?   @map("name_kor") @db.VarChar(255)
+  count           Int       @default(1)
+  status          String    @default("pending") @db.VarChar(20)
+  region          String?   @db.VarChar(50)
+  source          String    @default("rag") @db.VarChar(20)
+  estimateIds     Int[]     @default([]) @map("estimate_ids")
+  linkedItemId    Int?      @map("linked_item_id")
+  sampleNote      String?   @map("sample_note")
+  matchCandidates Json?     @default("[]") @map("match_candidates")
+  bestMatchScore  Float?    @default(0) @map("best_match_score")
+  resolveMethod   String?   @map("resolve_method") @db.VarChar(30)
+  matchLog        Json?     @default("[]") @map("match_log")
+  lastSeenAt      DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([name])
+  @@index([status], map: "idx_suggested_places_status")
+  @@index([count(sort: Desc)], map: "idx_suggested_places_count")
+  @@index([bestMatchScore(sort: Desc)], map: "idx_suggested_places_best_match")
+  @@index([createdAt(sort: Desc)], map: "idx_suggested_places_created_at")
+  @@map("suggested_places")
+}
+
+model OdkTourList {
+  id            Int                    @id @default(autoincrement())
+  name          String                 @db.VarChar(255)
+  nameKor       String?                @map("name_kor") @db.VarChar(255)
+  slug          String                 @unique @db.VarChar(255)
+  description   String?
+  thumbnailUrl  String?                @map("thumbnail_url")
+  websiteUrl    String                 @map("website_url")
+  price         Decimal?               @db.Decimal(12, 2)
+  region        String?                @db.VarChar(100)
+  duration      String?                @db.VarChar(50)
+  tags          String[]               @default([])
+  embedding     Unsupported("vector")? @map("embedding")
+  isActive      Boolean                @default(true) @map("is_active")
+  createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isActive], map: "idx_odk_tours_active")
+  @@index([region], map: "idx_odk_tours_region")
+  @@map("odk_tours")
+}
+
+model AiPromptTemplate {
+  id              Int       @id @default(autoincrement())
+  key             String    @unique @db.VarChar(50)
+  name            String    @db.VarChar(100)
+  description     String?
+  category        String    @db.VarChar(30)
+  promptText      String?   @map("prompt_text")
+  temperature     Float?
+  maxOutputTokens Int?      @map("max_output_tokens")
+  isActive        Boolean   @default(true) @map("is_active")
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([category], map: "idx_ai_prompt_templates_category")
+  @@map("ai_prompt_templates")
+}
+

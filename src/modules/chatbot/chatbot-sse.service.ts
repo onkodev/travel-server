@@ -31,6 +31,7 @@ export interface QueuedEvent {
 const EVENT_QUEUE_MAX_SIZE = 50; // 세션당 최대 이벤트 수
 const EVENT_QUEUE_TTL_MS = 5 * 60 * 1000; // 5분 후 이벤트 만료
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5분마다 정리
+const MAX_SESSION_QUEUES = 1000; // 전체 세션 큐 최대 수
 
 // ============================================================================
 // Service
@@ -133,6 +134,19 @@ export class ChatbotSseService implements OnModuleDestroy {
       this.logger.debug(
         `Cleaned up ${totalCleaned} expired events from queue`,
       );
+    }
+
+    // 세션 큐 수 제한 — 오래된 세션부터 제거
+    if (this.eventQueues.size > MAX_SESSION_QUEUES) {
+      const entries = [...this.eventQueues.entries()]
+        .sort(([, a], [, b]) => {
+          const aTs = a.length > 0 ? a[a.length - 1].timestamp : 0;
+          const bTs = b.length > 0 ? b[b.length - 1].timestamp : 0;
+          return aTs - bTs;
+        });
+      for (const [key] of entries.slice(0, entries.length - MAX_SESSION_QUEUES)) {
+        this.eventQueues.delete(key);
+      }
     }
   }
 

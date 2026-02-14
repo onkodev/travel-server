@@ -8,6 +8,7 @@ import {
   IsIn,
   IsObject,
   IsDateString,
+  IsEmail,
 } from 'class-validator';
 import {
   EstimateItemExtendedDto,
@@ -87,7 +88,7 @@ export class CreateEstimateDto {
 
   @ApiPropertyOptional({ description: '고객 이메일' })
   @IsOptional()
-  @IsString()
+  @IsEmail({}, { message: 'Invalid email format.' })
   customerEmail?: string;
 
   @ApiPropertyOptional({ description: '고객 전화번호' })

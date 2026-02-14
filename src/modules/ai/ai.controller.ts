@@ -1,10 +1,14 @@
-import { Controller, Post, Body, Query, Get } from '@nestjs/common';
+import { Controller, Post, Body, Query, Get, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { AuthGuard } from '../../common/guards/auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../../common/types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EstimateAiService } from './services/estimate-ai.service';
 import { ItemAiService } from './services/item-ai.service';
@@ -22,6 +26,8 @@ import {
 
 @ApiTags('AI')
 @ApiBearerAuth('access-token')
+@UseGuards(AuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN)
 @Controller('ai')
 export class AiController {
   constructor(

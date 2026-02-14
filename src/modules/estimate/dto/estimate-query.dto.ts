@@ -1,10 +1,13 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsOptional,
   IsString,
   IsBoolean,
   IsIn,
+  IsArray,
+  IsNumber,
   MaxLength,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/dto';
@@ -98,4 +101,16 @@ export class EstimateListQueryDto extends PaginationQueryDto {
   )
   @IsBoolean()
   upcoming?: boolean;
+}
+
+export class BatchSummariesDto {
+  @ApiProperty({
+    description: '견적 ID 배열',
+    example: [1, 2, 3],
+    type: [Number],
+  })
+  @IsArray()
+  @IsNumber({}, { each: true })
+  @ArrayMaxSize(100)
+  ids: number[];
 }

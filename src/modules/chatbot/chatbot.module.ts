@@ -11,6 +11,7 @@ import { NotificationModule } from '../notification/notification.module';
 import { AiModule } from '../ai/ai.module';
 import { ItemModule } from '../item/item.module';
 import { EmailModule } from '../email/email.module';
+import { EmailRagModule } from '../email-rag/email-rag.module';
 import { SupabaseModule } from '../../supabase/supabase.module';
 
 @Module({
@@ -20,6 +21,7 @@ import { SupabaseModule } from '../../supabase/supabase.module';
     AiModule,
     ItemModule,
     EmailModule,
+    EmailRagModule,
     SupabaseModule,
   ],
   controllers: [ChatbotController],

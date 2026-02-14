@@ -42,6 +42,12 @@ export class GmailController {
     return this.gmailSyncService.resetSync();
   }
 
+  @Post('stop')
+  @ApiOperation({ summary: '진행 중인 동기화 중지' })
+  async stopSync() {
+    return this.gmailSyncService.stopSync();
+  }
+
   @Post('batch')
   @ApiOperation({ summary: 'Gmail 일괄 가져오기 (백그라운드 실행)' })
   async batchSync(@Body() body: BatchSyncDto) {

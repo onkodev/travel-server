@@ -367,10 +367,9 @@ export class ItemService {
     // 지역 조건은 별도로 관리 (나중에 AND로 조합)
     const regionFilter = regionCondition;
 
-    // 1차 시도: 쿼리 텍스트로 이름 검색 (정확도 우선)
+    // 1차 시도: 쿼리 텍스트로 이름 + 설명 통합 검색 (1쿼리)
     if (query) {
-      // 먼저 이름/키워드로만 검색 (더 정확함)
-      const nameQueryWhere: Prisma.ItemWhereInput = {
+      const queryWhere: Prisma.ItemWhereInput = {
         AND: [
           baseWhere,
           ...(regionFilter ? [regionFilter] : []),
@@ -379,42 +378,6 @@ export class ItemService {
               { nameEng: { contains: query, mode: 'insensitive' } },
               { nameKor: { contains: query, mode: 'insensitive' } },
               { keyword: { contains: query, mode: 'insensitive' } },
-            ],
-          },
-        ],
-      };
-
-      const nameResults = await this.prisma.item.findMany({
-        where: nameQueryWhere,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          type: true,
-          nameKor: true,
-          nameEng: true,
-          keyword: true,
-          categories: true,
-          description: true,
-          descriptionEng: true,
-          price: true,
-          region: true,
-          area: true,
-          images: true,
-        },
-      });
-
-      if (nameResults.length > 0) {
-        return nameResults.map(convertDecimalFields);
-      }
-
-      // 이름에서 못 찾으면 설명에서 검색 (fallback)
-      const descQueryWhere: Prisma.ItemWhereInput = {
-        AND: [
-          baseWhere,
-          ...(regionFilter ? [regionFilter] : []),
-          {
-            OR: [
               { description: { contains: query, mode: 'insensitive' } },
               { descriptionEng: { contains: query, mode: 'insensitive' } },
             ],
@@ -422,8 +385,8 @@ export class ItemService {
         ],
       };
 
-      const descResults = await this.prisma.item.findMany({
-        where: descQueryWhere,
+      const results = await this.prisma.item.findMany({
+        where: queryWhere,
         take: limit,
         orderBy: { createdAt: 'desc' },
         select: {
@@ -442,8 +405,8 @@ export class ItemService {
         },
       });
 
-      if (descResults.length > 0) {
-        return descResults.map(convertDecimalFields);
+      if (results.length > 0) {
+        return results.map(convertDecimalFields);
       }
     }
 

@@ -38,6 +38,7 @@ import {
   FaqChatLogQueryDto,
   CheckDuplicateDto,
   ScanDuplicatesDto,
+  AutoReviewFaqsDto,
 } from './dto';
 
 @ApiTags('FAQ')
@@ -94,8 +95,14 @@ export class FaqController {
     return this.faqService.getDirectFaqAnswer(id);
   }
 
+  @Post('remove-duplicates')
+  @ApiOperation({ summary: '텍스트 기반 중복 제거 + 저품질 FAQ 삭제' })
+  async removeDuplicates() {
+    return this.faqService.removeDuplicates();
+  }
+
   @Post('scan-duplicates')
-  @ApiOperation({ summary: '기존 FAQ 간 중복 스캔' })
+  @ApiOperation({ summary: '기존 FAQ 간 중복 스캔 (임베딩 기반)' })
   async scanDuplicates(@Body() body: ScanDuplicatesDto) {
     return this.faqService.scanDuplicates(body.threshold);
   }
@@ -227,6 +234,21 @@ export class FaqController {
       body.reason,
       body.category,
     );
+  }
+
+  @Post('auto-review')
+  @ApiOperation({
+    summary: 'AI 자동 리뷰 (pending FAQ 일괄 승인/거절)',
+    description: 'Gemini AI가 pending FAQ를 배치로 평가하여 자동 승인/거절/보류 처리합니다. dryRun=true로 미리보기 가능.',
+  })
+  async autoReview(
+    @CurrentUser('id') userId: string,
+    @Body() body: AutoReviewFaqsDto,
+  ) {
+    return this.faqService.autoReviewFaqs(userId, {
+      batchSize: body.batchSize,
+      dryRun: body.dryRun,
+    });
   }
 
   @Post('regenerate-embeddings')

@@ -1,11 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GeminiCoreService } from '../core/gemini-core.service';
 import { parseJsonResponse } from '../core/response-parser.util';
-import {
-  FAQ_EXTRACTION_PROMPT,
-  FAQ_EXTRACTION_CONFIG,
-  FaqExtractionParams,
-} from '../prompts/faq.prompts';
+import { AiPromptService } from '../../ai-prompt/ai-prompt.service';
+import { PromptKey } from '../../ai-prompt/prompt-registry';
 
 export interface ExtractedFaqItem {
   question: string;
@@ -23,24 +20,30 @@ export interface ExtractedFaqItem {
 export class FaqAiService {
   private readonly logger = new Logger(FaqAiService.name);
 
-  constructor(private geminiCore: GeminiCoreService) {}
+  constructor(
+    private geminiCore: GeminiCoreService,
+    private aiPromptService: AiPromptService,
+  ) {}
 
-  /**
-   * 이메일 내용에서 FAQ Q&A 추출
-   */
   async extractFaqFromEmail(
-    params: FaqExtractionParams,
+    params: { subject: string; emailBody: string },
   ): Promise<ExtractedFaqItem[]> {
-    const prompt = FAQ_EXTRACTION_PROMPT(params);
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.FAQ_EXTRACTION,
+      {
+        subject: params.subject || '(No subject)',
+        emailBody: params.emailBody,
+      },
+    );
 
     try {
-      const text = await this.geminiCore.callGemini(
-        prompt,
-        FAQ_EXTRACTION_CONFIG,
-      );
-      const result = parseJsonResponse<ExtractedFaqItem[]>(text, []);
+      const text = await this.geminiCore.callGemini(built.text, {
+        temperature: built.temperature,
+        maxOutputTokens: built.maxOutputTokens,
+      });
+      const parsed = parseJsonResponse<ExtractedFaqItem[]>(text, []);
+      const result = Array.isArray(parsed) ? parsed : [];
 
-      // 유효성 검사: question과 answer가 있는 항목만 반환
       return result.filter(
         (item) =>
           item.question &&

@@ -228,12 +228,12 @@ export class UpdateTourDto {
   @ApiPropertyOptional({ description: '위도' })
   @IsOptional()
   @IsNumber()
-  latitude?: number;
+  lat?: number;
 
   @ApiPropertyOptional({ description: '경도' })
   @IsOptional()
   @IsNumber()
-  longitude?: number;
+  lng?: number;
 
   @ApiPropertyOptional({ description: '포함 항목', type: [String] })
   @IsOptional()

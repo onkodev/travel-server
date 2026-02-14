@@ -5,9 +5,10 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { GmailService, GmailThread } from './gmail.service';
+import { GmailService, GmailThread, GmailMessage } from './gmail.service';
 import { FaqAiService, ExtractedFaqItem } from '../ai/services/faq-ai.service';
 import { FaqService } from '../faq/faq.service';
+import { EmailEmbeddingService } from '../email-rag/email-embedding.service';
 
 interface SyncProgress {
   status: 'running' | 'completed';
@@ -25,12 +26,25 @@ interface SyncProgress {
 export class GmailSyncService implements OnModuleInit {
   private readonly logger = new Logger(GmailSyncService.name);
   private isSyncRunning = false;
+  private shouldStop = false;
+
+  /** 비표준 날짜 문자열 안전 파싱 (Invalid Date → 현재 시간 fallback) */
+  private safeDate(dateStr: string | null | undefined): Date {
+    if (!dateStr) return new Date();
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) {
+      this.logger.warn(`Invalid date format, using now(): "${dateStr}"`);
+      return new Date();
+    }
+    return d;
+  }
 
   constructor(
     private prisma: PrismaService,
     private gmailService: GmailService,
     private faqAiService: FaqAiService,
     private faqService: FaqService,
+    private emailEmbeddingService: EmailEmbeddingService,
   ) {}
 
   async onModuleInit() {
@@ -156,6 +170,19 @@ export class GmailSyncService implements OnModuleInit {
     return { reset: true, message: '동기화 상태가 초기화되었습니다' };
   }
 
+  /**
+   * 진행 중인 동기화 중지
+   */
+  async stopSync() {
+    if (!this.isSyncRunning) {
+      return { stopped: false, message: '진행 중인 동기화가 없습니다' };
+    }
+
+    this.shouldStop = true;
+    this.logger.warn('동기화 중지 요청됨 — 현재 배치 완료 후 중지됩니다');
+    return { stopped: true, message: '동기화가 중지됩니다. 현재 처리 중인 배치 완료 후 중지됩니다.' };
+  }
+
   // ============================================================================
   // 동기화 시작 (fire-and-forget)
   // ============================================================================
@@ -173,13 +200,13 @@ export class GmailSyncService implements OnModuleInit {
       return { started: false, message: 'Gmail API가 설정되지 않았습니다' };
     }
 
-    const targetCount = params.maxResults || 50;
+    const targetCount = params.maxResults ?? 50;
 
     try {
       const accountEmail = await this.gmailService.getAccountEmail();
       const initialProgress: SyncProgress = {
         status: 'running',
-        target: targetCount,
+        target: targetCount || 0, // 0 = 전체
         fetched: 0,
         processed: 0,
         extracted: 0,
@@ -220,6 +247,7 @@ export class GmailSyncService implements OnModuleInit {
       }
 
       this.isSyncRunning = true;
+      this.shouldStop = false;
     } catch {
       this.isSyncRunning = false;
       return {
@@ -242,9 +270,9 @@ export class GmailSyncService implements OnModuleInit {
 
   private async runBatchSync(params: { maxResults?: number; query?: string }) {
     const accountEmail = await this.gmailService.getAccountEmail();
-    const targetCount = params.maxResults || 50;
+    const targetCount = params.maxResults ?? 50;
+    const fetchAll = targetCount === 0;
 
-    // startBatchSync에서 이미 DB를 syncing으로 업데이트했으므로 여기선 progress만 관리
     const progress: SyncProgress = {
       status: 'running',
       target: targetCount,
@@ -257,11 +285,7 @@ export class GmailSyncService implements OnModuleInit {
     };
 
     try {
-      // ====== Phase 1: 이메일 가져오기 ======
-      // 동기화 이어가기 로직:
-      // 1) pageToken 있음 → 이전 지점부터 이어서
-      // 2) pageToken 없음 + fullScanCompleted → 전체 완료, 새 이메일만
-      // 3) pageToken 없음 + fullScanCompleted 아님 → 처음부터 시작
+      // 동기화 이어가기 로직
       const syncState = await this.prisma.gmailSyncState.findFirst();
       let nextPageToken: string | undefined =
         syncState?.nextPageToken || undefined;
@@ -270,7 +294,6 @@ export class GmailSyncService implements OnModuleInit {
       if (nextPageToken) {
         this.logger.log('저장된 pageToken에서 이어서 가져오기');
       } else if (syncState?.fullScanCompleted && syncState?.lastSyncAt) {
-        // 전체 스캔이 실제로 완료된 상태 → 새 이메일만
         const since = new Date(syncState.lastSyncAt);
         since.setDate(since.getDate() - 1);
         const afterDate = `${since.getFullYear()}/${String(since.getMonth() + 1).padStart(2, '0')}/${String(since.getDate()).padStart(2, '0')}`;
@@ -283,93 +306,128 @@ export class GmailSyncService implements OnModuleInit {
         this.logger.log('처음부터 가져오기 시작');
       }
 
-      const allThreads: GmailThread[] = [];
+      // 스트리밍 방식: 페이지 단위로 fetch → 즉시 process (메모리 절약)
+      const PROCESS_CONCURRENCY = 3;
 
-      while (progress.fetched < targetCount) {
-        const batchSize = Math.min(100, targetCount - progress.fetched);
+      while ((fetchAll || progress.fetched < targetCount) && !this.shouldStop) {
+        const batchSize = fetchAll ? 100 : Math.min(100, targetCount - progress.fetched);
 
+        let threads: GmailThread[];
         try {
-          const { threads, nextPageToken: npt } =
-            await this.gmailService.fetchThreads({
-              maxResults: batchSize,
-              query,
-              pageToken: nextPageToken,
-            });
+          const result = await this.gmailService.fetchThreads({
+            maxResults: batchSize,
+            query,
+            pageToken: nextPageToken,
+          });
 
-          allThreads.push(...threads);
-          progress.fetched += threads.length;
-          nextPageToken = npt;
-
-          await this.updateProgress(accountEmail, progress);
-
-          this.logger.log(`이메일 가져오기: ${progress.fetched}/${targetCount}`);
-
-          if (!nextPageToken || threads.length === 0) break;
+          threads = result.threads;
+          nextPageToken = result.nextPageToken;
         } catch (fetchError) {
-          // pageToken이 만료/무효한 경우 → 초기화 후 재시도
           if (nextPageToken) {
             this.logger.warn(
-              `pageToken으로 가져오기 실패, pageToken 초기화 후 재시도: ${
+              `pageToken으로 가져오기 실패, 초기화 후 재시도: ${
                 fetchError instanceof Error ? fetchError.message : fetchError
               }`,
             );
             nextPageToken = undefined;
-            // DB에서도 stale pageToken 제거
             await this.prisma.gmailSyncState.update({
               where: { accountEmail },
               data: { nextPageToken: null },
             });
-            continue; // 처음부터 다시 시도
+            continue;
           }
-          // pageToken 없이도 실패하면 에러 전파
           throw fetchError;
         }
+
+        progress.fetched += threads.length;
+        if (fetchAll) {
+          progress.target = progress.fetched;
+        }
+        this.logger.log(
+          `이메일 가져오기: ${progress.fetched}${fetchAll ? '' : `/${targetCount}`}건`,
+        );
+
+        // fetch 완료 시점 progress 저장
+        await this.updateProgress(accountEmail, progress);
+
+        // 가져온 페이지 즉시 처리 (메모리에 쌓지 않음)
+        for (let i = 0; i < threads.length; i += PROCESS_CONCURRENCY) {
+          if (this.shouldStop) break;
+
+          const chunk = threads.slice(i, i + PROCESS_CONCURRENCY);
+          const results = await Promise.all(
+            chunk.map((thread) => this.processThread(thread, accountEmail)),
+          );
+
+          for (const result of results) {
+            if (result.skipped) progress.skipped++;
+            else if (result.failed) progress.failed++;
+            else {
+              progress.processed++;
+              progress.extracted += result.extractedCount;
+            }
+          }
+
+          // 매 배치마다 progress 저장 (UI 실시간 반영)
+          await this.updateProgress(accountEmail, progress);
+
+          // Gemini API 레이트 리밋 방지 (배치 간 딜레이)
+          if (i + PROCESS_CONCURRENCY < threads.length) {
+            await this.delay(2000);
+          }
+        }
+
+        // 페이지 완료 — pageToken 저장 (서버 재시작 시 이어서 가능)
+        await this.prisma.gmailSyncState.update({
+          where: { accountEmail },
+          data: {
+            nextPageToken: nextPageToken || null,
+            syncProgress: progress as unknown as Prisma.InputJsonValue,
+          },
+        });
+
+        this.logger.log(
+          `페이지 처리 완료: ${progress.processed} 처리, ${progress.extracted} FAQ, ${progress.skipped} 건너뜀`,
+        );
+
+        if (!nextPageToken || threads.length === 0) break;
       }
 
       // target을 실제 가져온 수로 보정
       progress.target = progress.fetched;
-      await this.updateProgress(accountEmail, progress);
 
-      // ====== Phase 2: AI 분석 + FAQ 추출 ======
-      const CONCURRENCY = 10;
-      let chunksSinceUpdate = 0;
-
-      for (let i = 0; i < allThreads.length; i += CONCURRENCY) {
-        const chunk = allThreads.slice(i, i + CONCURRENCY);
-        const results = await Promise.all(
-          chunk.map((thread) => this.processThread(thread, accountEmail)),
+      if (this.shouldStop) {
+        this.logger.warn(
+          `동기화 중지됨: ${progress.processed} 처리, ${progress.extracted} FAQ 추출 (중간 저장됨, 다음 실행 시 이어서 가능)`,
         );
-
-        for (const result of results) {
-          if (result.skipped) {
-            progress.skipped++;
-          } else if (result.failed) {
-            progress.failed++;
-          } else {
-            progress.processed++;
-            progress.extracted += result.extractedCount;
-          }
-        }
-
-        chunksSinceUpdate++;
-        if (chunksSinceUpdate >= 3 || i + CONCURRENCY >= allThreads.length) {
-          await this.updateProgress(accountEmail, progress);
-          chunksSinceUpdate = 0;
-        }
+        await this.prisma.gmailSyncState.update({
+          where: { accountEmail },
+          data: {
+            syncStatus: 'idle',
+            nextPageToken: nextPageToken || null,
+            totalProcessed: { increment: progress.processed },
+            totalExtracted: { increment: progress.extracted },
+            syncProgress: { ...progress, status: 'completed', completedAt: new Date().toISOString() } as unknown as Prisma.InputJsonValue,
+            lastError: '사용자 요청으로 중지됨',
+          },
+        });
+        return;
       }
 
       this.logger.log(
-        `동기화 처리 완료: ${progress.processed} 처리, ${progress.extracted} FAQ 추출, ${progress.skipped} 건너뜀`,
+        `Gmail 처리 완료: ${progress.processed} 처리, ${progress.extracted} FAQ 추출, ${progress.skipped} 건너뜀`,
       );
 
-      // 완료 진행률
+      // DB에 있지만 미처리된 스레드 처리
+      await this.processUnprocessedFromDb(accountEmail, progress);
+
+      // 완료
       const completedProgress: SyncProgress = {
         ...progress,
         status: 'completed',
         completedAt: new Date().toISOString(),
       };
 
-      // 동기화 완료 — pageToken 저장 (다음 동기화에서 이어서 가져오기)
       const isFullScanDone = !nextPageToken;
       await this.prisma.gmailSyncState.update({
         where: { accountEmail },
@@ -391,6 +449,11 @@ export class GmailSyncService implements OnModuleInit {
             ? ' (전체 스캔 완료!)'
             : ' (이어서 가져올 이메일 있음)'),
       );
+
+      // 자동 임베딩 (비동기)
+      this.runAutoEmbedding().catch((err) => {
+        this.logger.warn(`자동 임베딩 실패: ${err.message}`);
+      });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -470,7 +533,7 @@ export class GmailSyncService implements OnModuleInit {
           gmailThreadId: thread.id,
           subject: thread.subject,
           fromEmail: thread.from,
-          lastMessageAt: new Date(thread.lastMessageAt),
+          lastMessageAt: this.safeDate(thread.lastMessageAt),
           messageCount: thread.messageCount,
           rawData: JSON.parse(JSON.stringify(thread.messages)),
           isProcessed: true,
@@ -486,7 +549,7 @@ export class GmailSyncService implements OnModuleInit {
       update: {
         subject: thread.subject,
         fromEmail: thread.from,
-        lastMessageAt: new Date(thread.lastMessageAt),
+        lastMessageAt: this.safeDate(thread.lastMessageAt),
         messageCount: thread.messageCount,
         rawData: JSON.parse(JSON.stringify(thread.messages)),
       },
@@ -494,7 +557,7 @@ export class GmailSyncService implements OnModuleInit {
         gmailThreadId: thread.id,
         subject: thread.subject,
         fromEmail: thread.from,
-        lastMessageAt: new Date(thread.lastMessageAt),
+        lastMessageAt: this.safeDate(thread.lastMessageAt),
         messageCount: thread.messageCount,
         rawData: JSON.parse(JSON.stringify(thread.messages)),
       },
@@ -652,5 +715,68 @@ export class GmailSyncService implements OnModuleInit {
     return this.prisma.emailThread.findUnique({
       where: { gmailThreadId },
     });
+  }
+
+  /**
+   * DB에 저장되었지만 미처리된 스레드를 FAQ 추출 처리
+   */
+  private async processUnprocessedFromDb(accountEmail: string, progress: SyncProgress) {
+    const unprocessed = await this.prisma.emailThread.findMany({
+      where: { isProcessed: false, rawData: { not: Prisma.JsonNull } },
+    });
+
+    if (unprocessed.length === 0) return;
+
+    this.logger.log(`DB 미처리 스레드 ${unprocessed.length}건 발견, FAQ 추출 시작`);
+
+    const CONCURRENCY = 3;
+    for (let i = 0; i < unprocessed.length; i += CONCURRENCY) {
+      if (this.shouldStop) break;
+
+      const chunk = unprocessed.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        chunk.map((dbThread) => {
+          const gmailThread: GmailThread = {
+            id: dbThread.gmailThreadId,
+            subject: dbThread.subject || '',
+            from: dbThread.fromEmail || '',
+            lastMessageAt: dbThread.lastMessageAt?.toISOString() || '',
+            messageCount: dbThread.messageCount,
+            messages: (dbThread.rawData as unknown as GmailMessage[]) || [],
+          };
+          return this.processThread(gmailThread, accountEmail);
+        }),
+      );
+
+      for (const result of results) {
+        if (result.skipped) progress.skipped++;
+        else if (result.failed) progress.failed++;
+        else {
+          progress.processed++;
+          progress.extracted += result.extractedCount;
+        }
+      }
+
+      await this.updateProgress(accountEmail, progress);
+
+      if (i + CONCURRENCY < unprocessed.length) {
+        await this.delay(2000);
+      }
+    }
+
+    this.logger.log(`DB 미처리 스레드 처리 완료`);
+  }
+
+  /**
+   * 동기화 완료 후 미임베딩 이메일 자동 임베딩
+   */
+  private async runAutoEmbedding(): Promise<void> {
+    this.logger.log('자동 임베딩 시작...');
+    const result = await this.emailEmbeddingService.syncAll();
+    this.logger.log(`자동 임베딩 완료: ${result.embedded}건 성공, ${result.failed}건 실패`);
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

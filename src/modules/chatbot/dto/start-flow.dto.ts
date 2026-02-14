@@ -19,31 +19,6 @@ export class StartFlowDto {
   @IsString()
   landingPage?: string;
 
-  @ApiPropertyOptional({ description: 'UTM Source' })
-  @IsOptional()
-  @IsString()
-  utmSource?: string;
-
-  @ApiPropertyOptional({ description: 'UTM Medium' })
-  @IsOptional()
-  @IsString()
-  utmMedium?: string;
-
-  @ApiPropertyOptional({ description: 'UTM Campaign' })
-  @IsOptional()
-  @IsString()
-  utmCampaign?: string;
-
-  @ApiPropertyOptional({ description: 'UTM Term' })
-  @IsOptional()
-  @IsString()
-  utmTerm?: string;
-
-  @ApiPropertyOptional({ description: 'UTM Content' })
-  @IsOptional()
-  @IsString()
-  utmContent?: string;
-
   @ApiPropertyOptional({
     description: 'Visitor session ID (for site-wide tracking)',
   })

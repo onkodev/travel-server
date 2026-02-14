@@ -14,7 +14,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { EstimateService } from '../estimate/estimate.service';
 import { ESTIMATE_STATUS } from '../estimate/dto';
-import { GeoIpService } from '../geoip/geoip.service';
 import { AiEstimateService } from './ai-estimate.service';
 import { ChatbotSseService } from './chatbot-sse.service';
 import { ChatbotStepResponseService } from './chatbot-step-response.service';
@@ -66,7 +65,6 @@ export class ChatbotService {
     private prisma: PrismaService,
     private supabaseService: SupabaseService,
     private estimateService: EstimateService,
-    private geoIpService: GeoIpService,
     private aiEstimateService: AiEstimateService,
     private sseService: ChatbotSseService,
     private stepResponseService: ChatbotStepResponseService,
@@ -79,57 +77,17 @@ export class ChatbotService {
   // 새 플로우 시작
   async startFlow(
     dto: StartFlowDto,
-    ipAddress?: string,
-    userAgent?: string,
-    referer?: string,
     userId?: string,
   ) {
     // tourType이 제공되면 Step 1 완료 상태로 생성 (currentStep = 2)
     const hasTourType = !!dto.tourType;
 
-    // IP 기반 지리 정보 조회
-    let geoData: {
-      country: string | null;
-      countryName: string | null;
-      city: string | null;
-      timezone: string | null;
-    } = {
-      country: null,
-      countryName: null,
-      city: null,
-      timezone: null,
-    };
-
-    if (ipAddress) {
-      try {
-        geoData = await this.geoIpService.lookup(ipAddress);
-      } catch (error) {
-        this.logger.warn(
-          `GeoIP lookup failed for ${ipAddress}: ${error.message}`,
-        );
-      }
-    }
-
     const flow = await this.prisma.chatbotFlow.create({
       data: {
-        ipAddress,
-        userAgent,
-        referrerUrl: referer,
-        landingPage: dto.landingPage,
-        utmSource: dto.utmSource,
-        utmMedium: dto.utmMedium,
-        utmCampaign: dto.utmCampaign,
-        utmTerm: dto.utmTerm,
-        utmContent: dto.utmContent,
         pageVisits: dto.landingPage
           ? [{ path: dto.landingPage, timestamp: new Date() }]
           : [],
         userId, // 로그인한 사용자면 연결
-        // IP 지리 정보
-        country: geoData.country,
-        countryName: geoData.countryName,
-        city: geoData.city,
-        timezone: geoData.timezone,
         // visitorId 연결 (클라이언트에서 제공하는 경우)
         visitorId: dto.visitorId,
         // 세션 제목 (선택사항)
@@ -154,13 +112,51 @@ export class ChatbotService {
       throw new NotFoundException('Flow not found.');
     }
 
-    const flow = await this.prisma.chatbotFlow.findUnique({
+    const flowWithVisitor = await this.prisma.chatbotFlow.findUnique({
       where: { sessionId },
+      include: {
+        visitor: {
+          select: {
+            ipAddress: true,
+            country: true,
+            countryName: true,
+            city: true,
+            timezone: true,
+            utmSource: true,
+            utmMedium: true,
+            utmCampaign: true,
+            utmTerm: true,
+            utmContent: true,
+            referrerUrl: true,
+            landingPage: true,
+            userAgent: true,
+          },
+        },
+      },
     });
 
-    if (!flow) {
+    if (!flowWithVisitor) {
       throw new NotFoundException('Flow not found.');
     }
+
+    // Flatten visitor fields onto flow for backward compatibility
+    const { visitor, ...flowData } = flowWithVisitor;
+    const flow = {
+      ...flowData,
+      ipAddress: visitor?.ipAddress ?? null,
+      userAgent: visitor?.userAgent ?? null,
+      country: visitor?.country ?? null,
+      countryName: visitor?.countryName ?? null,
+      city: visitor?.city ?? null,
+      timezone: visitor?.timezone ?? null,
+      utmSource: visitor?.utmSource ?? null,
+      utmMedium: visitor?.utmMedium ?? null,
+      utmCampaign: visitor?.utmCampaign ?? null,
+      utmTerm: visitor?.utmTerm ?? null,
+      utmContent: visitor?.utmContent ?? null,
+      referrerUrl: visitor?.referrerUrl ?? null,
+      landingPage: visitor?.landingPage ?? null,
+    };
 
     // estimateId가 있으면 견적 정보 조회
     let shareHash: string | null = null;
@@ -172,6 +168,9 @@ export class ChatbotService {
       });
       shareHash = estimate?.shareHash || null;
       estimateStatus = estimate?.statusAi || null;
+    } else if (flow.isCompleted) {
+      // 견적 없이 전문가에게 제출된 세션
+      estimateStatus = ESTIMATE_STATUS.PENDING;
     }
 
     // 방문자 브라우징 기록 포함 옵션
@@ -471,6 +470,12 @@ export class ChatbotService {
 
   // 카테고리 목록 조회
   async getCategories() {
+    // AI 활성화 여부 조회
+    const aiConfig = await this.prisma.aiGenerationConfig.findFirst({
+      where: { id: 1 },
+      select: { aiEnabled: true },
+    });
+
     // 기존 ATTRACTIONS의 장소 이름들로 DB에서 검색
     const attractionNames = Object.values(ATTRACTIONS).map((a) => a.label);
 
@@ -538,6 +543,7 @@ export class ChatbotService {
       })) as Array<{ value: string } & T[keyof T]>;
 
     return {
+      aiEnabled: aiConfig?.aiEnabled ?? true,
       tourTypes: toArray(TOUR_TYPES),
       interestMain: toArray(INTEREST_MAIN),
       interestSub: toArray(INTEREST_SUB),
@@ -623,6 +629,42 @@ export class ChatbotService {
     }
 
     try {
+      // Atomic check: isCompleted=false인 경우에만 업데이트 (race condition 방지)
+      const lockResult = await this.prisma.chatbotFlow.updateMany({
+        where: { sessionId, isCompleted: false },
+        data: { isCompleted: true },
+      });
+      if (lockResult.count === 0) {
+        // 다른 요청이 먼저 완료함 — 최신 상태 반환
+        return this.completeFlow(sessionId, userId);
+      }
+
+      // AI 활성화 여부 확인
+      const aiConfig = await this.prisma.aiGenerationConfig.findFirst({
+        where: { id: 1 },
+        select: { aiEnabled: true },
+      });
+
+      if (!aiConfig?.aiEnabled) {
+        // AI 비활성화: 견적 생성 없이 플로우만 완료
+        if (userId) {
+          await this.prisma.chatbotFlow.update({
+            where: { sessionId },
+            data: { userId },
+          });
+        }
+        const updatedFlow = await this.getFlow(sessionId);
+        this.logger.log(
+          `Flow completed (AI disabled): sessionId=${sessionId}`,
+        );
+        return {
+          flow: updatedFlow,
+          estimate: null,
+          templateUsed: null,
+          hasTbdDays: false,
+        };
+      }
+
       // AiEstimateService를 사용하여 AI 기반 견적 생성
       const { estimateId } =
         await this.aiEstimateService.generateFirstEstimate(sessionId);
@@ -889,12 +931,20 @@ export class ChatbotService {
       throw new BadRequestException('Estimate not found.');
     }
 
+    // 상태 전이 검증 — sent 또는 pending 상태에서만 응답 가능
+    const currentEstimate = await this.prisma.estimate.findUnique({
+      where: { id: flow.estimateId },
+      select: { statusAi: true, requestContent: true, customerName: true },
+    });
+    const respondableStates: string[] = [ESTIMATE_STATUS.SENT, ESTIMATE_STATUS.PENDING];
+    if (!respondableStates.includes(currentEstimate?.statusAi || '')) {
+      throw new BadRequestException(
+        `Cannot respond in current state: ${currentEstimate?.statusAi}`,
+      );
+    }
+
     // 수정 요청이 있으면 revisionRequested 플래그 활성화 및 상태를 pending으로 변경
     if (modificationRequest) {
-      const currentEstimate = await this.prisma.estimate.findUnique({
-        where: { id: flow.estimateId },
-        select: { requestContent: true, customerName: true },
-      });
       const existingContent = currentEstimate?.requestContent || '';
       const updatedContent = existingContent
         ? `${existingContent}\n\n--- Modification Request ---\n${modificationRequest}`
@@ -969,6 +1019,19 @@ export class ChatbotService {
       };
     }
 
+    // 거절인 경우 cancelled로
+    if (response === 'declined') {
+      const estimate = await this.estimateService.updateAIStatus(
+        flow.estimateId,
+        ESTIMATE_STATUS.CANCELLED,
+      );
+      return {
+        success: true,
+        message: 'Estimate declined.',
+        status: estimate.statusAi,
+      };
+    }
+
     // 승인인 경우 approved로 (결제 대기)
     const estimate = await this.estimateService.updateAIStatus(
       flow.estimateId,
@@ -1028,14 +1091,16 @@ export class ChatbotService {
     }
 
     if (utmSource) {
-      where.utmSource = utmSource;
+      where.visitor = { utmSource };
     }
 
     // 견적 필터: estimateStatus 우선, 없으면 hasEstimate 적용
     if (estimateStatus) {
+      // 서브쿼리 대신 raw SQL로 최적화 (전체 estimate 스캔 방지)
       const matchingEstimates = await this.prisma.estimate.findMany({
         where: { statusAi: estimateStatus },
         select: { id: true },
+        take: 1000, // 무한 스캔 방지
       });
       const matchingIds = matchingEstimates.map((e) => e.id);
       if (matchingIds.length === 0) {
@@ -1052,7 +1117,6 @@ export class ChatbotService {
     const SORT_WHITELIST = [
       'createdAt',
       'customerName',
-      'countryName',
       'currentStep',
     ];
     let orderBy: Record<string, 'asc' | 'desc'> = { createdAt: 'desc' };
@@ -1067,7 +1131,7 @@ export class ChatbotService {
         orderBy,
         skip,
         take: limit,
-        // 목록 조회 시 큰 필드 제외 (pageVisits, userAgent)
+        // 목록 조회 시 큰 필드 제외 (pageVisits)
         select: {
           id: true,
           sessionId: true,
@@ -1078,15 +1142,6 @@ export class ChatbotService {
           travelDate: true,
           customerName: true,
           customerEmail: true,
-          ipAddress: true,
-          // IP 지리 정보
-          country: true,
-          countryName: true,
-          city: true,
-          // 추적 정보
-          utmSource: true,
-          referrerUrl: true,
-          landingPage: true,
           isCompleted: true,
           estimateId: true,
           // 정보 불일치
@@ -1097,6 +1152,18 @@ export class ChatbotService {
           adminTags: true,
           adminMemo: true,
           createdAt: true,
+          // visitor 관계 (geo/tracking 정보)
+          visitor: {
+            select: {
+              ipAddress: true,
+              country: true,
+              countryName: true,
+              city: true,
+              utmSource: true,
+              referrerUrl: true,
+              landingPage: true,
+            },
+          },
         },
       }),
       this.prisma.chatbotFlow.count({ where }),
@@ -1117,9 +1184,17 @@ export class ChatbotService {
 
     const estimateStatusMap = new Map(estimates.map((e) => [e.id, e.statusAi]));
 
-    // 플로우에 estimateStatus 추가
-    const flowsWithStatus = flows.map((flow) => ({
+    // 플로우에 estimateStatus 추가 + visitor 필드 flatten
+    const flowsWithStatus = flows.map(({ visitor, ...flow }) => ({
       ...flow,
+      // visitor 관계를 최상위로 펼침 (API 응답 호환)
+      ipAddress: visitor?.ipAddress ?? null,
+      country: visitor?.country ?? null,
+      countryName: visitor?.countryName ?? null,
+      city: visitor?.city ?? null,
+      utmSource: visitor?.utmSource ?? null,
+      referrerUrl: visitor?.referrerUrl ?? null,
+      landingPage: visitor?.landingPage ?? null,
       estimateStatus: flow.estimateId
         ? estimateStatusMap.get(flow.estimateId) || null
         : null,
@@ -1154,39 +1229,30 @@ export class ChatbotService {
 
   // ============ 메시지 관련 API ============
 
-  // 메시지 저장
-  async saveMessage(
+  /**
+   * 메시지 저장 후 공통 처리:
+   * - 첫 사용자 메시지 → 세션 제목 자동 설정
+   * - user 메시지 & 견적 sent 상태 → 관리자 알림
+   * - SSE 이벤트 발행
+   */
+  private async processAfterMessageSave(
     sessionId: string,
-    data: {
-      role: 'bot' | 'user' | 'admin';
-      content: string;
-      messageType?: 'text' | 'options' | 'form';
-      options?: Array<{ value: string; label: string; sub?: string }>;
-    },
+    savedMessages: Array<{ id: number; role: string; content: string; createdAt: Date }>,
+    flow: { estimateId: number | null; customerName: string | null },
   ) {
-    // 세션 존재 확인
-    const flow = await this.getFlow(sessionId);
-
-    const message = await this.prisma.chatbotMessage.create({
-      data: {
-        sessionId,
-        role: data.role,
-        content: data.content,
-        messageType: data.messageType || 'text',
-        options: data.options || undefined,
-      },
-    });
+    const firstUserMsg = savedMessages.find((m) => m.role === 'user');
 
     // 첫 번째 사용자 메시지로 세션 제목 자동 설정
-    if (data.role === 'user') {
-      const existingMessages = await this.prisma.chatbotMessage.count({
+    if (firstUserMsg) {
+      const existingUserMsgCount = await this.prisma.chatbotMessage.count({
         where: { sessionId, role: 'user' },
       });
+      const userMsgsInBatch = savedMessages.filter((m) => m.role === 'user').length;
 
-      if (existingMessages === 1) {
-        // 첫 번째 사용자 메시지
+      if (existingUserMsgCount === userMsgsInBatch) {
         const title =
-          data.content.slice(0, 50) + (data.content.length > 50 ? '...' : '');
+          firstUserMsg.content.slice(0, 50) +
+          (firstUserMsg.content.length > 50 ? '...' : '');
         await this.prisma.chatbotFlow.update({
           where: { sessionId },
           data: { title },
@@ -1200,14 +1266,13 @@ export class ChatbotService {
           select: { statusAi: true, customerName: true },
         });
 
-        // 견적이 sent 상태일 때만 알림 (전문가가 고객에게 견적을 보낸 후)
         if (estimate?.statusAi === 'sent') {
           try {
             await this.notificationService.notifyCustomerMessage({
               sessionId,
               customerName:
                 estimate.customerName || flow.customerName || undefined,
-              messagePreview: data.content,
+              messagePreview: firstUserMsg.content,
             });
           } catch (error) {
             const errorMessage =
@@ -1220,21 +1285,45 @@ export class ChatbotService {
       }
     }
 
-    // SSE 이벤트 발행 (모든 메시지 - 양방향 실시간 알림)
-    // admin/bot → customer, user → admin
-    const sseEvent: ChatbotNewMessageEvent = {
-      sessionId,
-      message: {
-        id: message.id,
+    // SSE 이벤트 발행 (마지막 메시지 기준)
+    const lastMsg = savedMessages[savedMessages.length - 1];
+    if (lastMsg) {
+      const sseEvent: ChatbotNewMessageEvent = {
+        sessionId,
+        message: {
+          id: lastMsg.id,
+          role: lastMsg.role as 'bot' | 'user' | 'admin',
+          content: lastMsg.content,
+          createdAt: lastMsg.createdAt,
+        },
+      };
+      this.eventEmitter.emit(CHATBOT_EVENTS.NEW_MESSAGE, sseEvent);
+    }
+  }
+
+  // 메시지 저장
+  async saveMessage(
+    sessionId: string,
+    data: {
+      role: 'bot' | 'user' | 'admin';
+      content: string;
+      messageType?: 'text' | 'options' | 'form';
+      options?: Array<{ value: string; label: string; sub?: string }>;
+    },
+  ) {
+    const flow = await this.getFlow(sessionId);
+
+    const message = await this.prisma.chatbotMessage.create({
+      data: {
+        sessionId,
         role: data.role,
         content: data.content,
-        createdAt: message.createdAt,
+        messageType: data.messageType || 'text',
+        options: data.options || undefined,
       },
-    };
-    this.logger.log(
-      `SSE event emitting for session ${sessionId}, role: ${data.role}`,
-    );
-    this.eventEmitter.emit(CHATBOT_EVENTS.NEW_MESSAGE, sseEvent);
+    });
+
+    await this.processAfterMessageSave(sessionId, [message], flow);
 
     return message;
   }
@@ -1249,14 +1338,12 @@ export class ChatbotService {
       options?: Array<{ value: string; label: string; sub?: string }>;
     }>,
   ) {
-    // 세션 존재 확인
-    await this.getFlow(sessionId);
+    const flow = await this.getFlow(sessionId);
 
     if (!messages || messages.length === 0) {
       return { count: 0, messages: [] };
     }
 
-    // 배치 삽입
     const createdMessages = await this.prisma.$transaction(
       messages.map((msg) =>
         this.prisma.chatbotMessage.create({
@@ -1271,26 +1358,7 @@ export class ChatbotService {
       ),
     );
 
-    // 첫 번째 사용자 메시지로 세션 제목 자동 설정
-    const firstUserMsg = messages.find((m) => m.role === 'user');
-    if (firstUserMsg) {
-      const existingUserMsgCount = await this.prisma.chatbotMessage.count({
-        where: { sessionId, role: 'user' },
-      });
-
-      // 방금 추가한 메시지 수를 고려
-      const userMsgsInBatch = messages.filter((m) => m.role === 'user').length;
-      if (existingUserMsgCount === userMsgsInBatch) {
-        // 이번 배치가 첫 사용자 메시지를 포함
-        const title =
-          firstUserMsg.content.slice(0, 50) +
-          (firstUserMsg.content.length > 50 ? '...' : '');
-        await this.prisma.chatbotFlow.update({
-          where: { sessionId },
-          data: { title },
-        });
-      }
-    }
+    await this.processAfterMessageSave(sessionId, createdMessages, flow);
 
     return { count: createdMessages.length, messages: createdMessages };
   }
@@ -1346,13 +1414,16 @@ export class ChatbotService {
       const estimateInfo = flow.estimateId
         ? estimateMap.get(flow.estimateId)
         : null;
+      // 견적 없이 완료된 세션은 pending (전문가 검토 대기)
+      const estimateStatus = estimateInfo?.statusAi
+        || (flow.isCompleted && !flow.estimateId ? ESTIMATE_STATUS.PENDING : null);
       return {
         sessionId: flow.sessionId,
         title: flow.title,
         currentStep: flow.currentStep,
         isCompleted: flow.isCompleted,
         estimateId: flow.estimateId,
-        estimateStatus: estimateInfo?.statusAi || null,
+        estimateStatus,
         estimateShareHash: estimateInfo?.shareHash || null,
         createdAt: flow.createdAt,
         updatedAt: flow.updatedAt,
@@ -1376,6 +1447,16 @@ export class ChatbotService {
     // 이미 같은 사용자에게 연결되어 있으면 스킵
     if (flow.userId === userId) {
       return { success: true, linked: false, message: 'Already linked' };
+    }
+
+    // 원자적 업데이트 — TOCTOU 레이스 방지 (userId가 null이거나 같은 사용자일 때만 연결)
+    const atomicCheck = await this.prisma.chatbotFlow.updateMany({
+      where: { sessionId, OR: [{ userId: null }, { userId }] },
+      data: { userId },
+    });
+    if (atomicCheck.count === 0) {
+      this.logger.warn(`Session ${sessionId} was linked to another user between read and write`);
+      return { success: true, linked: false };
     }
 
     // 사용자 프로필 조회
@@ -1481,11 +1562,17 @@ export class ChatbotService {
   }
 
   // 세션 제목 업데이트
-  async updateSessionTitle(sessionId: string, title: string, userId?: string) {
+  async updateSessionTitle(
+    sessionId: string,
+    title: string,
+    userId: string,
+    userRole?: string,
+  ) {
     const flow = await this.getFlow(sessionId);
 
-    // 사용자 권한 확인 (userId가 제공된 경우)
-    if (userId && flow.userId && flow.userId !== userId) {
+    // 관리자가 아니면 소유자만 수정 가능
+    const isAdmin = userRole === 'admin';
+    if (!isAdmin && flow.userId && flow.userId !== userId) {
       throw new ForbiddenException(
         'You do not have permission to modify this session.',
       );
@@ -1525,6 +1612,9 @@ export class ChatbotService {
   async bulkDelete(sessionIds: string[]) {
     if (!sessionIds || sessionIds.length === 0) {
       throw new BadRequestException('삭제할 세션 ID가 없습니다.');
+    }
+    if (sessionIds.length > 100) {
+      throw new BadRequestException('Maximum 100 sessions per request.');
     }
 
     // SSE 리소스 정리

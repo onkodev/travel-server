@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { SupabaseError, UserTourData, ReviewData } from '../../common/types';
+import { SupabaseError } from '../../common/types';
 import { handleSupabaseError, sanitizeSearch } from '../../common/utils';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
 import {
@@ -425,37 +425,4 @@ export class UserService {
     };
   }
 
-  // 통계 계산 헬퍼
-  private calculateStats(userTours: UserTourData[], reviews: ReviewData[]) {
-    // 1. 여행한 도시 수 (regions 고유 개수)
-    const uniqueRegionIds = new Set(
-      userTours.map((ut) => ut.tours?.regionId).filter(Boolean),
-    );
-    const cityCount = uniqueRegionIds.size;
-
-    // 2. 리뷰 평균 점수
-    const averageRating =
-      reviews.length > 0
-        ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-        : 0;
-
-    // 3. 선호 테마 (tags 집계)
-    const tagCounts: Record<string, number> = {};
-    userTours.forEach((ut) => {
-      ut.tours?.tags?.forEach((tag: string) => {
-        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-      });
-    });
-
-    const preferredTheme =
-      Object.entries(tagCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '전체';
-
-    return {
-      cityCount,
-      averageRating: parseFloat(averageRating.toFixed(1)),
-      preferredTheme,
-      reviewCount: reviews.length,
-      tourCount: userTours.length,
-    };
-  }
 }

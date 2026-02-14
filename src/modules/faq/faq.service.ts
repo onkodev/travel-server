@@ -8,7 +8,8 @@ import {
 } from '../../common/dto/pagination.dto';
 import { EmbeddingService } from '../ai/core/embedding.service';
 import { GeminiCoreService } from '../ai/core/gemini-core.service';
-import { GeoIpService } from '../geoip/geoip.service';
+import { AiPromptService } from '../ai-prompt/ai-prompt.service';
+import { PromptKey } from '../ai-prompt/prompt-registry';
 import { MemoryCache } from '../../common/utils';
 
 @Injectable()
@@ -20,7 +21,7 @@ export class FaqService {
     private prisma: PrismaService,
     private embeddingService: EmbeddingService,
     private geminiCore: GeminiCoreService,
-    private geoIpService: GeoIpService,
+    private aiPromptService: AiPromptService,
   ) {}
 
   // ============================================================================
@@ -51,7 +52,9 @@ export class FaqService {
     if (search) {
       where.OR = [
         { question: { contains: search, mode: 'insensitive' } },
+        { questionKo: { contains: search, mode: 'insensitive' } },
         { answer: { contains: search, mode: 'insensitive' } },
+        { answerKo: { contains: search, mode: 'insensitive' } },
       ];
     }
 
@@ -591,15 +594,120 @@ export class FaqService {
   }
 
   // ============================================================================
-  // Duplicate Scan (기존 FAQ 간 중복 탐색)
+  // Text-based Duplicate Removal + Low-quality Cleanup
   // ============================================================================
 
-  async scanDuplicates(threshold = 0.92): Promise<{
+  async removeDuplicates(): Promise<{
+    exactDuplicatesDeleted: number;
+    lowQualityDeleted: number;
+    totalDeleted: number;
+    remainingCount: number;
+  }> {
+    this.logger.log('텍스트 기반 중복 제거 + 저품질 필터링 시작');
+
+    // Phase 1: 저품질 FAQ 삭제 (Q/A가 너무 짧거나 의미 없는 것)
+    const lowQuality = await this.prisma.faq.findMany({
+      where: {
+        status: 'pending',
+        OR: [
+          // question이 10자 미만
+          { question: { not: { contains: '          ' } } },
+          // answer가 10자 미만 (아래에서 JS로 필터)
+        ],
+      },
+      select: { id: true, question: true, answer: true },
+    });
+
+    const lowQualityIds = lowQuality
+      .filter(
+        (f) =>
+          f.question.trim().length < 10 ||
+          f.answer.trim().length < 10 ||
+          // Q와 A가 동일
+          f.question.trim().toLowerCase() === f.answer.trim().toLowerCase(),
+      )
+      .map((f) => f.id);
+
+    let lowQualityDeleted = 0;
+    if (lowQualityIds.length > 0) {
+      const result = await this.prisma.faq.deleteMany({
+        where: { id: { in: lowQualityIds } },
+      });
+      lowQualityDeleted = result.count;
+      this.logger.log(`저품질 FAQ ${lowQualityDeleted}건 삭제`);
+    }
+
+    // Phase 2: question 텍스트 완전 일치 중복 제거 (대소문자 무시)
+    // 1단계: 중복 그룹 찾기
+    const duplicateGroups = await this.prisma.$queryRaw<
+      Array<{ lower_q: string; cnt: bigint }>
+    >`
+      SELECT LOWER(TRIM(question)) as lower_q, COUNT(*)::bigint as cnt
+      FROM faqs
+      WHERE status IN ('pending', 'approved')
+      GROUP BY LOWER(TRIM(question))
+      HAVING COUNT(*) > 1
+    `;
+
+    let exactDuplicatesDeleted = 0;
+
+    if (duplicateGroups.length > 0) {
+      // 2단계: 각 그룹에서 keep_id 조회 후 나머지 삭제
+      for (const group of duplicateGroups) {
+        // 각 그룹에서 가장 좋은 1개 ID 선택 (approved 우선, confidence 높은 순, id 낮은 순)
+        const best = await this.prisma.$queryRaw<Array<{ id: number }>>`
+          SELECT id FROM faqs
+          WHERE LOWER(TRIM(question)) = ${group.lower_q}
+          ORDER BY
+            CASE WHEN status = 'approved' THEN 0 ELSE 1 END,
+            COALESCE(confidence, 0) DESC,
+            id ASC
+          LIMIT 1
+        `;
+        if (best.length === 0) continue;
+
+        const result = await this.prisma.$executeRaw`
+          DELETE FROM faqs
+          WHERE LOWER(TRIM(question)) = ${group.lower_q}
+            AND id != ${best[0].id}
+        `;
+        exactDuplicatesDeleted += result;
+      }
+
+      this.logger.log(
+        `텍스트 완전 일치 중복: ${duplicateGroups.length}개 그룹에서 ${exactDuplicatesDeleted}건 삭제`,
+      );
+    }
+
+    const totalDeleted = lowQualityDeleted + exactDuplicatesDeleted;
+    const remainingCount = await this.prisma.faq.count();
+
+    this.cache.clear();
+
+    this.logger.log(
+      `중복 제거 완료: 저품질 ${lowQualityDeleted}건 + 중복 ${exactDuplicatesDeleted}건 = 총 ${totalDeleted}건 삭제, 남은 FAQ: ${remainingCount}건`,
+    );
+
+    return {
+      exactDuplicatesDeleted,
+      lowQualityDeleted,
+      totalDeleted,
+      remainingCount,
+    };
+  }
+
+  // ============================================================================
+  // Duplicate Scan (기존 FAQ 간 중복 탐색 — 임베딩 기반)
+  // ============================================================================
+
+  async scanDuplicates(threshold = 0.96): Promise<{
     groups: Array<{
       faqs: Array<{
         id: number;
         question: string;
         questionKo: string | null;
+        answer: string;
+        answerKo: string | null;
         status: string;
         category: string | null;
       }>;
@@ -607,27 +715,42 @@ export class FaqService {
     }>;
     totalGroups: number;
   }> {
-    // 유사 페어 탐색 (CROSS JOIN LATERAL)
-    const pairs = await this.prisma.$queryRawUnsafe<
-      Array<{ id1: number; id2: number; similarity: number }>
-    >(
-      `SELECT f1.id as id1, f2.id as id2,
-              1 - (f1.embedding <=> f2.embedding) as similarity
-       FROM faqs f1
-       CROSS JOIN LATERAL (
-         SELECT id, embedding
-         FROM faqs
-         WHERE id > f1.id
-           AND status IN ('pending', 'approved')
-           AND embedding IS NOT NULL
-         ORDER BY embedding <=> f1.embedding
-         LIMIT 5
-       ) f2
-       WHERE f1.status IN ('pending', 'approved')
-         AND f1.embedding IS NOT NULL
-         AND 1 - (f1.embedding <=> f2.embedding) >= $1`,
-      threshold,
+    // 유사 페어 탐색 — 배치 방식 (트랜잭션 타임아웃 문제 회피)
+    // 전체 FAQ ID를 배치로 나눠 각 배치에서 유사 페어를 찾음
+    const BATCH_SIZE = 500;
+    const embeddedRows = await this.prisma.$queryRawUnsafe<Array<{ id: number }>>(
+      `SELECT id FROM faqs
+       WHERE status IN ('pending', 'approved') AND embedding IS NOT NULL
+       ORDER BY id
+       LIMIT 3000`,
     );
+
+    const pairs: Array<{ id1: number; id2: number; similarity: number }> = [];
+
+    for (let i = 0; i < embeddedRows.length; i += BATCH_SIZE) {
+      const batchIds = embeddedRows.slice(i, i + BATCH_SIZE).map((r) => r.id);
+      const batchPairs = await this.prisma.$queryRawUnsafe<
+        Array<{ id1: number; id2: number; similarity: number }>
+      >(
+        `SELECT f1.id as id1, f2.id as id2,
+                1 - (f1.embedding <=> f2.embedding) as similarity
+         FROM faqs f1
+         CROSS JOIN LATERAL (
+           SELECT id, embedding
+           FROM faqs
+           WHERE id > f1.id
+             AND status IN ('pending', 'approved')
+             AND embedding IS NOT NULL
+           ORDER BY embedding <=> f1.embedding
+           LIMIT 3
+         ) f2
+         WHERE f1.id = ANY($1::int[])
+           AND 1 - (f1.embedding <=> f2.embedding) >= $2`,
+        batchIds,
+        threshold,
+      );
+      pairs.push(...batchPairs);
+    }
 
     if (pairs.length === 0) {
       return { groups: [], totalGroups: 0 };
@@ -664,7 +787,7 @@ export class FaqService {
     const allIds = [...new Set([...groupMap.values()].flatMap((s) => [...s]))];
     const faqDetails = await this.prisma.faq.findMany({
       where: { id: { in: allIds } },
-      select: { id: true, question: true, questionKo: true, status: true, category: true },
+      select: { id: true, question: true, questionKo: true, answer: true, answerKo: true, status: true, category: true },
     });
     const faqMap = new Map(faqDetails.map((f) => [f.id, f]));
 
@@ -678,6 +801,8 @@ export class FaqService {
             id: number;
             question: string;
             questionKo: string | null;
+            answer: string;
+            answerKo: string | null;
             status: string;
             category: string | null;
           }>,
@@ -882,28 +1007,21 @@ export class FaqService {
       'other - 위 카테고리에 해당하지 않는 질문',
     ];
 
-    const faqList = faqs
+    const faqListText = faqs
       .map((f) => {
         const q = f.questionKo || f.question;
         return `id=${f.id} Q: ${q}`;
       })
       .join('\n');
 
-    const prompt = `You are classifying FAQs for a Korea travel tour company.
-Classify each FAQ into exactly one category.
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.FAQ_CLASSIFY_CATEGORIES,
+      { categories: categories.join('\n'), faqList: faqListText },
+    );
 
-Categories:
-${categories.join('\n')}
-
-FAQs:
-${faqList}
-
-Reply ONLY JSON array: [{"id":1,"category":"booking"}]
-Use exact category key. No explanation.`;
-
-    const result = await this.geminiCore.callGemini(prompt, {
-      temperature: 0,
-      maxOutputTokens: 4096,
+    const result = await this.geminiCore.callGemini(built.text, {
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
     });
 
     const jsonStr = result.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
@@ -917,6 +1035,334 @@ Use exact category key. No explanation.`;
   }
 
   // ============================================================================
+  // Auto-Review Pipeline (AI-powered bulk review)
+  // ============================================================================
+
+  async autoReviewFaqs(
+    userId: string,
+    options?: {
+      batchSize?: number;
+      dryRun?: boolean;
+    },
+  ): Promise<{
+    total: number;
+    approved: number;
+    rejected: number;
+    needsReview: number;
+    failed: number;
+    remaining: number;
+    dryRun: boolean;
+    details?: Array<{ id: number; decision: string; reason: string }>;
+  }> {
+    const batchSize = options?.batchSize ?? 100;
+    const dryRun = options?.dryRun ?? false;
+
+    this.logger.log(`자동 리뷰 시작 (batchSize=${batchSize}, dryRun=${dryRun})`);
+
+    // Step 1: pending FAQ 조회 (단일 배치만 처리)
+    const pendingFaqs = await this.prisma.faq.findMany({
+      where: { status: 'pending' },
+      select: {
+        id: true,
+        question: true,
+        answer: true,
+        questionKo: true,
+        answerKo: true,
+        confidence: true,
+        category: true,
+        source: true,
+      },
+      orderBy: { id: 'asc' },
+      take: batchSize,
+    });
+
+    if (pendingFaqs.length === 0) {
+      return { total: 0, approved: 0, rejected: 0, needsReview: 0, failed: 0, remaining: 0, dryRun };
+    }
+
+    // Step 2: 룰 기반 사전 필터
+    const { autoReject, autoReview, geminiCandidates } = this.preFilterFaqs(pendingFaqs);
+
+    let approved = 0;
+    let rejected = 0;
+    let needsReview = 0;
+    let failed = 0;
+    const dryRunDetails: Array<{ id: number; decision: string; reason: string }> = [];
+
+    // Step 3: 룰 기반 자동 reject 처리
+    if (autoReject.length > 0) {
+      const rejectIds = autoReject.map((r) => r.id);
+      rejected += autoReject.length;
+
+      if (dryRun) {
+        autoReject.forEach((r) => dryRunDetails.push(r));
+      } else {
+        await this.prisma.faq.updateMany({
+          where: { id: { in: rejectIds } },
+          data: { status: 'rejected', approvedBy: userId },
+        });
+        for (const { id, reason } of autoReject) {
+          this.prisma.faq
+            .update({ where: { id }, data: { rejectionReason: `[Rule] ${reason}` } })
+            .catch(() => {});
+        }
+        this.cleanupBulkEmailRawData(rejectIds).catch((err) =>
+          this.logger.error('룰 거절 rawData 정리 실패:', err),
+        );
+      }
+    }
+
+    // Step 4: 룰 기반 자동 review (보류) 처리
+    if (autoReview.length > 0) {
+      needsReview += autoReview.length;
+      if (dryRun) {
+        autoReview.forEach((r) => dryRunDetails.push(r));
+      }
+    }
+
+    this.logger.log(
+      `사전 필터: 전체 ${pendingFaqs.length}건 → 자동 거절 ${autoReject.length}, 자동 보류 ${autoReview.length}, Gemini 대상 ${geminiCandidates.length}`,
+    );
+
+    // Step 5: Gemini 배치 처리 (나머지)
+    if (geminiCandidates.length > 0) {
+      try {
+        const decisions = await this.reviewBatchWithGemini(geminiCandidates);
+
+        const approveIds: number[] = [];
+        const rejectIds: number[] = [];
+        const rejectReasons = new Map<number, string>();
+
+        for (const { id, decision, reason } of decisions) {
+          if (dryRun) {
+            dryRunDetails.push({ id, decision, reason });
+          }
+
+          if (decision === 'approve') {
+            approveIds.push(id);
+            approved++;
+          } else if (decision === 'reject') {
+            rejectIds.push(id);
+            rejectReasons.set(id, reason);
+            rejected++;
+          } else {
+            needsReview++;
+          }
+        }
+
+        if (!dryRun) {
+          if (approveIds.length > 0) {
+            await this.prisma.faq.updateMany({
+              where: { id: { in: approveIds } },
+              data: {
+                status: 'approved',
+                approvedAt: new Date(),
+                approvedBy: userId,
+                rejectionReason: null,
+              },
+            });
+            this.generateBulkEmbeddings(approveIds).catch((err) =>
+              this.logger.error('자동 승인 임베딩 생성 실패:', err),
+            );
+          }
+
+          if (rejectIds.length > 0) {
+            await this.prisma.faq.updateMany({
+              where: { id: { in: rejectIds } },
+              data: { status: 'rejected', approvedBy: userId },
+            });
+            for (const [faqId, reason] of rejectReasons) {
+              this.prisma.faq
+                .update({ where: { id: faqId }, data: { rejectionReason: reason } })
+                .catch(() => {});
+            }
+            this.cleanupBulkEmailRawData(rejectIds).catch((err) =>
+              this.logger.error('자동 거절 rawData 정리 실패:', err),
+            );
+          }
+        }
+      } catch (error) {
+        this.logger.error('자동 리뷰 Gemini 배치 실패:', error);
+        failed += geminiCandidates.length;
+      }
+    }
+
+    // Step 6: 남은 pending 수 조회
+    const remaining = await this.prisma.faq.count({ where: { status: 'pending' } });
+
+    this.cache.clear();
+
+    const totalProcessed = pendingFaqs.length;
+    this.logger.log(
+      `자동 리뷰 완료: 총 ${totalProcessed}건 (승인 ${approved}, 거절 ${rejected}, 보류 ${needsReview}, 실패 ${failed}, 남은 pending ${remaining})`,
+    );
+
+    return {
+      total: totalProcessed,
+      approved,
+      rejected,
+      needsReview,
+      failed,
+      remaining,
+      dryRun,
+      details: dryRun ? dryRunDetails : undefined,
+    };
+  }
+
+  /**
+   * 룰 기반 사전 필터: Gemini 호출 전에 확실한 reject/review 분류
+   */
+  private preFilterFaqs(
+    faqs: Array<{
+      id: number;
+      question: string;
+      answer: string;
+      questionKo: string | null;
+      answerKo: string | null;
+      confidence: any;
+      category: string | null;
+      source: string;
+    }>,
+  ): {
+    autoReject: Array<{ id: number; decision: string; reason: string }>;
+    autoReview: Array<{ id: number; decision: string; reason: string }>;
+    geminiCandidates: typeof faqs;
+  } {
+    const GREETING_PATTERN = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|bye|good|sure|great|nice|wow|cool|haha|lol|hmm)\b/i;
+    const INCOMPLETE_ANSWER_PATTERN = /\b(I'll check|Let me get back|I will confirm|I'll get back|I will check|I'll confirm|let me check|let me confirm|I need to check|I will get back)\b/i;
+    const PERSONAL_QUESTION_PATTERN = /\b(my tour|my guide|my booking|my pickup|my reservation|my itinerary|my schedule|my hotel|my flight|my driver|my transfer)\b/i;
+    const SPECIFIC_DATE_PATTERN = /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b/i;
+    const YEAR_PATTERN = /\b202[4-9]\b/;
+    const PHONE_PATTERN = /(\+82|010[-.\s]?\d{4})/;
+    const CUSTOMER_NAME_PATTERN = /\b(Mr\.|Mrs\.|Ms\.|Miss)\s+[A-Z]/;
+
+    const autoReject: Array<{ id: number; decision: string; reason: string }> = [];
+    const autoReview: Array<{ id: number; decision: string; reason: string }> = [];
+    const geminiCandidates: typeof faqs = [];
+
+    for (const faq of faqs) {
+      const q = faq.question.trim();
+      const a = faq.answer.trim();
+
+      // 자동 REJECT 룰
+      if (a.length < 20) {
+        autoReject.push({ id: faq.id, decision: 'reject', reason: 'Answer too short (< 20 chars)' });
+        continue;
+      }
+
+      if (GREETING_PATTERN.test(q)) {
+        autoReject.push({ id: faq.id, decision: 'reject', reason: 'Question is greeting/acknowledgment' });
+        continue;
+      }
+
+      if (INCOMPLETE_ANSWER_PATTERN.test(a)) {
+        autoReject.push({ id: faq.id, decision: 'reject', reason: 'Answer is incomplete/deferred response' });
+        continue;
+      }
+
+      if (PERSONAL_QUESTION_PATTERN.test(q)) {
+        autoReject.push({ id: faq.id, decision: 'reject', reason: 'Personal/customer-specific question' });
+        continue;
+      }
+
+      // 자동 REVIEW 룰
+      if (SPECIFIC_DATE_PATTERN.test(a) || YEAR_PATTERN.test(a)) {
+        autoReview.push({ id: faq.id, decision: 'review', reason: 'Contains specific dates — may be outdated' });
+        continue;
+      }
+
+      if (PHONE_PATTERN.test(a)) {
+        autoReview.push({ id: faq.id, decision: 'review', reason: 'Contains phone number — needs verification' });
+        continue;
+      }
+
+      if (CUSTOMER_NAME_PATTERN.test(a)) {
+        autoReview.push({ id: faq.id, decision: 'review', reason: 'Contains customer name — needs anonymization' });
+        continue;
+      }
+
+      // Gemini에 전달
+      geminiCandidates.push(faq);
+    }
+
+    return { autoReject, autoReview, geminiCandidates };
+  }
+
+  private async reviewBatchWithGemini(
+    faqs: Array<{
+      id: number;
+      question: string;
+      answer: string;
+      questionKo: string | null;
+      answerKo: string | null;
+      confidence: any;
+      category: string | null;
+      source: string;
+    }>,
+  ): Promise<Array<{ id: number; decision: 'approve' | 'reject' | 'review'; reason: string }>> {
+    const faqListText = faqs
+      .map((f) => {
+        const q = f.question;
+        const a = f.answer.length > 300 ? f.answer.substring(0, 300) + '...' : f.answer;
+        return `id=${f.id}\nQ: ${q}\nA: ${a}`;
+      })
+      .join('\n---\n');
+
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.FAQ_AUTO_REVIEW,
+      { faqList: faqListText },
+    );
+
+    const result = await this.geminiCore.callGemini(built.text, {
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
+    });
+
+    const jsonStr = result.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+
+    this.logger.log(`Gemini raw (first 300): ${jsonStr.substring(0, 300)}`);
+
+    let parsed: Array<{ id: number | string; decision: string; confidence?: number; reason: string }>;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (parseErr) {
+      this.logger.error(`JSON parse 실패: ${(parseErr as Error).message}`);
+      this.logger.error(`Raw: ${jsonStr.substring(0, 500)}`);
+      return [];
+    }
+
+    this.logger.log(`Parsed ${parsed.length}건, 첫 항목: ${JSON.stringify(parsed[0])}`);
+
+    const validDecisions = new Set(['approve', 'reject', 'review']);
+    const validIds = new Set(faqs.map((f) => f.id));
+
+    const filtered = parsed
+      .filter((r) => {
+        const numId = Number(r.id);
+        return !isNaN(numId) && validIds.has(numId) && validDecisions.has(r.decision.toLowerCase());
+      })
+      .map((r) => {
+        let decision = r.decision.toLowerCase() as 'approve' | 'reject' | 'review';
+        const confidence = typeof r.confidence === 'number' ? r.confidence : 50;
+
+        // confidence < 90인 approve → review로 격하
+        if (decision === 'approve' && confidence < 90) {
+          this.logger.debug(`FAQ #${r.id}: approve → review (confidence ${confidence} < 90)`);
+          decision = 'review';
+        }
+
+        return {
+          id: Number(r.id),
+          decision,
+          reason: r.reason || '',
+        };
+      });
+
+    this.logger.log(`필터 후 ${filtered.length}건 (승인/거절/보류 처리 대상)`);
+    return filtered;
+  }
+
+  // ============================================================================
   // FAQ Chat (AI) — 하이브리드 응답 전략
   // 1. FAQ 유사도 높음 → FAQ 답변 (회사 관련)
   // 2. FAQ 유사도 낮음 → 의도 분류 후 분기
@@ -924,8 +1370,8 @@ Use exact category key. No explanation.`;
   //    - travel → Gemini 직접 (일반 한국 여행)
   // ============================================================================
 
-  private static readonly DIRECT_THRESHOLD = 0.7; // FAQ 직접 답변 임계값
-  private static readonly RAG_THRESHOLD = 0.5; // FAQ RAG 임계값
+  private static readonly DEFAULT_DIRECT_THRESHOLD = 0.7;
+  private static readonly DEFAULT_RAG_THRESHOLD = 0.5;
 
   async chatWithFaq(
     message: string,
@@ -935,57 +1381,118 @@ Use exact category key. No explanation.`;
     answer: string;
     sources?: Array<{ question: string; id: number }>;
     noMatch: boolean;
-    responseTier: 'direct' | 'rag' | 'general' | 'no_match';
+    responseTier: 'direct' | 'rag' | 'general' | 'tour_recommend' | 'no_match';
     suggestedQuestions?: Array<{ id: number; question: string }>;
+    tourRecommendations?: Array<{
+      id: number;
+      name: string;
+      nameKor: string | null;
+      thumbnailUrl: string | null;
+      websiteUrl: string;
+      price: number | null;
+      region: string | null;
+      duration: string | null;
+    }>;
   }> {
-    // 1. 유사 FAQ 검색
-    const similar = await this.searchSimilar(message, 5);
+    // 0. FaqChatConfig 로드
+    const chatConfig = await this.aiPromptService.getFaqChatConfig();
+    const directThreshold = chatConfig.directThreshold ?? FaqService.DEFAULT_DIRECT_THRESHOLD;
+    const ragThreshold = chatConfig.ragThreshold ?? FaqService.DEFAULT_RAG_THRESHOLD;
+
+    // 1. 의도 분류 + 유사 FAQ 검색 + 투어 검색 (병렬)
+    const [intent, similar, relatedTours] = await Promise.all([
+      this.classifyIntent(message),
+      this.searchSimilar(message, 5),
+      this.searchOdkTours(message, 5),
+    ]);
     const topSimilarity = similar.length > 0 ? similar[0].similarity : 0;
+
+    this.logger.debug(
+      `Intent: ${intent}, topSim: ${topSimilarity.toFixed(2)} for: "${message.substring(0, 50)}..."`,
+    );
 
     // 2. 하이브리드 분기
     let answer: string;
-    let responseTier: 'direct' | 'rag' | 'general' | 'no_match';
+    let responseTier: 'direct' | 'rag' | 'general' | 'tour_recommend' | 'no_match';
     let suggestedQuestions: Array<{ id: number; question: string }> | undefined;
+    let tourRecommendations:
+      | Array<{
+          id: number;
+          name: string;
+          nameKor: string | null;
+          thumbnailUrl: string | null;
+          websiteUrl: string;
+          price: number | null;
+          region: string | null;
+          duration: string | null;
+        }>
+      | undefined;
 
-    if (topSimilarity >= FaqService.DIRECT_THRESHOLD) {
-      // === Direct: FAQ 원문 직접 반환 (확실히 회사 관련) ===
-      responseTier = 'direct';
-      answer = similar[0].answer;
-    } else {
-      // === 유사도 낮음: 의도 분류 후 분기 ===
-      const intent = await this.classifyIntent(message);
-      this.logger.debug(
-        `Intent classified: ${intent} for message: "${message.substring(0, 50)}..."`,
-      );
+    // 투어 매핑 헬퍼
+    const mapTours = (tours: typeof relatedTours) =>
+      tours.map((t) => ({
+        id: t.id,
+        name: t.name,
+        nameKor: t.nameKor,
+        description: t.description,
+        thumbnailUrl: t.thumbnailUrl,
+        websiteUrl: t.websiteUrl,
+        price: t.price,
+        region: t.region,
+        duration: t.duration,
+      }));
 
-      if (intent === 'company' && topSimilarity >= FaqService.RAG_THRESHOLD) {
-        // === RAG: 회사 관련이지만 정확한 FAQ 없음 → FAQ 컨텍스트로 생성 ===
-        responseTier = 'rag';
-        const relevant = similar.filter(
-          (f) => f.similarity >= FaqService.RAG_THRESHOLD,
+    if (intent === 'tour_recommend') {
+      // === Tour Recommend: 투어 추천 요청 (최우선) ===
+      if (relatedTours.length > 0) {
+        responseTier = 'tour_recommend';
+        answer = await this.generateTourRecommendationAnswer(
+          message,
+          relatedTours,
+          history,
         );
-        answer = await this.generateRagAnswer(message, relevant, history);
-      } else if (intent === 'company') {
-        // === 회사 관련인데 매칭 FAQ 없음 → 문의 안내 ===
-        responseTier = 'no_match';
-        answer =
-          "I don't have specific information about that in our FAQ. For questions about our tours, pricing, or bookings, please start a tour inquiry or contact us directly at info@tumakr.com.";
-        if (similar.length > 0) {
-          suggestedQuestions = similar.slice(0, 3).map((f) => ({
-            id: f.id,
-            question: f.question,
-          }));
-        }
+        tourRecommendations = mapTours(relatedTours);
       } else {
-        // === General: 일반 한국 여행 질문 → Gemini 직접 답변 ===
+        // 매칭 투어 없음 → 일반 여행 답변 폴백
         responseTier = 'general';
         answer = await this.generateGeneralTravelAnswer(message, history);
       }
+    } else if (topSimilarity >= directThreshold) {
+      // === Direct: FAQ 원문 직접 반환 (확실히 회사 관련) ===
+      responseTier = 'direct';
+      answer = similar[0].answer;
+    } else if (intent === 'company' && topSimilarity >= ragThreshold) {
+      // === RAG: 회사 관련이지만 정확한 FAQ 없음 → FAQ 컨텍스트로 생성 ===
+      responseTier = 'rag';
+      const relevant = similar.filter(
+        (f) => f.similarity >= ragThreshold,
+      );
+      answer = await this.generateRagAnswer(message, relevant, history);
+    } else if (intent === 'company') {
+      // === 회사 관련인데 매칭 FAQ 없음 → 문의 안내 ===
+      responseTier = 'no_match';
+      const noMatchBuilt = await this.aiPromptService.buildPrompt(PromptKey.FAQ_NO_MATCH_RESPONSE, {});
+      answer = chatConfig.noMatchResponse || noMatchBuilt.text;
+      if (similar.length > 0) {
+        suggestedQuestions = similar.slice(0, 3).map((f) => ({
+          id: f.id,
+          question: f.question,
+        }));
+      }
+    } else {
+      // === General: 일반 한국 여행 질문 → Gemini 직접 답변 ===
+      responseTier = 'general';
+      answer = await this.generateGeneralTravelAnswer(message, history);
+    }
+
+    // 2.5. 투어 추천 보충: tour_recommend가 아닌 응답에서도 관련 투어가 있으면 카드 첨부
+    if (!tourRecommendations && relatedTours.length > 0) {
+      tourRecommendations = mapTours(relatedTours);
     }
 
     // 3. 매칭된 FAQ 정보
     const relevant = similar.filter(
-      (f) => f.similarity >= FaqService.RAG_THRESHOLD,
+      (f) => f.similarity >= ragThreshold,
     );
     const noMatch = relevant.length === 0;
     const matchedFaqIds = relevant.map((f) => f.id);
@@ -994,19 +1501,6 @@ Use exact category key. No explanation.`;
     // 4. 로그 저장 (fire-and-forget)
     const logAnswer = answer;
     const saveLog = async () => {
-      let geo = {
-        country: null as string | null,
-        countryName: null as string | null,
-        city: null as string | null,
-      };
-      if (meta?.ipAddress) {
-        const geoData = await this.geoIpService.lookup(meta.ipAddress);
-        geo = {
-          country: geoData.country,
-          countryName: geoData.countryName,
-          city: geoData.city,
-        };
-      }
       await this.prisma.faqChatLog.create({
         data: {
           message,
@@ -1017,10 +1511,6 @@ Use exact category key. No explanation.`;
           noMatch,
           responseTier,
           visitorId: meta?.visitorId || null,
-          ipAddress: meta?.ipAddress || null,
-          country: geo.country,
-          countryName: geo.countryName,
-          city: geo.city,
         },
       });
     };
@@ -1047,35 +1537,123 @@ Use exact category key. No explanation.`;
       noMatch,
       responseTier,
       suggestedQuestions,
+      tourRecommendations,
     };
   }
 
   /**
-   * 의도 분류: company (회사/투어 관련) vs travel (일반 여행 정보)
+   * 의도 분류: company / tour_recommend / travel
    */
-  private async classifyIntent(message: string): Promise<'company' | 'travel'> {
-    const prompt = `Classify this question into ONE category:
-- "company": Questions about tours, bookings, reservations, prices, cancellations, refunds, policies, schedules, guides, pickup, itinerary changes, or contacting the travel agency
-- "travel": General Korea travel information (weather, transportation, food, attractions, visa, culture, tips, shopping, etc.)
-
-Question: "${message}"
-
-Reply with ONLY one word: company OR travel`;
+  private async classifyIntent(
+    message: string,
+  ): Promise<'company' | 'tour_recommend' | 'travel'> {
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.FAQ_CLASSIFY_INTENT,
+      { message },
+    );
 
     try {
-      const result = await this.geminiCore.callGemini(prompt, {
-        temperature: 0,
-        maxOutputTokens: 10,
+      const result = await this.geminiCore.callGemini(built.text, {
+        temperature: built.temperature,
+        maxOutputTokens: built.maxOutputTokens,
       });
       const intent = result.trim().toLowerCase();
-      return intent === 'company' ? 'company' : 'travel';
+      if (intent === 'company') return 'company';
+      if (intent === 'tour_recommend') return 'tour_recommend';
+      return 'travel';
     } catch (error) {
       this.logger.error(
         'Intent classification failed, defaulting to travel:',
         error,
       );
-      return 'travel'; // 실패 시 일반 여행으로 처리
+      return 'travel';
     }
+  }
+
+  /**
+   * OdkTourList 유사도 검색
+   */
+  private async searchOdkTours(message: string, limit = 5) {
+    const embedding = await this.embeddingService.generateEmbedding(message);
+    if (!embedding) return [];
+
+    const vectorStr = `[${embedding.join(',')}]`;
+    const results = await this.prisma.$queryRawUnsafe<
+      Array<{
+        id: number;
+        name: string;
+        name_kor: string | null;
+        description: string | null;
+        thumbnail_url: string | null;
+        website_url: string;
+        price: string | null;
+        region: string | null;
+        duration: string | null;
+        similarity: number;
+      }>
+    >(
+      `SELECT id, name, name_kor, description, thumbnail_url, website_url, price, region, duration,
+              1 - (embedding <=> $1::vector) as similarity
+       FROM odk_tours
+       WHERE is_active = true AND embedding IS NOT NULL
+       ORDER BY embedding <=> $1::vector
+       LIMIT $2`,
+      vectorStr,
+      limit,
+    );
+
+    return results
+      .filter((r) => Number(r.similarity) >= 0.45)
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        nameKor: r.name_kor,
+        description: r.description,
+        thumbnailUrl: r.thumbnail_url,
+        websiteUrl: r.website_url,
+        price: r.price ? Number(r.price) : null,
+        region: r.region,
+        duration: r.duration,
+        similarity: Number(r.similarity),
+      }));
+  }
+
+  /**
+   * 투어 추천 답변 생성
+   */
+  private async generateTourRecommendationAnswer(
+    message: string,
+    tours: Array<{
+      name: string;
+      price: number | null;
+      region: string | null;
+      duration: string | null;
+    }>,
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  ): Promise<string> {
+    const tourInfo = tours
+      .map(
+        (t, i) =>
+          `${i + 1}. ${t.name} — Region: ${t.region || 'Seoul'}, Duration: ${t.duration || 'Full day'}${t.price ? `, From $${t.price}` : ''}`,
+      )
+      .join('\n');
+
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.FAQ_TOUR_RECOMMENDATION,
+      { tourInfo },
+    );
+
+    const geminiHistory = history?.map((h) => ({
+      role: h.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: h.content }],
+    }));
+
+    return this.geminiCore.callGemini(message, {
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
+      systemPrompt: built.text,
+      history: geminiHistory,
+    });
   }
 
   /**
@@ -1085,25 +1663,7 @@ Reply with ONLY one word: company OR travel`;
     message: string,
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
   ): Promise<string> {
-    const systemPrompt = `You are a friendly and knowledgeable Korea travel assistant for Tumakr, a travel agency specializing in Korea tours.
-
-Your role is to answer general questions about traveling in Korea, such as:
-- Weather and best seasons to visit
-- Transportation (trains, buses, taxis, T-money cards)
-- Food and restaurants
-- Tourist attractions and activities
-- Visa and entry requirements
-- Culture and etiquette
-- Shopping and nightlife
-- Practical tips (SIM cards, money exchange, etc.)
-
-Guidelines:
-- Be helpful, accurate, and concise
-- Keep responses under 250 words
-- Use a friendly, conversational tone
-- You may use markdown formatting (bold, bullet points) for clarity
-- If asked about specific tour packages, prices, or bookings, politely mention that you can help with general travel info, and suggest they start a tour inquiry for personalized assistance
-- Base your answers on common, accurate knowledge about Korea`;
+    const built = await this.aiPromptService.buildPrompt(PromptKey.FAQ_GENERAL_TRAVEL, {});
 
     const geminiHistory = history?.map((h) => ({
       role: h.role === 'assistant' ? 'model' : 'user',
@@ -1111,16 +1671,13 @@ Guidelines:
     }));
 
     return this.geminiCore.callGemini(message, {
-      temperature: 0.7,
-      maxOutputTokens: 1024,
-      systemPrompt,
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
+      systemPrompt: built.text,
       history: geminiHistory,
     });
   }
 
-  /**
-   * RAG 응답 생성: Gemini + FAQ 컨텍스트
-   */
   private async generateRagAnswer(
     message: string,
     relevant: Array<{
@@ -1138,20 +1695,7 @@ Guidelines:
       )
       .join('\n\n');
 
-    const systemPrompt = `You are a helpful travel assistant for Tumakr, a Korea travel agency.
-Answer user questions based on the FAQ entries provided below.
-
-=== FAQ Reference ===
-${faqContext}
-=== End FAQ ===
-
-Guidelines:
-- Answer in a friendly, concise manner.
-- Base your answer on the FAQ entries provided.
-- If the FAQ entries don't fully answer the question, honestly say you don't have specific information and suggest the user start a tour inquiry for personalized help.
-- Do NOT make up information about tours, prices, or schedules.
-- Keep responses under 300 words.
-- You may use markdown formatting for clarity.`;
+    const built = await this.aiPromptService.buildPrompt(PromptKey.FAQ_RAG_ANSWER, { faqContext });
 
     const geminiHistory = history?.map((h) => ({
       role: h.role === 'assistant' ? 'model' : 'user',
@@ -1159,9 +1703,9 @@ Guidelines:
     }));
 
     return this.geminiCore.callGemini(message, {
-      temperature: 0.5,
-      maxOutputTokens: 1024,
-      systemPrompt,
+      temperature: built.temperature,
+      maxOutputTokens: built.maxOutputTokens,
+      systemPrompt: built.text,
       history: geminiHistory,
     });
   }
@@ -1251,6 +1795,11 @@ Guidelines:
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
+        include: {
+          visitor: {
+            select: { ipAddress: true, country: true, countryName: true, city: true },
+          },
+        },
       }),
       this.prisma.faqChatLog.count({ where }),
     ]);
@@ -1266,8 +1815,12 @@ Guidelines:
         : [];
     const faqMap = new Map(faqs.map((f) => [f.id, f.question]));
 
-    const enriched = logs.map((log) => ({
+    const enriched = logs.map(({ visitor, ...log }) => ({
       ...convertDecimalFields(log),
+      ipAddress: visitor?.ipAddress ?? null,
+      country: visitor?.country ?? null,
+      countryName: visitor?.countryName ?? null,
+      city: visitor?.city ?? null,
       responseTier: log.responseTier ?? null,
       matchedFaqs: log.matchedFaqIds.map((id, idx) => ({
         id,

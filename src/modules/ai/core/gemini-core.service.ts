@@ -6,6 +6,7 @@ export interface GeminiCallOptions {
   maxOutputTokens?: number;
   systemPrompt?: string;
   history?: Array<{ role: string; parts: Array<{ text: string }> }>;
+  signal?: AbortSignal;
 }
 
 @Injectable()
@@ -19,8 +20,11 @@ export class GeminiCoreService {
     this.apiKey = this.configService.get<string>('GEMINI_API_KEY') || '';
   }
 
+  private static readonly MAX_RETRIES = 5;
+  private static readonly BASE_DELAY_MS = 2000;
+
   /**
-   * Gemini API 호출 공통 메서드
+   * Gemini API 호출 공통 메서드 (429 자동 재시도 포함)
    */
   async callGemini(
     prompt: string,
@@ -46,34 +50,59 @@ export class GeminiCoreService {
       body.systemInstruction = { parts: [{ text: options.systemPrompt }] };
     }
 
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+    for (let attempt = 0; attempt <= GeminiCoreService.MAX_RETRIES; attempt++) {
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: options?.signal,
+        });
 
-      if (!response.ok) {
-        const errorBody = await response.text();
-        this.logger.error(`Gemini API error: ${response.status} ${errorBody}`);
-        throw new BadRequestException('AI 응답 생성 실패');
+        if (response.status === 429) {
+          if (attempt < GeminiCoreService.MAX_RETRIES) {
+            const delay =
+              GeminiCoreService.BASE_DELAY_MS * Math.pow(2, attempt) +
+              Math.random() * 1000;
+            this.logger.warn(
+              `Gemini 429 레이트 리밋, ${Math.round(delay / 1000)}초 후 재시도 (${attempt + 1}/${GeminiCoreService.MAX_RETRIES})`,
+            );
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+          const errorBody = await response.text();
+          this.logger.error(`Gemini 429 최대 재시도 초과: ${errorBody}`);
+          throw new BadRequestException('API 레이트 리밋 초과');
+        }
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          this.logger.error(
+            `Gemini API error: ${response.status} ${errorBody}`,
+          );
+          throw new BadRequestException('AI 응답 생성 실패');
+        }
+
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!text) {
+          this.logger.error(
+            `Empty Gemini response: ${JSON.stringify(data)}`,
+          );
+          throw new BadRequestException('Gemini returned empty response');
+        }
+
+        return text;
+      } catch (error) {
+        if (error instanceof BadRequestException) {
+          throw error;
+        }
+        this.logger.error('Gemini API request failed:', error);
+        throw new BadRequestException('AI 서비스 오류');
       }
-
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-      if (!text) {
-        this.logger.error(`Empty Gemini response: ${JSON.stringify(data)}`);
-        throw new BadRequestException('Gemini returned empty response');
-      }
-
-      return text;
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      this.logger.error('Gemini API request failed:', error);
-      throw new BadRequestException('AI 서비스 오류');
     }
+
+    throw new BadRequestException('AI 응답 생성 실패');
   }
 }

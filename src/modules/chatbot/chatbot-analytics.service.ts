@@ -226,17 +226,25 @@ export class ChatbotAnalyticsService {
         budgetRange: true,
         customerName: true,
         customerEmail: true,
-        country: true,
-        countryName: true,
-        city: true,
-        utmSource: true,
+        visitor: {
+          select: {
+            country: true,
+            countryName: true,
+            city: true,
+            utmSource: true,
+          },
+        },
         createdAt: true,
         updatedAt: true,
       },
     });
 
-    // 리드 스코어 계산
-    const scoredLeads = flows.map((flow) => {
+    // 리드 스코어 계산 — flatten visitor fields for response compatibility
+    const scoredLeads = flows.map(({ visitor, ...flow }) => {
+      const country = visitor?.country ?? null;
+      const countryName = visitor?.countryName ?? null;
+      const city = visitor?.city ?? null;
+      const utmSource = visitor?.utmSource ?? null;
       let score = 0;
       const factors: string[] = [];
 
@@ -308,6 +316,10 @@ export class ChatbotAnalyticsService {
 
       return {
         ...flow,
+        country,
+        countryName,
+        city,
+        utmSource,
         score,
         factors,
         grade: score >= 70 ? 'HOT' : score >= 50 ? 'WARM' : 'COLD',
@@ -349,14 +361,15 @@ export class ChatbotAnalyticsService {
       }>
     >`
       SELECT
-        country,
-        country_name,
+        vs.country,
+        vs.country_name,
         COUNT(*) as total_count,
-        COUNT(CASE WHEN is_completed = true THEN 1 END) as completed_count
-      FROM chatbot_flows
-      WHERE created_at >= ${startDate}
-        AND country IS NOT NULL
-      GROUP BY country, country_name
+        COUNT(CASE WHEN cs.is_completed = true THEN 1 END) as completed_count
+      FROM chat_sessions cs
+      JOIN visitor_sessions vs ON cs.visitor_id = vs.id
+      WHERE cs.created_at >= ${startDate}
+        AND vs.country IS NOT NULL
+      GROUP BY vs.country, vs.country_name
       ORDER BY COUNT(*) DESC
       LIMIT 20
     `;

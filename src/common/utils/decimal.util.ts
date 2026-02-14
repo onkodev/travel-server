@@ -10,8 +10,6 @@ const DECIMAL_FIELDS = [
   'price',
   'lat',
   'lng',
-  'latitude',
-  'longitude',
   'averageRating',
   'rating',
   'totalAmount',

@@ -6,3 +6,4 @@ export * from './message.dto';
 export * from './modify-estimate.dto';
 export * from './conversational-itinerary.dto';
 export * from './admin-flow-query.dto';
+export * from './generation-config.dto';
