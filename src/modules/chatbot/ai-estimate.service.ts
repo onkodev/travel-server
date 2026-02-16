@@ -6,12 +6,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { CACHE_TTL } from '../../common/constants/cache';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
   normalizeImages,
   extractImageUrls,
   calculateTotalPax,
+  jsonCast,
 } from '../../common/utils';
 import { EstimateItem } from '../../common/types';
 import { EmailRagService, type PipelineLog } from '../email-rag/email-rag.service';
@@ -116,8 +118,8 @@ interface ChatbotFlowData {
 @Injectable()
 export class AiEstimateService {
   private readonly logger = new Logger(AiEstimateService.name);
-  private configCache: { data: { aiEnabled: boolean; ragSearchLimit: number; ragSimilarityMin: number; geminiTemperature: number; geminiMaxTokens: number; placesPerDay: number; ragTimeout: number; customPromptAddon: string | null; fuzzyMatchThreshold: number; directThreshold: number; ragThreshold: number; noMatchResponse: string | null }; expiresAt: number } | null = null;
-  private static readonly CONFIG_TTL_MS = 30 * 60 * 1000; // 30분
+  private configCache: { data: { geminiModel: string; ragSearchLimit: number; ragSimilarityMin: number; geminiTemperature: number; geminiMaxTokens: number; placesPerDay: number; ragTimeout: number; customPromptAddon: string | null; fuzzyMatchThreshold: number; directThreshold: number; ragThreshold: number; noMatchResponse: string | null }; expiresAt: number } | null = null;
+  private static readonly CONFIG_TTL_MS = CACHE_TTL.AI_CONFIG;
 
   // 영어 → 한글 지역명 매핑
   private readonly REGION_MAP: Record<string, string> = {
@@ -176,12 +178,6 @@ export class AiEstimateService {
       throw new NotFoundException('Chatbot session not found.');
     }
 
-    // AI 비활성화 시 TBD 견적만 생성
-    if (!config.aiEnabled) {
-      this.logger.log(`[generateFirstEstimate] AI disabled — TBD 견적 생성`);
-      return this.generateTbdEstimate(flow);
-    }
-
     this.logger.log(
       `[generateFirstEstimate] 요청 - region: ${flow.region}, days: ${flow.duration || 3}, interests: ${flow.interestMain?.join(',')}`,
     );
@@ -208,6 +204,7 @@ export class AiEstimateService {
           geminiMaxTokens: config.geminiMaxTokens,
           placesPerDay: config.placesPerDay,
           customPromptAddon: config.customPromptAddon ?? undefined,
+          geminiModel: config.geminiModel,
           signal: abortController.signal,
         }),
         new Promise<null>((_, reject) =>
@@ -278,6 +275,11 @@ export class AiEstimateService {
       items = await this.applyUserAttractions(items, flow);
     }
 
+    // _region 임시 프로퍼티 제거 (DB 저장 전)
+    for (const item of items) {
+      delete (item as EstimateItem & { _region?: string })._region;
+    }
+
     // Metadata 구성
     const metadata: AiEstimateMetadata = {
       generatedAt: new Date().toISOString(),
@@ -346,8 +348,8 @@ export class AiEstimateService {
    * EstimateItem[] → 클라이언트용 가공
    */
   private formatItemsForClient(items: EstimateItem[]): FormattedEstimateItem[] {
-    return items.map((item) => ({
-      id: String(item.itemId || `tbd-${item.dayNumber}`),
+    return items.map((item, idx) => ({
+      id: String(item.itemId || `tbd-${item.dayNumber}-${idx}`),
       type: item.type || 'place',
       itemId: item.itemId || null,
       itemName: item.itemInfo?.nameKor || item.itemInfo?.nameEng,
@@ -442,7 +444,7 @@ export class AiEstimateService {
 
     const itemSelect = {
       id: true, nameKor: true, nameEng: true, descriptionEng: true,
-      images: true, lat: true, lng: true, addressEnglish: true, price: true,
+      images: true, lat: true, lng: true, addressEnglish: true, price: true, region: true,
     } as const;
 
     const [directItems, dbItems] = await Promise.all([
@@ -508,14 +510,17 @@ export class AiEstimateService {
         continue;
       }
 
-      // Tier 2b: 부분 매칭 (contains)
-      const partialMatch = dbItems.find(
-        (db) =>
-          db.nameEng.toLowerCase().includes(matchKey) ||
-          matchKey.includes(db.nameEng.toLowerCase()) ||
-          (draftItem.placeNameKor &&
-            db.nameKor.includes(draftItem.placeNameKor)),
-      );
+      // Tier 2b: 부분 매칭 (contains) — 양방향 포함 검사
+      const korKey = draftItem.placeNameKor?.toLowerCase();
+      const partialMatch = dbItems.find((db) => {
+        const eng = db.nameEng.toLowerCase();
+        if (eng.includes(matchKey) || matchKey.includes(eng)) return true;
+        if (korKey) {
+          const kor = db.nameKor.toLowerCase();
+          if (kor.includes(korKey) || korKey.includes(kor)) return true;
+        }
+        return false;
+      });
 
       if (partialMatch) {
         resultMap.set(i, this.buildEstimateItem(draftItem, partialMatch, totalPax));
@@ -567,10 +572,66 @@ export class AiEstimateService {
     }
 
     // 원래 순서 유지하여 배열로 변환
-    const items: EstimateItem[] = [];
+    let items: EstimateItem[] = [];
     for (let i = 0; i < draft.items.length; i++) {
       const item = resultMap.get(i);
       if (item) items.push(item);
+    }
+
+    // --- 후처리 1: 다른 지역 아이템 제거 ---
+    const requestedRegion = flow.region?.toLowerCase();
+    if (requestedRegion) {
+      const regionKor = this.REGION_MAP[requestedRegion];
+      const allowedRegions = new Set(
+        [requestedRegion, regionKor].filter(Boolean).map((r) => r!.toLowerCase()),
+      );
+      const beforeCount = items.length;
+      items = items.filter((item) => {
+        if (item.isTbd || !item.itemId) return true; // TBD는 유지
+        const itemRegion = (item as EstimateItem & { _region?: string })._region;
+        if (!itemRegion) return true; // region 정보 없으면 유지
+        // 정확 매치 (대소문자 무시)
+        if (allowedRegions.has(itemRegion.toLowerCase())) return true;
+        // 불일치 → 제거
+        this.logger.log(
+          `[postFilter:region] 제거: "${item.itemInfo?.nameKor || item.itemInfo?.nameEng}" (region=${itemRegion}, 요청=${requestedRegion})`,
+        );
+        return false;
+      });
+      if (beforeCount > items.length) {
+        this.logger.log(`[postFilter:region] ${beforeCount - items.length}개 다른 지역 아이템 제거`);
+      }
+    }
+
+    // --- 후처리 2: 중복 itemId 제거 (첫 등장만 유지) ---
+    {
+      const seenItemIds = new Set<number>();
+      const beforeCount = items.length;
+      items = items.filter((item) => {
+        if (item.isTbd || !item.itemId) return true; // TBD는 유지
+        if (seenItemIds.has(item.itemId)) {
+          this.logger.log(
+            `[postFilter:dedup] 중복 제거: "${item.itemInfo?.nameKor || item.itemInfo?.nameEng}" (Day${item.dayNumber}, itemId=${item.itemId})`,
+          );
+          return false;
+        }
+        seenItemIds.add(item.itemId);
+        return true;
+      });
+      if (beforeCount > items.length) {
+        this.logger.log(`[postFilter:dedup] ${beforeCount - items.length}개 중복 아이템 제거`);
+      }
+    }
+
+    // 후처리 후 orderIndex 재정렬
+    const dayGroups = new Map<number, EstimateItem[]>();
+    for (const item of items) {
+      const day = item.dayNumber;
+      if (!dayGroups.has(day)) dayGroups.set(day, []);
+      dayGroups.get(day)!.push(item);
+    }
+    for (const dayItems of dayGroups.values()) {
+      dayItems.forEach((item, idx) => { item.orderIndex = idx; });
     }
 
     this.logger.log(
@@ -579,7 +640,7 @@ export class AiEstimateService {
       `exact: ${matchedItems.filter((m) => m.tier === 'exact').length}, ` +
       `partial: ${matchedItems.filter((m) => m.tier === 'partial').length}, ` +
       `fuzzy: ${matchedItems.filter((m) => m.tier === 'fuzzy').length}, ` +
-      `tbd: ${tbdItems.length}`,
+      `tbd: ${tbdItems.length} → 후처리 후: ${items.length}개`,
     );
 
     return { items, matchedItems, tbdItems };
@@ -593,11 +654,12 @@ export class AiEstimateService {
     dbMatch: {
       id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
       images: unknown; lat: unknown; lng: unknown; addressEnglish: string | null; price: unknown;
+      region?: string | null;
     },
     totalPax: number,
   ): EstimateItem {
     const unitPrice = Number(dbMatch.price) || 0;
-    return {
+    const item: EstimateItem & { _region?: string } = {
       id: generateItemId(),
       dayNumber: draftItem.dayNumber,
       orderIndex: draftItem.orderIndex,
@@ -618,6 +680,9 @@ export class AiEstimateService {
         addressEnglish: dbMatch.addressEnglish || undefined,
       },
     };
+    // 후처리 지역 필터용 (DB 저장 시 제거됨)
+    if (dbMatch.region) item._region = dbMatch.region;
+    return item;
   }
 
   /**
@@ -629,7 +694,7 @@ export class AiEstimateService {
   ): Promise<Map<string, {
     id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
     images: unknown; lat: number; lng: number; addressEnglish: string | null; price: number;
-    sim: number;
+    region: string | null; sim: number;
   }>> {
     if (placeNames.length === 0) return new Map();
 
@@ -645,11 +710,12 @@ export class AiEstimateService {
         lng: number;
         address_english: string | null;
         price: number;
+        region: string | null;
         sim: number;
       }>
     >`
       SELECT DISTINCT ON (query_name)
-        query_name, id, name_kor, name_eng, description_eng, images, lat, lng, address_english, price,
+        query_name, id, name_kor, name_eng, description_eng, images, lat, lng, address_english, price, region,
         GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
       FROM items
       CROSS JOIN unnest(${placeNames}::text[]) AS query_name
@@ -661,7 +727,7 @@ export class AiEstimateService {
     const resultMap = new Map<string, {
       id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
       images: unknown; lat: number; lng: number; addressEnglish: string | null; price: number;
-      sim: number;
+      region: string | null; sim: number;
     }>();
 
     for (const r of results) {
@@ -675,6 +741,7 @@ export class AiEstimateService {
         lng: r.lng,
         addressEnglish: r.address_english,
         price: r.price,
+        region: r.region,
         sim: Number(r.sim),
       });
     }
@@ -702,10 +769,14 @@ export class AiEstimateService {
       items.filter((i) => i.itemId).map((i) => i.itemId),
     );
 
-    // attractions 이름으로 Item 조회
+    // attractions 이름으로 Item 조회 (요청 지역 필터 포함)
+    const regionFilter = flow.region ? {
+      region: { in: [flow.region, this.REGION_MAP[flow.region] || flow.region].filter(Boolean) },
+    } : {};
     const attractionItems = await this.prisma.item.findMany({
       where: {
         type: 'place',
+        ...regionFilter,
         OR: flow.attractions.map((name) => ({
           OR: [
             { nameEng: { contains: name, mode: 'insensitive' as const } },
@@ -730,19 +801,20 @@ export class AiEstimateService {
     const result = [...items];
     const duration = flow.duration || 3;
 
+    // dayCount를 한 번만 계산하고, 추가할 때마다 업데이트
+    const dayCount: Record<number, number> = {};
+    for (let d = 1; d <= duration; d++) dayCount[d] = 0;
+    for (const i of result) {
+      if (i.type === 'place' && !i.isTbd && dayCount[i.dayNumber] !== undefined) {
+        dayCount[i.dayNumber]++;
+      }
+    }
+
     for (const attraction of attractionItems) {
       // 이미 있으면 스킵
       if (existingItemIds.has(attraction.id)) continue;
 
       // 가장 장소 수가 적은 날에 추가
-      const dayCount: Record<number, number> = {};
-      for (let d = 1; d <= duration; d++) dayCount[d] = 0;
-      result
-        .filter((i) => i.type === 'place' && !i.isTbd)
-        .forEach((i) => {
-          if (dayCount[i.dayNumber] !== undefined) dayCount[i.dayNumber]++;
-        });
-
       const targetDay = Object.entries(dayCount).sort(
         ([, a], [, b]) => a - b,
       )[0]?.[0];
@@ -777,6 +849,7 @@ export class AiEstimateService {
       });
 
       existingItemIds.add(attraction.id);
+      dayCount[dayNumber]++;
       this.logger.log(
         `[applyUserAttractions] ${attraction.nameKor} → Day ${dayNumber} 추가`,
       );
@@ -793,8 +866,8 @@ export class AiEstimateService {
     const { itemMatching, ragSearch, pipelineLog } = metadata;
 
     // matchRate: 매칭된 아이템 / 전체 아이템
-    const totalItems = itemMatching.totalDraftItems || 1;
-    const matchRate = itemMatching.matchedCount / totalItems;
+    const totalItems = itemMatching.totalDraftItems;
+    const matchRate = totalItems > 0 ? itemMatching.matchedCount / totalItems : 0;
 
     // avgRagSimilarity: 상위 3개 RAG 소스 평균 유사도
     const sources = ragSearch?.sources || [];
@@ -1115,7 +1188,7 @@ export class AiEstimateService {
       throw new NotFoundException('Estimate not found.');
     }
 
-    const currentItems = estimate.items as unknown as EstimateItem[];
+    const currentItems = jsonCast<EstimateItem[]>(estimate.items);
     let newItems = [...currentItems];
 
     if (

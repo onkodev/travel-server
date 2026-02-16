@@ -49,6 +49,14 @@ export interface PipelineLog {
     score?: number;
   }>;
   totalTimeMs: number;
+  stepTimings?: {
+    vectorSearchMs: number;
+    rerankAndDbPlacesMs: number;
+    promptBuildMs: number;
+    geminiCallMs: number;
+    postMatchMs: number;
+    totalMs: number;
+  };
 }
 
 interface ChatbotFlowForRag {
@@ -163,6 +171,7 @@ export class EmailRagService {
       geminiMaxTokens?: number;
       placesPerDay?: number;
       customPromptAddon?: string;
+      geminiModel?: string;
       signal?: AbortSignal;
     },
   ): Promise<(DraftResult & { searchQuery: string; pipelineLog: PipelineLog }) | null> {
@@ -178,6 +187,10 @@ export class EmailRagService {
       `  adults=${flow.adultsCount}, children=${flow.childrenCount}, pickup=${flow.needsPickup}`,
     );
 
+    // ── 타이밍 계측 ──
+    const timings: Record<string, number> = {};
+    const lap = (label: string) => { timings[label] = Date.now() - startTime; };
+
     // ── 1. 관심사 확장 ──
     const expandedInterestsText = expandInterests(flow.interestMain, flow.interestSub);
     this.logger.log(`[pipeline:interests] 확장된 관심사: "${expandedInterestsText}"`);
@@ -191,6 +204,7 @@ export class EmailRagService {
     const similarityMin = config?.ragSimilarityMin ?? 0.3;
     const fetchLimit = searchLimit * 2;
     const rawEmails = await this.searchSimilarEmails(searchQuery, fetchLimit, similarityMin);
+    lap('vectorSearch');
 
     if (rawEmails.length === 0) {
       this.logger.log('[pipeline:search] 유사 이메일 없음 → 종료');
@@ -222,19 +236,57 @@ export class EmailRagService {
       this.prisma.item.findMany({
         where: {
           type: 'place',
-          OR: [
-            { region: { contains: regionFilter, mode: 'insensitive' } },
-            { addressEnglish: { contains: regionFilter, mode: 'insensitive' } },
+          AND: [
+            {
+              OR: [
+                { region: { contains: regionFilter, mode: 'insensitive' } },
+                { addressEnglish: { contains: regionFilter, mode: 'insensitive' } },
+              ],
+            },
+            // 관심사 키워드로 필터 (키워드가 있으면 관련 장소 우선)
+            ...(flow.interestMain.length > 0
+              ? [{
+                  OR: flow.interestMain.map((interest) => ({
+                    OR: [
+                      { categories: { has: interest } },
+                      { nameEng: { contains: interest, mode: 'insensitive' as const } },
+                      { descriptionEng: { contains: interest, mode: 'insensitive' as const } },
+                    ],
+                  })),
+                }]
+              : []),
           ],
         },
         select: { id: true, nameEng: true, nameKor: true },
-        take: 200,
+        take: 50,
+      }).then((results) => {
+        // 관심사 필터 결과가 너무 적으면 지역 전체에서 보충
+        if (results.length < 20) {
+          return this.prisma.item.findMany({
+            where: {
+              type: 'place',
+              OR: [
+                { region: { contains: regionFilter, mode: 'insensitive' } },
+                { addressEnglish: { contains: regionFilter, mode: 'insensitive' } },
+              ],
+            },
+            select: { id: true, nameEng: true, nameKor: true },
+            take: 50,
+          }).then((fallback) => {
+            // 기존 결과 + 보충 (중복 제거)
+            const ids = new Set(results.map((r) => r.id));
+            const merged = [...results, ...fallback.filter((f) => !ids.has(f.id))];
+            return merged.slice(0, 50);
+          });
+        }
+        return results;
       }).catch((e) => {
         this.logger.warn(`[pipeline:dbPlaces] 장소 조회 실패: ${e.message}`);
         return [] as Array<{ id: number; nameEng: string; nameKor: string }>;
       }),
     ]);
 
+    lap('rerankAndDbPlaces');
     const emails = rerankResult.emails;
 
     this.logger.log(
@@ -310,6 +362,7 @@ export class EmailRagService {
     );
 
     const prompt = built.text;
+    lap('promptBuild');
     this.logger.log(
       `[pipeline:gemini] 프롬프트 생성완료 (${prompt.length}자), Gemini 호출 중...`,
     );
@@ -320,8 +373,11 @@ export class EmailRagService {
       temperature,
       maxOutputTokens,
       signal: config?.signal,
+      disableThinking: true,
+      model: config?.geminiModel,
     });
 
+    lap('geminiCall');
     this.logger.log(`[pipeline:gemini] 응답 수신 (${text.length}자)`);
 
     interface ParsedDraftItem {
@@ -368,11 +424,32 @@ export class EmailRagService {
     // ── 9. 후처리: 미매칭 장소 DB 매칭 ──
     this.logger.log(`[pipeline:postMatch] 후처리 DB 매칭 시작...`);
     const { items, matchingDetails } = await this.matchDraftItemsToDb(rawItems);
+    lap('postMatch');
 
     // ── 10. 최종 요약 ──
     const finalMatched = items.filter((i) => i.itemId).length;
     const finalTbd = items.filter((i) => !i.itemId).length;
     const elapsed = Date.now() - startTime;
+
+    // 단계별 소요시간 계산 (누적 → 구간)
+    const stepTimings = {
+      vectorSearchMs: timings.vectorSearch,
+      rerankAndDbPlacesMs: timings.rerankAndDbPlaces - timings.vectorSearch,
+      promptBuildMs: timings.promptBuild - timings.rerankAndDbPlaces,
+      geminiCallMs: timings.geminiCall - timings.promptBuild,
+      postMatchMs: timings.postMatch - timings.geminiCall,
+      totalMs: elapsed,
+    };
+
+    this.logger.log(
+      `[pipeline:timings] 단계별 소요시간:\n` +
+      `  임베딩+벡터검색: ${stepTimings.vectorSearchMs}ms\n` +
+      `  리랭킹+DB장소: ${stepTimings.rerankAndDbPlacesMs}ms\n` +
+      `  프롬프트빌드: ${stepTimings.promptBuildMs}ms\n` +
+      `  Gemini 호출: ${stepTimings.geminiCallMs}ms\n` +
+      `  후처리매칭: ${stepTimings.postMatchMs}ms\n` +
+      `  총: ${elapsed}ms`,
+    );
 
     this.logger.log(
       `[pipeline:done] 완료 (${elapsed}ms)\n` +
@@ -405,6 +482,7 @@ export class EmailRagService {
       geminiResponseLength: text.length,
       postMatching: matchingDetails,
       totalTimeMs: elapsed,
+      stepTimings,
     };
 
     return {
@@ -758,15 +836,17 @@ export class EmailRagService {
       // 직접 매칭
       let matched = exactMap.get(keyEng) || exactMap.get(keyKor);
 
-      // 부분 포함 매칭
+      // 부분 포함 매칭 — 양방향 검사
       if (!matched) {
-        matched = exactResults.find(
-          (db) =>
-            db.nameEng.toLowerCase().includes(keyEng) ||
-            keyEng.includes(db.nameEng.toLowerCase()) ||
-            (keyKor && db.nameKor.toLowerCase().includes(keyKor)) ||
-            (keyKor && keyKor.includes(db.nameKor.toLowerCase())),
-        );
+        matched = exactResults.find((db) => {
+          const eng = db.nameEng.toLowerCase();
+          if (eng.includes(keyEng) || keyEng.includes(eng)) return true;
+          if (keyKor) {
+            const kor = db.nameKor.toLowerCase();
+            if (kor.includes(keyKor) || keyKor.includes(kor)) return true;
+          }
+          return false;
+        });
       }
 
       if (matched) {
@@ -790,7 +870,7 @@ export class EmailRagService {
     // 2) pg_trgm 퍼지 매칭
     if (stillUnmatched.length > 0) {
       const fuzzyNames = stillUnmatched.map((u) => u.item.placeName);
-      const threshold = 0.25;
+      const threshold = 0.3;
 
       try {
         const fuzzyResults = await this.prisma.$queryRaw<
@@ -867,39 +947,48 @@ export class EmailRagService {
   }
 
   /**
-   * rawData에서 요약 텍스트 추출 (검색 결과 표시용, 2000자 제한)
+   * rawData에서 요약 텍스트 추출 (검색 결과 표시용, 800자 제한)
    */
   private extractSnippet(rawData: unknown): string {
     if (!rawData || typeof rawData !== 'object') return '';
 
     const data = rawData as Record<string, unknown>;
 
-    if (typeof data.body === 'string') return data.body.slice(0, 2000);
-    if (typeof data.snippet === 'string') return data.snippet;
+    // subject 필드가 있으면 본문 앞에 추가
+    const subject = typeof data.subject === 'string' ? data.subject : '';
 
-    if (Array.isArray(data.messages)) {
-      return data.messages
-        .map((msg: Record<string, unknown>) => {
-          if (typeof msg.snippet === 'string') return msg.snippet;
-          if (typeof msg.body === 'string') return msg.body.slice(0, 500);
+    if (typeof data.body === 'string' && data.body.trim()) {
+      return (subject ? `[${subject}] ` : '').concat(data.body).slice(0, 800);
+    }
+    if (typeof data.snippet === 'string' && data.snippet.trim()) {
+      return (subject ? `[${subject}] ` : '').concat(data.snippet).slice(0, 800);
+    }
+
+    const extractFromMessages = (msgs: Array<Record<string, unknown>>): string => {
+      const parts = msgs
+        .map((msg) => {
+          if (typeof msg.snippet === 'string' && msg.snippet.trim()) return msg.snippet;
+          if (typeof msg.body === 'string' && msg.body.trim()) return msg.body.slice(0, 500);
           return '';
         })
-        .filter(Boolean)
-        .join('\n---\n')
-        .slice(0, 2000);
+        .filter(Boolean);
+      if (parts.length === 0) return '';
+      return (subject ? `[${subject}] ` : '').concat(parts.join('\n---\n')).slice(0, 800);
+    };
+
+    if (Array.isArray(data.messages)) {
+      return extractFromMessages(data.messages as Array<Record<string, unknown>>);
     }
 
     if (Array.isArray(rawData)) {
-      return (rawData as Array<Record<string, unknown>>)
-        .map((msg) => {
-          if (typeof msg.snippet === 'string') return msg.snippet;
-          if (typeof msg.body === 'string') return msg.body.slice(0, 500);
-          return '';
-        })
-        .filter(Boolean)
-        .join('\n---\n')
-        .slice(0, 2000);
+      return extractFromMessages(rawData as Array<Record<string, unknown>>);
     }
+
+    // 구조를 파악할 수 없는 경우 JSON 문자열화 시도
+    try {
+      const str = JSON.stringify(rawData).slice(0, 800);
+      if (str.length > 10) return str;
+    } catch { /* ignore */ }
 
     return '';
   }

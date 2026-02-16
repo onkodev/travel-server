@@ -9,7 +9,7 @@ import {
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
-import { isValidUUID } from '../../common/utils';
+import { isValidUUID, jsonCast } from '../../common/utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { EstimateService } from '../estimate/estimate.service';
@@ -73,6 +73,14 @@ export class ChatbotService {
     private configService: ConfigService,
     private eventEmitter: EventEmitter2,
   ) {}
+
+  private getAdminEmail(): string {
+    return (
+      this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL') ||
+      this.configService.get<string>('ADMIN_EMAIL') ||
+      'admin@tumakr.com'
+    );
+  }
 
   // 새 플로우 시작
   async startFlow(
@@ -339,8 +347,8 @@ export class ChatbotService {
       }
     }
 
-    // interestSub에서 interestMain 자동 추론
-    const inferredMains = new Set<string>();
+    // 기존 interestMain 유지 + interestSub에서 추가 추론
+    const inferredMains = new Set<string>(selectedMains);
     dto.interestSub.forEach((sub) => {
       const subData = INTEREST_SUB[sub as keyof typeof INTEREST_SUB];
       if (subData) {
@@ -459,7 +467,7 @@ export class ChatbotService {
     const flow = await this.getFlow(sessionId);
 
     const visits =
-      (flow.pageVisits as unknown as { path: string; timestamp: Date }[]) || [];
+      jsonCast<{ path: string; timestamp: Date }[]>(flow.pageVisits) || [];
     visits.push({ path, timestamp: new Date() });
 
     return this.prisma.chatbotFlow.update({
@@ -470,12 +478,6 @@ export class ChatbotService {
 
   // 카테고리 목록 조회
   async getCategories() {
-    // AI 활성화 여부 조회
-    const aiConfig = await this.prisma.aiGenerationConfig.findFirst({
-      where: { id: 1 },
-      select: { aiEnabled: true },
-    });
-
     // 기존 ATTRACTIONS의 장소 이름들로 DB에서 검색
     const attractionNames = Object.values(ATTRACTIONS).map((a) => a.label);
 
@@ -543,7 +545,7 @@ export class ChatbotService {
       })) as Array<{ value: string } & T[keyof T]>;
 
     return {
-      aiEnabled: aiConfig?.aiEnabled ?? true,
+      aiEnabled: this.configService.get('ENABLE_AI_ESTIMATE') === 'true',
       tourTypes: toArray(TOUR_TYPES),
       interestMain: toArray(INTEREST_MAIN),
       interestSub: toArray(INTEREST_SUB),
@@ -639,14 +641,11 @@ export class ChatbotService {
         return this.completeFlow(sessionId, userId);
       }
 
-      // AI 활성화 여부 확인
-      const aiConfig = await this.prisma.aiGenerationConfig.findFirst({
-        where: { id: 1 },
-        select: { aiEnabled: true },
-      });
+      const aiEstimateEnabled =
+        this.configService.get('ENABLE_AI_ESTIMATE') === 'true';
 
-      if (!aiConfig?.aiEnabled) {
-        // AI 비활성화: 견적 생성 없이 플로우만 완료
+      if (!aiEstimateEnabled || flow.hasPlan) {
+        // AI 비활성화 또는 계획이 있는 경우: 견적 생성 없이 플로우만 완료
         if (userId) {
           await this.prisma.chatbotFlow.update({
             where: { sessionId },
@@ -655,7 +654,7 @@ export class ChatbotService {
         }
         const updatedFlow = await this.getFlow(sessionId);
         this.logger.log(
-          `Flow completed (AI disabled): sessionId=${sessionId}`,
+          `Flow completed (${flow.hasPlan ? 'has plan' : 'AI disabled'}): sessionId=${sessionId}`,
         );
         return {
           flow: updatedFlow,
@@ -782,10 +781,7 @@ export class ChatbotService {
     }
 
     // 관리자 + 고객 이메일 병렬 발송
-    const adminEmail =
-      this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL') ||
-      this.configService.get<string>('ADMIN_EMAIL') ||
-      'admin@tumakr.com';
+    const adminEmail = this.getAdminEmail();
 
     const travelDateStr = flow.travelDate
       ? new Date(flow.travelDate).toLocaleDateString('en-US', {
@@ -979,10 +975,7 @@ export class ChatbotService {
 
       // 관리자 이메일 발송
       try {
-        const adminEmail =
-          this.configService.get<string>('CHATBOT_NOTIFICATION_EMAIL') ||
-          this.configService.get<string>('ADMIN_EMAIL') ||
-          'admin@tumakr.com';
+        const adminEmail = this.getAdminEmail();
         const adminUrl =
           this.configService.get<string>('CLIENT_URL') ||
           'http://localhost:3000';
@@ -1169,20 +1162,22 @@ export class ChatbotService {
       this.prisma.chatbotFlow.count({ where }),
     ]);
 
-    // estimateId가 있는 플로우들의 견적 상태 조회
+    // estimateId가 있는 플로우들의 견적 상태를 배치 조회 (N+1 방지)
     const estimateIds = flows
       .filter((f) => f.estimateId)
       .map((f) => f.estimateId!);
 
-    const estimates =
+    const estimateStatusMap =
       estimateIds.length > 0
-        ? await this.prisma.estimate.findMany({
-            where: { id: { in: estimateIds } },
-            select: { id: true, statusAi: true },
-          })
-        : [];
-
-    const estimateStatusMap = new Map(estimates.map((e) => [e.id, e.statusAi]));
+        ? new Map(
+            (
+              await this.prisma.estimate.findMany({
+                where: { id: { in: estimateIds } },
+                select: { id: true, statusAi: true },
+              })
+            ).map((e) => [e.id, e.statusAi]),
+          )
+        : new Map<number, string | null>();
 
     // 플로우에 estimateStatus 추가 + visitor 필드 flatten
     const flowsWithStatus = flows.map(({ visitor, ...flow }) => ({

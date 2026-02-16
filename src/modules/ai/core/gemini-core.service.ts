@@ -7,14 +7,19 @@ export interface GeminiCallOptions {
   systemPrompt?: string;
   history?: Array<{ role: string; parts: Array<{ text: string }> }>;
   signal?: AbortSignal;
+  /** thinking 비활성화 (JSON 구조화 출력 등 추론 불필요 시) */
+  disableThinking?: boolean;
+  /** Gemini 모델명 오버라이드 (미지정 시 기본 모델 사용) */
+  model?: string;
 }
 
 @Injectable()
 export class GeminiCoreService {
   private readonly logger = new Logger(GeminiCoreService.name);
   private apiKey: string;
-  private baseUrl =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+  private static readonly DEFAULT_MODEL = 'gemini-2.5-flash';
+  private static readonly API_BASE =
+    'https://generativelanguage.googleapis.com/v1beta/models';
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('GEMINI_API_KEY') || '';
@@ -34,16 +39,24 @@ export class GeminiCoreService {
       throw new BadRequestException('Gemini API key is not configured');
     }
 
-    const apiUrl = `${this.baseUrl}?key=${this.apiKey}`;
+    const model = options?.model || GeminiCoreService.DEFAULT_MODEL;
+    const apiUrl = `${GeminiCoreService.API_BASE}/${model}:generateContent?key=${this.apiKey}`;
+
+    const generationConfig: Record<string, unknown> = {
+      temperature: options?.temperature ?? 0.7,
+      maxOutputTokens: options?.maxOutputTokens ?? 1024,
+    };
+
+    // 2.5 모델의 thinking 비활성화 (구조화 출력 시 불필요한 추론 오버헤드 제거)
+    if (options?.disableThinking) {
+      generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    }
 
     const body: Record<string, unknown> = {
       contents: options?.history
         ? [...options.history, { role: 'user', parts: [{ text: prompt }] }]
         : [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: options?.temperature ?? 0.7,
-        maxOutputTokens: options?.maxOutputTokens ?? 1024,
-      },
+      generationConfig,
     };
 
     if (options?.systemPrompt) {
@@ -96,6 +109,10 @@ export class GeminiCoreService {
         return text;
       } catch (error) {
         if (error instanceof BadRequestException) {
+          throw error;
+        }
+        if (error?.name === 'AbortError') {
+          this.logger.warn('Gemini API request aborted (timeout)');
           throw error;
         }
         this.logger.error('Gemini API request failed:', error);

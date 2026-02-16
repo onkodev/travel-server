@@ -1,6 +1,6 @@
 /**
  * 관심사 키워드 확장 맵
- * 챗봇 카테고리 키 → 구체적 장소/경험 설명 (RAG 쿼리 + Gemini 프롬프트 양쪽에서 사용)
+ * 챗봇 카테고리 키 → 구체적 장소/경험 설명 (RAG + Gemini 양쪽에서 사용)
  */
 export const INTEREST_KEYWORDS: Record<string, string> = {
   // 메인 카테고리
@@ -29,24 +29,37 @@ export const INTEREST_KEYWORDS: Record<string, string> = {
   nature_sub: 'national parks, scenic viewpoints, botanical gardens, riverside walks',
 };
 
+// 메인 카테고리 → 소속 서브 카테고리 매핑
+const MAIN_TO_SUBS: Record<string, string[]> = {
+  culture: ['historical', 'museums', 'architecture'],
+  kculture: ['kpop', 'kdrama', 'beauty'],
+  food_shopping: ['food', 'markets', 'shopping', 'fashion'],
+  nature: ['nature', 'hiking', 'adventure', 'hidden_places'],
+  local: ['like_local', 'sports', 'luxury'],
+};
+
 /**
  * 관심사 라벨 → 확장 키워드 텍스트로 변환
- * 서브 관심사를 우선 사용 (더 구체적), 메인은 서브가 없을 때 보완
+ * 서브 관심사를 우선 사용 (더 구체적), 메인은 해당 메인의 서브가 하나도 선택되지 않았을 때만 추가
  */
 export function expandInterests(mainInterests: string[], subInterests: string[]): string {
   const expanded: string[] = [];
+  const subSet = new Set(subInterests);
 
   // 서브 관심사 우선 (더 구체적)
   for (const sub of subInterests) {
     if (INTEREST_KEYWORDS[sub]) expanded.push(INTEREST_KEYWORDS[sub]);
   }
 
-  // 메인 관심사 (매칭되는 서브가 하나도 없는 경우만 추가)
+  // 메인 관심사: 해당 메인에 속하는 서브가 하나도 선택되지 않은 경우에만 추가
   for (const main of mainInterests) {
-    if (INTEREST_KEYWORDS[main] && !subInterests.some((s) => INTEREST_KEYWORDS[s])) {
+    const subs = MAIN_TO_SUBS[main];
+    const hasCoveringSubSelected = subs?.some((s) => subSet.has(s));
+    if (INTEREST_KEYWORDS[main] && !hasCoveringSubSelected) {
       expanded.push(INTEREST_KEYWORDS[main]);
     }
   }
 
   return expanded.join(', ') || 'general sightseeing';
 }
+
