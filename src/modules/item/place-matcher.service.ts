@@ -1,0 +1,295 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+
+// ── 공통 타입 ──
+
+/** DB 아이템 기본 필드 (매칭 결과 공통) */
+export interface MatchedItemBase {
+  id: number;
+  nameKor: string;
+  nameEng: string;
+}
+
+/** DB 아이템 전체 필드 (견적 아이템 빌드용) */
+export interface MatchedItemFull extends MatchedItemBase {
+  descriptionEng: string | null;
+  images: unknown;
+  lat: unknown;
+  lng: unknown;
+  addressEnglish: string | null;
+  price: unknown;
+  region: string | null;
+}
+
+export type MatchTier = 'exact' | 'partial' | 'fuzzy' | 'unmatched';
+
+/** 매칭 입력 */
+export interface PlaceMatchInput {
+  name: string;
+  nameKor?: string;
+}
+
+/** 매칭 결과 */
+export interface PlaceMatchResult<T extends MatchedItemBase = MatchedItemBase> {
+  input: PlaceMatchInput;
+  tier: MatchTier;
+  item?: T;
+  score?: number; // fuzzy 매칭 유사도
+}
+
+/** 매칭 옵션 */
+export interface PlaceMatchOptions {
+  fuzzyThreshold?: number;
+  /** true면 full 필드 반환 (images, lat, lng 등) */
+  fullSelect?: boolean;
+}
+
+// ── Prisma select 상수 ──
+
+const ITEM_SELECT_BASE = {
+  id: true,
+  nameKor: true,
+  nameEng: true,
+} as const;
+
+const ITEM_SELECT_FULL = {
+  ...ITEM_SELECT_BASE,
+  descriptionEng: true,
+  images: true,
+  lat: true,
+  lng: true,
+  addressEnglish: true,
+  price: true,
+  region: true,
+} as const;
+
+@Injectable()
+export class PlaceMatcherService {
+  private readonly logger = new Logger(PlaceMatcherService.name);
+
+  constructor(private prisma: PrismaService) {}
+
+  /**
+   * 장소명 배열 → DB 매칭 (exact → partial → fuzzy 3단계)
+   * fullSelect=true 시 MatchedItemFull 반환
+   */
+  async matchPlaces(
+    inputs: PlaceMatchInput[],
+    options?: PlaceMatchOptions & { fullSelect: true },
+  ): Promise<PlaceMatchResult<MatchedItemFull>[]>;
+  async matchPlaces(
+    inputs: PlaceMatchInput[],
+    options?: PlaceMatchOptions,
+  ): Promise<PlaceMatchResult<MatchedItemBase>[]>;
+  async matchPlaces(
+    inputs: PlaceMatchInput[],
+    options?: PlaceMatchOptions,
+  ): Promise<PlaceMatchResult[]> {
+    if (inputs.length === 0) return [];
+
+    const threshold = options?.fuzzyThreshold ?? 0.3;
+    const select = options?.fullSelect ? ITEM_SELECT_FULL : ITEM_SELECT_BASE;
+
+    // ── 1. DB 정확(contains) 검색 ──
+    const orConditions = inputs.flatMap((input) => {
+      const conditions = [
+        {
+          OR: [
+            { nameEng: { contains: input.name, mode: 'insensitive' as const } },
+            { nameKor: { contains: input.name } },
+          ],
+        },
+      ];
+      if (input.nameKor) {
+        conditions.push({
+          OR: [
+            { nameKor: { contains: input.nameKor } },
+            { nameEng: { contains: input.nameKor, mode: 'insensitive' as const } },
+          ],
+        });
+      }
+      return conditions;
+    });
+
+    const dbItems = await this.prisma.item.findMany({
+      where: { type: 'place', OR: orConditions },
+      select,
+    });
+
+    // 이름 → DB 아이템 맵 (소문자)
+    const nameMap = new Map<string, (typeof dbItems)[0]>();
+    for (const item of dbItems) {
+      const engKey = (item as MatchedItemBase).nameEng.toLowerCase().trim();
+      const korKey = (item as MatchedItemBase).nameKor.toLowerCase().trim();
+      if (engKey) nameMap.set(engKey, item);
+      if (korKey) nameMap.set(korKey, item);
+    }
+
+    // ── 2. 매칭 루프 (exact → partial) ──
+    const results: PlaceMatchResult[] = [];
+    const unmatchedIndices: number[] = [];
+
+    for (let i = 0; i < inputs.length; i++) {
+      const input = inputs[i];
+      const keyEng = input.name.toLowerCase().trim();
+      const keyKor = input.nameKor?.toLowerCase();
+
+      // Exact: 이름 맵 직접 조회
+      const exact = nameMap.get(keyEng) || (keyKor ? nameMap.get(keyKor) : undefined);
+      if (exact) {
+        results.push({ input, tier: 'exact', item: this.toItem(exact, options?.fullSelect) });
+        continue;
+      }
+
+      // Partial: 양방향 contains
+      const partial = dbItems.find((db) => {
+        const eng = (db as MatchedItemBase).nameEng.toLowerCase();
+        if (eng.includes(keyEng) || keyEng.includes(eng)) return true;
+        if (keyKor) {
+          const kor = (db as MatchedItemBase).nameKor.toLowerCase();
+          if (kor.includes(keyKor) || keyKor.includes(kor)) return true;
+        }
+        return false;
+      });
+
+      if (partial) {
+        results.push({ input, tier: 'partial', item: this.toItem(partial, options?.fullSelect) });
+      } else {
+        results.push({ input, tier: 'unmatched' }); // placeholder
+        unmatchedIndices.push(i);
+      }
+    }
+
+    // ── 3. Fuzzy 배치 매칭 (pg_trgm, 1회 SQL) ──
+    if (unmatchedIndices.length > 0) {
+      const fuzzyNames = unmatchedIndices.map((i) => inputs[i].name);
+      const fuzzyMap = await this.fuzzyMatchBatch(fuzzyNames, threshold);
+
+      for (const idx of unmatchedIndices) {
+        const fuzzy = fuzzyMap.get(inputs[idx].name);
+        if (fuzzy) {
+          results[idx] = {
+            input: inputs[idx],
+            tier: 'fuzzy',
+            item: options?.fullSelect ? fuzzy : { id: fuzzy.id, nameKor: fuzzy.nameKor, nameEng: fuzzy.nameEng },
+            score: fuzzy.sim,
+          };
+        }
+      }
+    }
+
+    const tiers = { exact: 0, partial: 0, fuzzy: 0, unmatched: 0 };
+    for (const r of results) tiers[r.tier]++;
+    this.logger.log(
+      `[matchPlaces] ${inputs.length} inputs → exact:${tiers.exact} partial:${tiers.partial} fuzzy:${tiers.fuzzy} unmatched:${tiers.unmatched}`,
+    );
+
+    return results;
+  }
+
+  /**
+   * ID 배열로 아이템 일괄 조회 (Gemini 직접 매칭용)
+   */
+  async findItemsByIds(ids: number[]): Promise<Map<number, MatchedItemFull>> {
+    if (ids.length === 0) return new Map();
+
+    const items = await this.prisma.item.findMany({
+      where: { id: { in: ids }, type: 'place' },
+      select: ITEM_SELECT_FULL,
+    });
+
+    return new Map(
+      items.map((item) => [
+        item.id,
+        {
+          id: item.id,
+          nameKor: item.nameKor,
+          nameEng: item.nameEng,
+          descriptionEng: item.descriptionEng,
+          images: item.images,
+          lat: item.lat,
+          lng: item.lng,
+          addressEnglish: item.addressEnglish,
+          price: item.price,
+          region: item.region,
+        },
+      ]),
+    );
+  }
+
+  // ── Private helpers ──
+
+  /** pg_trgm 배치 퍼지 매칭 — 항상 full columns 조회 (SQL 단순화) */
+  private async fuzzyMatchBatch(
+    names: string[],
+    threshold: number,
+  ): Promise<Map<string, MatchedItemFull & { sim: number }>> {
+    if (names.length === 0) return new Map();
+
+    const results = await this.prisma.$queryRaw<
+      Array<{
+        query_name: string;
+        id: number;
+        name_kor: string;
+        name_eng: string;
+        description_eng: string | null;
+        images: unknown;
+        lat: number;
+        lng: number;
+        address_english: string | null;
+        price: number;
+        region: string | null;
+        sim: number;
+      }>
+    >`
+      SELECT DISTINCT ON (query_name)
+        query_name, id, name_kor, name_eng, description_eng, images, lat, lng, address_english, price, region,
+        GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
+      FROM items
+      CROSS JOIN unnest(${names}::text[]) AS query_name
+      WHERE type = 'place'
+        AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
+      ORDER BY query_name, sim DESC
+    `;
+
+    const map = new Map<string, MatchedItemFull & { sim: number }>();
+    for (const r of results) {
+      map.set(r.query_name, {
+        id: r.id,
+        nameKor: r.name_kor,
+        nameEng: r.name_eng,
+        descriptionEng: r.description_eng,
+        images: r.images,
+        lat: r.lat,
+        lng: r.lng,
+        addressEnglish: r.address_english,
+        price: r.price,
+        region: r.region,
+        sim: Number(r.sim),
+      });
+    }
+
+    this.logger.log(`[fuzzyMatchBatch] ${names.length} queries → ${map.size} matches`);
+    return map;
+  }
+
+  /** DB row → MatchedItemBase | MatchedItemFull */
+  private toItem(row: Record<string, unknown>, full?: boolean): MatchedItemBase | MatchedItemFull {
+    const base: MatchedItemBase = {
+      id: row.id as number,
+      nameKor: row.nameKor as string,
+      nameEng: row.nameEng as string,
+    };
+    if (!full) return base;
+    return {
+      ...base,
+      descriptionEng: (row.descriptionEng as string | null) ?? null,
+      images: row.images,
+      lat: row.lat,
+      lng: row.lng,
+      addressEnglish: (row.addressEnglish as string | null) ?? null,
+      price: row.price,
+      region: (row.region as string | null) ?? null,
+    };
+  }
+}

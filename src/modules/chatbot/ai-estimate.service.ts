@@ -18,6 +18,11 @@ import {
 import { EstimateItem } from '../../common/types';
 import { EmailRagService, type PipelineLog } from '../email-rag/email-rag.service';
 import type { DraftResult } from '../email-rag/dto';
+import {
+  PlaceMatcherService,
+  type MatchedItemFull,
+  type PlaceMatchResult,
+} from '../item/place-matcher.service';
 
 // Re-export for backward compatibility
 export type { EstimateItem };
@@ -139,6 +144,7 @@ export class AiEstimateService {
     private prisma: PrismaService,
     private configService: ConfigService,
     private emailRagService: EmailRagService,
+    private placeMatcher: PlaceMatcherService,
   ) {}
 
   /**
@@ -411,9 +417,8 @@ export class AiEstimateService {
 
   /**
    * RAG 초안을 EstimateItem[]으로 변환
-   * - Gemini가 반환한 itemId 우선 사용
-   * - DB에서 장소 이름 매칭 (정확 → 부분)
-   * - 미매칭 아이템 일괄 퍼지 매칭
+   * - Gemini itemId 직접 매칭 (Tier 0)
+   * - PlaceMatcherService로 3-tier 매칭 (exact → partial → fuzzy)
    * - 매칭 실패 시 TBD 아이템 생성
    */
   private async convertRagDraftToItems(
@@ -428,130 +433,52 @@ export class AiEstimateService {
     const totalPax = calculateTotalPax(flow);
     const matchedItems: MatchedItemInfo[] = [];
     const tbdItems: Array<{ name: string; reason: string }> = [];
-
-    // 결과를 인덱스 기반 Map으로 관리 (null placeholder 제거)
     const resultMap = new Map<number, EstimateItem>();
 
-    // --- Tier 1 + Tier 2 DB 조회를 병렬 실행 (독립적 쿼리) ---
+    // --- Tier 0: Gemini itemId 직접 매칭 ---
     const directItemIds = draft.items
       .filter((d) => d.itemId && d.itemId > 0)
       .map((d) => d.itemId as number);
 
-    // Tier 2용 이름 목록은 directItemIds 결과와 무관하게 미리 준비
-    const allPlaceNames = draft.items
-      .filter((d) => !d.itemId || d.itemId <= 0)
-      .map((d) => d.placeName);
+    const directItemMap = await this.placeMatcher.findItemsByIds(directItemIds);
 
-    const itemSelect = {
-      id: true, nameKor: true, nameEng: true, descriptionEng: true,
-      images: true, lat: true, lng: true, addressEnglish: true, price: true, region: true,
-    } as const;
-
-    const [directItems, dbItems] = await Promise.all([
-      directItemIds.length > 0
-        ? this.prisma.item.findMany({
-            where: { id: { in: directItemIds }, type: 'place' },
-            select: itemSelect,
-          })
-        : Promise.resolve([] as Array<{
-            id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
-            images: unknown; lat: unknown; lng: unknown; addressEnglish: string | null; price: unknown;
-          }>),
-      allPlaceNames.length > 0
-        ? this.prisma.item.findMany({
-            where: {
-              type: 'place',
-              OR: allPlaceNames.map((name) => ({
-                OR: [
-                  { nameEng: { contains: name, mode: 'insensitive' as const } },
-                  { nameKor: { contains: name } },
-                ],
-              })),
-            },
-            select: itemSelect,
-          })
-        : Promise.resolve([] as Array<{
-            id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
-            images: unknown; lat: unknown; lng: unknown; addressEnglish: string | null; price: unknown;
-          }>),
-    ]);
-
-    const directItemMap = new Map(directItems.map((i) => [i.id, i]));
-
-    // 이름 → DB 아이템 맵 (빈 문자열 키 방지)
-    const itemMap = new Map<string, (typeof dbItems)[0]>();
-    for (const dbItem of dbItems) {
-      const engKey = dbItem.nameEng.toLowerCase().trim();
-      const korKey = dbItem.nameKor.toLowerCase().trim();
-      if (engKey) itemMap.set(engKey, dbItem);
-      if (korKey) itemMap.set(korKey, dbItem);
-    }
-
-    // --- 1차 + 2차 매칭 루프 ---
-    const unmatchedIndices: number[] = [];
+    // Gemini 매칭 처리 + 이름 매칭 대상 분리
+    const nameMatchInputs: { index: number; name: string; nameKor?: string; draftItem: (typeof draft.items)[0] }[] = [];
 
     for (let i = 0; i < draft.items.length; i++) {
       const draftItem = draft.items[i];
 
-      // Tier 1: Gemini itemId 직접 매칭
       if (draftItem.itemId && directItemMap.has(draftItem.itemId)) {
         const dbMatch = directItemMap.get(draftItem.itemId)!;
         resultMap.set(i, this.buildEstimateItem(draftItem, dbMatch, totalPax));
         matchedItems.push({ name: draftItem.placeName, itemId: dbMatch.id, tier: 'geminiId' });
-        continue;
-      }
-
-      // Tier 2: 정확 매칭 (이름 완전 일치)
-      const matchKey = draftItem.placeName.toLowerCase().trim();
-      const exactMatch = itemMap.get(matchKey);
-      if (exactMatch) {
-        resultMap.set(i, this.buildEstimateItem(draftItem, exactMatch, totalPax));
-        matchedItems.push({ name: draftItem.placeName, itemId: exactMatch.id, tier: 'exact' });
-        continue;
-      }
-
-      // Tier 2b: 부분 매칭 (contains) — 양방향 포함 검사
-      const korKey = draftItem.placeNameKor?.toLowerCase();
-      const partialMatch = dbItems.find((db) => {
-        const eng = db.nameEng.toLowerCase();
-        if (eng.includes(matchKey) || matchKey.includes(eng)) return true;
-        if (korKey) {
-          const kor = db.nameKor.toLowerCase();
-          if (kor.includes(korKey) || korKey.includes(kor)) return true;
-        }
-        return false;
-      });
-
-      if (partialMatch) {
-        resultMap.set(i, this.buildEstimateItem(draftItem, partialMatch, totalPax));
-        matchedItems.push({ name: draftItem.placeName, itemId: partialMatch.id, tier: 'partial' });
       } else {
-        unmatchedIndices.push(i);
+        nameMatchInputs.push({ index: i, name: draftItem.placeName, nameKor: draftItem.placeNameKor, draftItem });
       }
     }
 
-    // --- Tier 3: 배치 퍼지 매칭 (1회 SQL 호출) ---
-    if (unmatchedIndices.length > 0) {
-      const fuzzyResults = await this.findItemsByFuzzyMatchBatch(
-        unmatchedIndices.map((i) => draft.items[i].placeName),
-        fuzzyThreshold,
-      );
+    // --- Tier 1-3: PlaceMatcherService (exact → partial → fuzzy) ---
+    if (nameMatchInputs.length > 0) {
+      const matchResults = await this.placeMatcher.matchPlaces(
+        nameMatchInputs.map((m) => ({ name: m.name, nameKor: m.nameKor })),
+        { fuzzyThreshold, fullSelect: true },
+      ) as PlaceMatchResult<MatchedItemFull>[];
 
-      for (const idx of unmatchedIndices) {
-        const draftItem = draft.items[idx];
-        const fuzzyMatch = fuzzyResults.get(draftItem.placeName);
+      for (let j = 0; j < nameMatchInputs.length; j++) {
+        const { index, draftItem } = nameMatchInputs[j];
+        const result = matchResults[j];
 
-        if (fuzzyMatch) {
-          resultMap.set(idx, this.buildEstimateItem(draftItem, fuzzyMatch, totalPax));
+        if (result.tier !== 'unmatched' && result.item) {
+          resultMap.set(index, this.buildEstimateItem(draftItem, result.item, totalPax));
           matchedItems.push({
             name: draftItem.placeName,
-            itemId: fuzzyMatch.id,
-            tier: 'fuzzy',
-            score: fuzzyMatch.sim,
+            itemId: result.item.id,
+            tier: result.tier as MatchTier,
+            score: result.score,
           });
         } else {
-          // DB에 없는 장소 → TBD
-          resultMap.set(idx, {
+          // TBD
+          resultMap.set(index, {
             id: generateItemId(),
             dayNumber: draftItem.dayNumber,
             orderIndex: draftItem.orderIndex,
@@ -683,74 +610,6 @@ export class AiEstimateService {
     // 후처리 지역 필터용 (DB 저장 시 제거됨)
     if (dbMatch.region) item._region = dbMatch.region;
     return item;
-  }
-
-  /**
-   * pg_trgm 배치 퍼지 매칭 (1회 SQL로 여러 장소명 동시 매칭)
-   */
-  private async findItemsByFuzzyMatchBatch(
-    placeNames: string[],
-    threshold = 0.3,
-  ): Promise<Map<string, {
-    id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
-    images: unknown; lat: number; lng: number; addressEnglish: string | null; price: number;
-    region: string | null; sim: number;
-  }>> {
-    if (placeNames.length === 0) return new Map();
-
-    const results = await this.prisma.$queryRaw<
-      Array<{
-        query_name: string;
-        id: number;
-        name_kor: string;
-        name_eng: string;
-        description_eng: string | null;
-        images: unknown;
-        lat: number;
-        lng: number;
-        address_english: string | null;
-        price: number;
-        region: string | null;
-        sim: number;
-      }>
-    >`
-      SELECT DISTINCT ON (query_name)
-        query_name, id, name_kor, name_eng, description_eng, images, lat, lng, address_english, price, region,
-        GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
-      FROM items
-      CROSS JOIN unnest(${placeNames}::text[]) AS query_name
-      WHERE type = 'place'
-        AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
-      ORDER BY query_name, sim DESC
-    `;
-
-    const resultMap = new Map<string, {
-      id: number; nameKor: string; nameEng: string; descriptionEng: string | null;
-      images: unknown; lat: number; lng: number; addressEnglish: string | null; price: number;
-      region: string | null; sim: number;
-    }>();
-
-    for (const r of results) {
-      resultMap.set(r.query_name, {
-        id: r.id,
-        nameKor: r.name_kor,
-        nameEng: r.name_eng,
-        descriptionEng: r.description_eng,
-        images: r.images,
-        lat: r.lat,
-        lng: r.lng,
-        addressEnglish: r.address_english,
-        price: r.price,
-        region: r.region,
-        sim: Number(r.sim),
-      });
-    }
-
-    this.logger.log(
-      `[fuzzyMatchBatch] ${placeNames.length} queries → ${resultMap.size} matches`,
-    );
-
-    return resultMap;
   }
 
   /**

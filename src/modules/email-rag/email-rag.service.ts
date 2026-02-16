@@ -9,6 +9,7 @@ import {
 } from '../ai/prompts/email-rag.prompts';
 import { AiPromptService } from '../ai-prompt/ai-prompt.service';
 import { PromptKey } from '../ai-prompt/prompt-registry';
+import { PlaceMatcherService } from '../item/place-matcher.service';
 import type {
   EmailSearchResult,
   DraftResult,
@@ -85,6 +86,7 @@ export class EmailRagService {
     private embeddingService: EmbeddingService,
     private geminiCore: GeminiCoreService,
     private aiPromptService: AiPromptService,
+    private placeMatcher: PlaceMatcherService,
   ) {}
 
   /**
@@ -547,112 +549,42 @@ export class EmailRagService {
       return { threads, places: [] };
     }
 
-    // 4. DB 대조 (정확 + 퍼지)
-    const placeNames = parsed.places.map((p) => p.name || '').filter(Boolean);
-
-    // 정확 매칭
-    const exactResults = await this.prisma.item.findMany({
-      where: {
-        type: 'place',
-        OR: placeNames.map((name) => ({
-          OR: [
-            { nameEng: { contains: name, mode: 'insensitive' as const } },
-            { nameKor: { contains: name } },
-          ],
-        })),
-      },
-      select: { id: true, nameEng: true, nameKor: true },
-    });
-
-    const exactMap = new Map<string, { id: number; name: string }>();
-    for (const item of exactResults) {
-      exactMap.set(item.nameEng.toLowerCase(), { id: item.id, name: item.nameEng });
-      exactMap.set(item.nameKor.toLowerCase(), { id: item.id, name: item.nameEng });
-    }
-
-    // 퍼지 매칭 (미매칭 아이템만)
-    const unmatchedNames: string[] = [];
-    const matchedPlaces = new Map<string, { id: number; name: string }>();
-
-    for (const p of parsed.places) {
-      const name = p.name || '';
-      const key = name.toLowerCase();
-      const fromMap = exactMap.get(key);
-
-      if (fromMap) {
-        matchedPlaces.set(name, fromMap);
-      } else {
-        const fromFind = exactResults.find((item) =>
-          item.nameEng.toLowerCase().includes(key) || key.includes(item.nameEng.toLowerCase()) ||
-          (p.nameKor && item.nameKor.includes(p.nameKor))
-        );
-        if (fromFind) {
-          matchedPlaces.set(name, { id: fromFind.id, name: fromFind.nameEng });
-        } else {
-          unmatchedNames.push(name);
-        }
-      }
-    }
-
-    // 배치 퍼지 매칭
-    const fuzzyMap = new Map<string, { id: number; name: string; score: number }>();
-    if (unmatchedNames.length > 0) {
-      const threshold = 0.3;
-      const fuzzyResults = await this.prisma.$queryRaw<
-        Array<{ query_name: string; id: number; name_eng: string; sim: number }>
-      >`
-        SELECT DISTINCT ON (query_name)
-          query_name, id, name_eng,
-          GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
-        FROM items
-        CROSS JOIN unnest(${unmatchedNames}::text[]) AS query_name
-        WHERE type = 'place'
-          AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
-        ORDER BY query_name, sim DESC
-      `;
-
-      for (const r of fuzzyResults) {
-        fuzzyMap.set(r.query_name, { id: r.id, name: r.name_eng, score: Number(r.sim) });
-      }
-    }
+    // 4. PlaceMatcherService로 DB 대조 (exact → partial → fuzzy)
+    const validPlaces = parsed.places.filter((p) => p.name);
+    const matchResults = await this.placeMatcher.matchPlaces(
+      validPlaces.map((p) => ({ name: p.name!, nameKor: p.nameKor || undefined })),
+    );
 
     // 5. 결과 조합
-    const places: ExtractedPlace[] = parsed.places.map((p) => {
-      const name = p.name || '';
-      const exact = matchedPlaces.get(name);
-      if (exact) {
-        return {
-          name,
-          nameKor: p.nameKor || null,
-          type: p.type || 'attraction',
-          region: p.region || null,
-          status: 'matched' as const,
-          matchedItemId: exact.id,
-          matchedItemName: exact.name,
-        };
-      }
-
-      const fuzzy = fuzzyMap.get(name);
-      if (fuzzy) {
-        return {
-          name,
-          nameKor: p.nameKor || null,
-          type: p.type || 'attraction',
-          region: p.region || null,
-          status: 'fuzzy' as const,
-          matchedItemId: fuzzy.id,
-          matchedItemName: fuzzy.name,
-          matchScore: Math.round(fuzzy.score * 100),
-        };
-      }
-
-      return {
-        name,
+    const places: ExtractedPlace[] = validPlaces.map((p, i) => {
+      const match = matchResults[i];
+      const base = {
+        name: p.name!,
         nameKor: p.nameKor || null,
         type: p.type || 'attraction',
         region: p.region || null,
-        status: 'unmatched' as const,
       };
+
+      if (match.tier === 'fuzzy' && match.item) {
+        return {
+          ...base,
+          status: 'fuzzy' as const,
+          matchedItemId: match.item.id,
+          matchedItemName: match.item.nameEng,
+          matchScore: Math.round((match.score || 0) * 100),
+        };
+      }
+
+      if (match.tier !== 'unmatched' && match.item) {
+        return {
+          ...base,
+          status: 'matched' as const,
+          matchedItemId: match.item.id,
+          matchedItemName: match.item.nameEng,
+        };
+      }
+
+      return { ...base, status: 'unmatched' as const };
     });
 
     this.logger.log(
@@ -759,24 +691,26 @@ export class EmailRagService {
   }
 
   /**
-   * Gemini 결과에서 itemId가 없는 장소를 DB와 매칭 (정확 + 퍼지)
+   * Gemini 결과에서 itemId가 없는 장소를 DB와 매칭 (PlaceMatcherService 위임)
    */
   private async matchDraftItemsToDb(items: DraftItem[]): Promise<{
     items: DraftItem[];
     matchingDetails: PipelineLog['postMatching'];
   }> {
     const matchingDetails: PipelineLog['postMatching'] = [];
-    const unmatchedItems = items.filter((item) => !item.itemId);
+    const unmatchedItems: { item: DraftItem; idx: number }[] = [];
 
     // Gemini가 이미 매칭한 아이템 기록
-    for (const item of items) {
-      if (item.itemId) {
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].itemId) {
         matchingDetails.push({
-          placeName: item.placeName,
-          placeNameKor: item.placeNameKor,
+          placeName: items[i].placeName,
+          placeNameKor: items[i].placeNameKor,
           method: 'gemini',
-          matchedItemId: item.itemId,
+          matchedItemId: items[i].itemId,
         });
+      } else {
+        unmatchedItems.push({ item: items[i], idx: i });
       }
     }
 
@@ -789,151 +723,32 @@ export class EmailRagService {
       `[postMatch] 미매칭 ${unmatchedItems.length}/${items.length}개 장소 DB 매칭 시도`,
     );
 
-    // 1) 영문명 + 한글명으로 정확(contains) 매칭
-    const searchNames = unmatchedItems.map((item) => item.placeName);
-    const searchNamesKor = unmatchedItems
-      .map((item) => item.placeNameKor)
-      .filter((n): n is string => !!n);
+    // PlaceMatcherService로 3-tier 매칭
+    const matchResults = await this.placeMatcher.matchPlaces(
+      unmatchedItems.map((u) => ({ name: u.item.placeName, nameKor: u.item.placeNameKor })),
+    );
 
-    const orConditions = [
-      ...searchNames.map((name) => ({
-        OR: [
-          { nameEng: { contains: name, mode: 'insensitive' as const } },
-          { nameKor: { contains: name } },
-        ],
-      })),
-      ...searchNamesKor.map((name) => ({
-        OR: [
-          { nameKor: { contains: name } },
-          { nameEng: { contains: name, mode: 'insensitive' as const } },
-        ],
-      })),
-    ];
-
-    const exactResults = await this.prisma.item.findMany({
-      where: { type: 'place', OR: orConditions },
-      select: { id: true, nameEng: true, nameKor: true },
-    });
-
-    // 정확 매칭 맵 구축
-    const exactMap = new Map<string, { id: number; nameEng: string; nameKor: string }>();
-    for (const item of exactResults) {
-      exactMap.set(item.nameEng.toLowerCase(), item);
-      exactMap.set(item.nameKor.toLowerCase(), item);
-    }
-
-    // 각 미매칭 아이템에 대해 정확 매칭 시도
-    const stillUnmatched: Array<{ item: DraftItem; idx: number }> = [];
     const result = [...items];
+    for (let j = 0; j < unmatchedItems.length; j++) {
+      const { item, idx } = unmatchedItems[j];
+      const match = matchResults[j];
 
-    for (let i = 0; i < result.length; i++) {
-      const item = result[i];
-      if (item.itemId) continue;
-
-      const keyEng = item.placeName.toLowerCase();
-      const keyKor = item.placeNameKor?.toLowerCase() || '';
-
-      // 직접 매칭
-      let matched = exactMap.get(keyEng) || exactMap.get(keyKor);
-
-      // 부분 포함 매칭 — 양방향 검사
-      if (!matched) {
-        matched = exactResults.find((db) => {
-          const eng = db.nameEng.toLowerCase();
-          if (eng.includes(keyEng) || keyEng.includes(eng)) return true;
-          if (keyKor) {
-            const kor = db.nameKor.toLowerCase();
-            if (kor.includes(keyKor) || keyKor.includes(kor)) return true;
-          }
-          return false;
-        });
-      }
-
-      if (matched) {
-        const isExact = exactMap.has(keyEng) || exactMap.has(keyKor);
-        result[i] = { ...item, itemId: matched.id };
+      if (match.tier !== 'unmatched' && match.item) {
+        result[idx] = { ...item, itemId: match.item.id };
         matchingDetails.push({
           placeName: item.placeName,
           placeNameKor: item.placeNameKor,
-          method: isExact ? 'exact' : 'partial',
-          matchedItemId: matched.id,
-          matchedItemName: matched.nameEng,
+          method: match.tier,
+          matchedItemId: match.item.id,
+          matchedItemName: match.item.nameEng,
+          score: match.score,
         });
-        this.logger.log(
-          `[postMatch] 정확매칭: "${item.placeName}" → [ID:${matched.id}] ${matched.nameEng} (${matched.nameKor})`,
-        );
       } else {
-        stillUnmatched.push({ item, idx: i });
-      }
-    }
-
-    // 2) pg_trgm 퍼지 매칭
-    if (stillUnmatched.length > 0) {
-      const fuzzyNames = stillUnmatched.map((u) => u.item.placeName);
-      const threshold = 0.3;
-
-      try {
-        const fuzzyResults = await this.prisma.$queryRaw<
-          Array<{ query_name: string; id: number; name_eng: string; name_kor: string; sim: number }>
-        >`
-          SELECT DISTINCT ON (query_name)
-            query_name, id, name_eng, name_kor,
-            GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
-          FROM items
-          CROSS JOIN unnest(${fuzzyNames}::text[]) AS query_name
-          WHERE type = 'place'
-            AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
-          ORDER BY query_name, sim DESC
-        `;
-
-        const fuzzyMap = new Map<string, { id: number; nameEng: string; nameKor: string; sim: number }>();
-        for (const r of fuzzyResults) {
-          fuzzyMap.set(r.query_name, {
-            id: r.id,
-            nameEng: r.name_eng,
-            nameKor: r.name_kor,
-            sim: Number(r.sim),
-          });
-        }
-
-        for (const { item, idx } of stillUnmatched) {
-          const fuzzy = fuzzyMap.get(item.placeName);
-          if (fuzzy) {
-            result[idx] = { ...item, itemId: fuzzy.id };
-            matchingDetails.push({
-              placeName: item.placeName,
-              placeNameKor: item.placeNameKor,
-              method: 'fuzzy',
-              matchedItemId: fuzzy.id,
-              matchedItemName: fuzzy.nameEng,
-              score: fuzzy.sim,
-            });
-            this.logger.log(
-              `[postMatch] 퍼지매칭: "${item.placeName}" → [ID:${fuzzy.id}] ${fuzzy.nameEng} (${fuzzy.nameKor}) (유사도: ${(fuzzy.sim * 100).toFixed(0)}%)`,
-            );
-          } else {
-            matchingDetails.push({
-              placeName: item.placeName,
-              placeNameKor: item.placeNameKor,
-              method: 'unmatched',
-            });
-            this.logger.warn(
-              `[postMatch] 매칭실패: "${item.placeName}"${item.placeNameKor ? ` (${item.placeNameKor})` : ''} → DB에 없음`,
-            );
-          }
-        }
-      } catch (e) {
-        this.logger.warn(`[postMatch] 퍼지매칭 쿼리 실패: ${e.message}`);
-        // 퍼지 매칭 실패 시 모든 미매칭 아이템을 unmatched로 기록
-        for (const { item } of stillUnmatched) {
-          if (!matchingDetails.some((d) => d.placeName === item.placeName)) {
-            matchingDetails.push({
-              placeName: item.placeName,
-              placeNameKor: item.placeNameKor,
-              method: 'unmatched',
-            });
-          }
-        }
+        matchingDetails.push({
+          placeName: item.placeName,
+          placeNameKor: item.placeNameKor,
+          method: 'unmatched',
+        });
       }
     }
 
