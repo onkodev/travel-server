@@ -2,7 +2,11 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SupabaseError } from '../../common/types';
-import { handleSupabaseError, sanitizeSearch } from '../../common/utils';
+import {
+  handleSupabaseError,
+  sanitizeSearch,
+  supabaseProfileToCamelCase,
+} from '../../common/utils';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
 import {
   calculateSkip,
@@ -38,20 +42,7 @@ export interface UserStats {
   inactive: number;
 }
 
-// Supabase users 테이블의 raw 데이터 타입
-interface SupabaseUserRow {
-  id: string;
-  email: string;
-  name?: string;
-  phone?: string;
-  avatar_url?: string;
-  role?: 'user' | 'admin' | 'agent';
-  is_active?: boolean;
-  email_verified?: boolean;
-  last_login_at?: string;
-  created_at: string;
-  updated_at?: string;
-}
+// SupabaseUserRow는 common/utils/transform.ts의 SupabaseProfileRaw로 대체
 
 @Injectable()
 export class UserService {
@@ -181,20 +172,9 @@ export class UserService {
     return { success: true };
   }
 
-  private mapUserToCamelCase(user: SupabaseUserRow): UserListItem {
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      phone: user.phone,
-      avatarUrl: user.avatar_url,
-      role: user.role || 'user',
-      isActive: user.is_active ?? true,
-      emailVerified: user.email_verified ?? false,
-      lastLoginAt: user.last_login_at,
-      createdAt: user.created_at,
-      updatedAt: user.updated_at,
-    };
+  private mapUserToCamelCase(user: Record<string, unknown>): UserListItem {
+    const converted = supabaseProfileToCamelCase(user as import('../../common/utils').SupabaseProfileRaw);
+    return converted as UserListItem;
   }
 
   // 관리자용: 특정 사용자의 견적 목록
@@ -241,15 +221,18 @@ export class UserService {
 
   // 관리자용: 특정 사용자의 결제 목록
   async getUserPayments(userId: string) {
+    // 사용자의 견적 ID와 제목을 한 번에 조회
     const estimates = await this.prisma.estimate.findMany({
       where: { userId },
       select: { id: true, title: true },
     });
+
+    if (estimates.length === 0) return [];
+
     const estimateMap = new Map(estimates.map((e) => [e.id, e.title]));
     const estimateIds = estimates.map((e) => e.id);
 
-    if (estimateIds.length === 0) return [];
-
+    // 결제 조회 (단일 쿼리)
     const payments = await this.prisma.payment.findMany({
       where: { estimateId: { in: estimateIds } },
       orderBy: { createdAt: 'desc' },
@@ -399,30 +382,6 @@ export class UserService {
     });
 
     return results;
-  }
-
-  // 사용자가 구매한 투어 목록 조회
-  async getMyTours(userId: string) {
-    // user_tours 테이블이 아직 구현되지 않음 - 빈 배열 반환
-    this.logger.log(
-      `getMyTours called for userId: ${userId} - feature not yet implemented`,
-    );
-    return [];
-  }
-
-  // 사용자 통계 조회 (여행한 도시 수, 리뷰 평균 점수, 선호 테마)
-  async getMyStats(userId: string) {
-    // user_tours 테이블이 아직 구현되지 않음 - 기본값 반환
-    this.logger.log(
-      `getMyStats called for userId: ${userId} - feature not yet implemented`,
-    );
-    return {
-      cityCount: 0,
-      averageRating: 0,
-      preferredTheme: '전체',
-      reviewCount: 0,
-      tourCount: 0,
-    };
   }
 
 }

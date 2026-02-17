@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../../supabase/supabase.service';
+import { supabaseProfileToCamelCase } from '../../common/utils';
 
 @Injectable()
 export class AuthService {
@@ -178,16 +179,7 @@ export class AuthService {
 
     // snake_case → camelCase 변환
     if (profile) {
-      return {
-        id: profile.id,
-        email: profile.email,
-        name: profile.name,
-        phone: profile.phone,
-        avatarUrl: profile.avatar_url,
-        role: profile.role || 'user',
-        createdAt: profile.created_at,
-        updatedAt: profile.updated_at,
-      };
+      return supabaseProfileToCamelCase(profile);
     }
 
     return profile;

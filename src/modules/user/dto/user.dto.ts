@@ -76,16 +76,3 @@ export class UserStatsDto {
   users: number;
 }
 
-export class MyStatsDto {
-  @ApiProperty({ description: '총 예약 수', example: 10 })
-  totalBookings: number;
-
-  @ApiProperty({ description: '완료된 예약 수', example: 8 })
-  completedBookings: number;
-
-  @ApiProperty({ description: '총 결제 금액', example: 1500000 })
-  totalSpent: number;
-
-  @ApiProperty({ description: '작성한 리뷰 수', example: 5 })
-  reviewCount: number;
-}

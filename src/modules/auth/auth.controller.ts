@@ -215,6 +215,7 @@ export class AuthController {
 
   @Public()
   @Post('forgot-password')
+  @Throttle({ default: { limit: 3, ttl: 300000 } })
   @ApiOperation({
     summary: '비밀번호 재설정 요청',
     description: '비밀번호 재설정을 위한 이메일을 발송합니다.',

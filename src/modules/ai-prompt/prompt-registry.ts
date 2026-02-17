@@ -106,7 +106,7 @@ Respond ONLY with valid JSON:
       'customPromptAddon',
     ],
     defaultTemperature: 0.7,
-    defaultMaxOutputTokens: 4096,
+    defaultMaxOutputTokens: 8192,
     defaultText: `You are a Korea travel itinerary expert. Create a PERSONALIZED day-by-day itinerary based on the customer profile below.
 
 ## 1. CUSTOMER PROFILE (highest priority — itinerary MUST reflect these)

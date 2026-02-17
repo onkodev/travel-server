@@ -201,6 +201,7 @@ export class AiEstimateService {
     // === Email RAG 시도 (실패해도 진행, timeout 시 Gemini fetch도 취소) ===
     let ragDraft: (DraftResult & { searchQuery: string; pipelineLog: import('../email-rag/email-rag.service').PipelineLog }) | null = null;
     const abortController = new AbortController();
+    let ragTimeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
       ragDraft = await Promise.race([
         this.emailRagService.generateDraftFromFlow(flow, {
@@ -213,18 +214,20 @@ export class AiEstimateService {
           geminiModel: config.geminiModel,
           signal: abortController.signal,
         }),
-        new Promise<null>((_, reject) =>
-          setTimeout(() => {
+        new Promise<null>((_, reject) => {
+          ragTimeoutId = setTimeout(() => {
             abortController.abort();
             reject(new Error('RAG timeout'));
-          }, config.ragTimeout),
-        ),
+          }, config.ragTimeout);
+        }),
       ]);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       this.logger.warn(
         `[generateFirstEstimate] Email RAG failed: ${message}`,
       );
+    } finally {
+      clearTimeout(ragTimeoutId);
     }
 
     if (ragDraft?.items?.length) {

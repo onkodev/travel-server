@@ -42,8 +42,11 @@ export class AuthGuard implements CanActivate {
               role: toUserRole(profile?.role),
             } as AuthenticatedUser;
           }
-        } catch {
-          // Public 라우트에서는 토큰 검증 실패해도 무시
+        } catch (error) {
+          // Public 라우트에서는 토큰 검증 실패해도 무시하되 로깅
+          if (error instanceof Error && !error.message?.includes('invalid')) {
+            this.logger.warn(`Token verification failed: ${error.message}`);
+          }
         }
       }
       return true;

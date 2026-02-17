@@ -16,6 +16,7 @@ import {
   MessageEvent,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { Observable, interval, map, takeWhile, merge } from 'rxjs';
 import {
   ApiTags,
@@ -85,6 +86,7 @@ export class ChatbotController {
     private conversationalEstimateService: ConversationalEstimateService,
     private supabaseService: SupabaseService,
     private prisma: PrismaService,
+    private configService: ConfigService,
   ) {}
 
   @Post('start')
@@ -200,7 +202,7 @@ export class ChatbotController {
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getFunnelAnalysis(@Query('days') days?: string) {
     return this.chatbotAnalyticsService.getFunnelAnalysis(
-      days ? parseInt(days) : 30,
+      days ? parseInt(days, 10) || 30 : 30,
     );
   }
 
@@ -217,7 +219,7 @@ export class ChatbotController {
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getLeadScores(@Query('limit') limit?: string) {
     return this.chatbotAnalyticsService.getLeadScores(
-      limit ? parseInt(limit) : 50,
+      limit ? parseInt(limit, 10) || 50 : 50,
     );
   }
 
@@ -234,7 +236,7 @@ export class ChatbotController {
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getCountryStats(@Query('days') days?: string) {
     return this.chatbotAnalyticsService.getCountryStats(
-      days ? parseInt(days) : 30,
+      days ? parseInt(days, 10) || 30 : 30,
     );
   }
 
@@ -943,6 +945,11 @@ export class ChatbotController {
     type: ErrorResponseDto,
   })
   async generateAiEstimate(@Param('sessionId') sessionId: string) {
+    if (this.configService.get('ENABLE_AI_ESTIMATE') !== 'true') {
+      throw new ForbiddenException(
+        'AI estimate generation is not available in this environment.',
+      );
+    }
     return this.aiEstimateService.generateFirstEstimate(sessionId);
   }
 
@@ -977,11 +984,11 @@ export class ChatbotController {
     type: ErrorResponseDto,
   })
   async modifyAiEstimate(
-    @Param('estimateId') estimateId: string,
+    @Param('estimateId', ParseIntPipe) estimateId: number,
     @Body() dto: ModifyEstimateDto,
     @RequireUserId() _userId: string,
   ) {
-    return this.aiEstimateService.modifyEstimate(parseInt(estimateId, 10), {
+    return this.aiEstimateService.modifyEstimate(estimateId, {
       dayNumber: dto.dayNumber,
       replaceItemId: dto.replaceItemId,
       action: dto.action,

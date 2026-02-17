@@ -8,6 +8,7 @@ import {
   Param,
   Query,
   UseGuards,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -109,8 +110,8 @@ export class ItemController {
     description: '아이템 없음',
     type: ErrorResponseDto,
   })
-  async getItem(@Param('id') id: string) {
-    return this.itemService.getItem(parseInt(id));
+  async getItem(@Param('id', ParseIntPipe) id: number) {
+    return this.itemService.getItem(id);
   }
 
   @Post()
@@ -140,8 +141,8 @@ export class ItemController {
     description: '아이템 없음',
     type: ErrorResponseDto,
   })
-  async updateItem(@Param('id') id: string, @Body() body: UpdateItemDto) {
-    return this.itemService.updateItem(parseInt(id), body);
+  async updateItem(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateItemDto) {
+    return this.itemService.updateItem(id, body);
   }
 
   @Post(':id/duplicate')
@@ -156,8 +157,8 @@ export class ItemController {
     description: '아이템 없음',
     type: ErrorResponseDto,
   })
-  async duplicateItem(@Param('id') id: string) {
-    return this.itemService.duplicateItem(parseInt(id));
+  async duplicateItem(@Param('id', ParseIntPipe) id: number) {
+    return this.itemService.duplicateItem(id);
   }
 
   @Delete(':id')
@@ -176,7 +177,7 @@ export class ItemController {
     description: '아이템 없음',
     type: ErrorResponseDto,
   })
-  async deleteItem(@Param('id') id: string) {
-    return this.itemService.deleteItem(parseInt(id));
+  async deleteItem(@Param('id', ParseIntPipe) id: number) {
+    return this.itemService.deleteItem(id);
   }
 }

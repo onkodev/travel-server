@@ -297,10 +297,11 @@ export class FaqService {
     const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const [total, pending, approved, rejected, fromGmail, categoryCounts] =
+    const [total, pending, needsReview, approved, rejected, fromGmail, categoryCounts] =
       await Promise.all([
         this.prisma.faq.count(),
         this.prisma.faq.count({ where: { status: 'pending' } }),
+        this.prisma.faq.count({ where: { status: 'needs_review' } }),
         this.prisma.faq.count({ where: { status: 'approved' } }),
         this.prisma.faq.count({ where: { status: 'rejected' } }),
         this.prisma.faq.count({ where: { source: 'gmail' } }),
@@ -320,7 +321,7 @@ export class FaqService {
       }
     }
 
-    const result = { total, pending, approved, rejected, fromGmail, byCategory, uncategorized };
+    const result = { total, pending, needsReview, approved, rejected, fromGmail, byCategory, uncategorized };
     this.cache.set(cacheKey, result, 60 * 1000);
     return result;
   }
@@ -336,7 +337,7 @@ export class FaqService {
     const activeFaqCount = await this.prisma.faq.count({
       where: {
         sourceEmailId,
-        status: { in: ['pending', 'approved'] },
+        status: { in: ['pending', 'needs_review', 'approved'] },
       },
     });
 
@@ -1112,11 +1113,22 @@ export class FaqService {
       }
     }
 
-    // Step 4: 룰 기반 자동 review (보류) 처리
+    // Step 4: 룰 기반 자동 review (보류) 처리 → needs_review status로 변경
     if (autoReview.length > 0) {
       needsReview += autoReview.length;
       if (dryRun) {
         autoReview.forEach((r) => dryRunDetails.push(r));
+      } else {
+        const reviewIds = autoReview.map((r) => r.id);
+        await this.prisma.faq.updateMany({
+          where: { id: { in: reviewIds } },
+          data: { status: 'needs_review' },
+        });
+        for (const { id, reason } of autoReview) {
+          this.prisma.faq
+            .update({ where: { id }, data: { rejectionReason: `[Rule] ${reason}` } })
+            .catch(() => {});
+        }
       }
     }
 
@@ -1131,7 +1143,9 @@ export class FaqService {
 
         const approveIds: number[] = [];
         const rejectIds: number[] = [];
+        const reviewIds: number[] = [];
         const rejectReasons = new Map<number, string>();
+        const reviewReasons = new Map<number, string>();
 
         for (const { id, decision, reason } of decisions) {
           if (dryRun) {
@@ -1146,6 +1160,8 @@ export class FaqService {
             rejectReasons.set(id, reason);
             rejected++;
           } else {
+            reviewIds.push(id);
+            reviewReasons.set(id, reason);
             needsReview++;
           }
         }
@@ -1179,6 +1195,18 @@ export class FaqService {
             this.cleanupBulkEmailRawData(rejectIds).catch((err) =>
               this.logger.error('자동 거절 rawData 정리 실패:', err),
             );
+          }
+
+          if (reviewIds.length > 0) {
+            await this.prisma.faq.updateMany({
+              where: { id: { in: reviewIds } },
+              data: { status: 'needs_review' },
+            });
+            for (const [faqId, reason] of reviewReasons) {
+              this.prisma.faq
+                .update({ where: { id: faqId }, data: { rejectionReason: `[AI] ${reason}` } })
+                .catch(() => {});
+            }
           }
         }
       } catch (error) {
@@ -1288,7 +1316,33 @@ export class FaqService {
     return { autoReject, autoReview, geminiCandidates };
   }
 
+  private static readonly GEMINI_REVIEW_CHUNK_SIZE = 25;
+
   private async reviewBatchWithGemini(
+    faqs: Array<{
+      id: number;
+      question: string;
+      answer: string;
+      questionKo: string | null;
+      answerKo: string | null;
+      confidence: any;
+      category: string | null;
+      source: string;
+    }>,
+  ): Promise<Array<{ id: number; decision: 'approve' | 'reject' | 'review'; reason: string }>> {
+    const chunkSize = FaqService.GEMINI_REVIEW_CHUNK_SIZE;
+    const allResults: Array<{ id: number; decision: 'approve' | 'reject' | 'review'; reason: string }> = [];
+
+    for (let i = 0; i < faqs.length; i += chunkSize) {
+      const chunk = faqs.slice(i, i + chunkSize);
+      const chunkResults = await this.reviewChunkWithGemini(chunk);
+      allResults.push(...chunkResults);
+    }
+
+    return allResults;
+  }
+
+  private async reviewChunkWithGemini(
     faqs: Array<{
       id: number;
       question: string;
@@ -1318,9 +1372,18 @@ export class FaqService {
       maxOutputTokens: built.maxOutputTokens,
     });
 
-    const jsonStr = result.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+    let jsonStr = result.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
 
-    this.logger.log(`Gemini raw (first 300): ${jsonStr.substring(0, 300)}`);
+    this.logger.log(`Gemini raw (${faqs.length}건, first 300): ${jsonStr.substring(0, 300)}`);
+
+    // 잘린 JSON 배열 복구 시도
+    if (jsonStr.startsWith('[') && !jsonStr.endsWith(']')) {
+      const lastComplete = jsonStr.lastIndexOf('}');
+      if (lastComplete > 0) {
+        jsonStr = jsonStr.substring(0, lastComplete + 1) + ']';
+        this.logger.warn('잘린 JSON 배열 복구 시도');
+      }
+    }
 
     let parsed: Array<{ id: number | string; decision: string; confidence?: number; reason: string }>;
     try {

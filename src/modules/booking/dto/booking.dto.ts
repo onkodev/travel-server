@@ -83,6 +83,14 @@ export class BookingQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   dateTo?: string;
+
+  @ApiPropertyOptional({
+    description: '결제 상태 필터',
+    enum: ['pending', 'completed', 'failed', 'refunded', 'partially_refunded'],
+  })
+  @IsOptional()
+  @IsString()
+  paymentStatus?: string;
 }
 
 export class CreateBookingDto {

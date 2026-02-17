@@ -73,10 +73,22 @@ export class ContactService {
   }
 
   async getContacts(query: ContactQueryDto): Promise<ContactListDto> {
-    const { page = 1, limit = 20, status } = query;
+    const { page = 1, limit = 20, status, search } = query;
     const skip = calculateSkip(page, limit);
 
-    const where = status ? { status } : {};
+    const where: any = {};
+    if (status) where.status = status;
+
+    if (search) {
+      const trimmed = search.trim();
+      if (trimmed) {
+        where.OR = [
+          { name: { contains: trimmed, mode: 'insensitive' } },
+          { email: { contains: trimmed, mode: 'insensitive' } },
+          { message: { contains: trimmed, mode: 'insensitive' } },
+        ];
+      }
+    }
 
     const [contacts, total] = await Promise.all([
       this.prisma.contact.findMany({

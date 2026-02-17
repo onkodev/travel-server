@@ -8,6 +8,7 @@ import {
   Param,
   Query,
   UseGuards,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -109,8 +110,8 @@ export class GoodsPublicController {
     description: '굿즈 없음',
     type: ErrorResponseDto,
   })
-  async getGoods(@Param('id') id: string) {
-    return this.goodsService.getGoodsById(parseInt(id), true);
+  async getGoods(@Param('id', ParseIntPipe) id: number) {
+    return this.goodsService.getGoodsById(id, true);
   }
 }
 
@@ -157,8 +158,8 @@ export class GoodsAdminController {
     description: '굿즈 없음',
     type: ErrorResponseDto,
   })
-  async getGoodsById(@Param('id') id: string) {
-    return this.goodsService.getGoodsById(parseInt(id), false);
+  async getGoodsById(@Param('id', ParseIntPipe) id: number) {
+    return this.goodsService.getGoodsById(id, false);
   }
 
   @Post()
@@ -188,8 +189,8 @@ export class GoodsAdminController {
     description: '굿즈 없음',
     type: ErrorResponseDto,
   })
-  async updateGoods(@Param('id') id: string, @Body() body: UpdateGoodsDto) {
-    return this.goodsService.updateGoods(parseInt(id), body);
+  async updateGoods(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateGoodsDto) {
+    return this.goodsService.updateGoods(id, body);
   }
 
   @Post(':id/duplicate')
@@ -204,8 +205,8 @@ export class GoodsAdminController {
     description: '굿즈 없음',
     type: ErrorResponseDto,
   })
-  async duplicateGoods(@Param('id') id: string) {
-    return this.goodsService.duplicateGoods(parseInt(id));
+  async duplicateGoods(@Param('id', ParseIntPipe) id: number) {
+    return this.goodsService.duplicateGoods(id);
   }
 
   @Delete(':id')
@@ -224,7 +225,7 @@ export class GoodsAdminController {
     description: '굿즈 없음',
     type: ErrorResponseDto,
   })
-  async deleteGoods(@Param('id') id: string) {
-    return this.goodsService.deleteGoods(parseInt(id));
+  async deleteGoods(@Param('id', ParseIntPipe) id: number) {
+    return this.goodsService.deleteGoods(id);
   }
 }

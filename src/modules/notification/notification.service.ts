@@ -28,7 +28,7 @@ export class NotificationService {
     agentId: number,
     query: NotificationQueryDto,
   ): Promise<NotificationListDto> {
-    const { page = 1, limit = 20, type, unreadOnly } = query;
+    const { page = 1, limit = 20, type, unreadOnly, readOnly } = query;
     const skip = calculateSkip(page, limit);
 
     const where: Record<string, unknown> = {
@@ -41,6 +41,8 @@ export class NotificationService {
 
     if (unreadOnly) {
       where.isRead = false;
+    } else if (readOnly) {
+      where.isRead = true;
     }
 
     const [notifications, total, unreadCount] = await Promise.all([

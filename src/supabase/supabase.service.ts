@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
+import { CACHE_TTL } from '../common/constants/cache';
 
 // 인메모리 캐시 인터페이스
 interface CacheEntry<T> {
@@ -34,9 +35,9 @@ export class SupabaseService {
   // 프로필 캐시
   private profileCache: Map<string, CacheEntry<UserProfile | null>> = new Map();
 
-  // 캐시 TTL 설정 (보안을 위해 단축)
-  private readonly TOKEN_CACHE_TTL = 1 * 60 * 1000; // 1분 (토큰 검증은 더 짧게)
-  private readonly PROFILE_CACHE_TTL = 2 * 60 * 1000; // 2분 (프로필은 조금 더 길게)
+  // 캐시 TTL 설정 (common/constants/cache.ts에서 중앙 관리)
+  private readonly TOKEN_CACHE_TTL = CACHE_TTL.TOKEN;
+  private readonly PROFILE_CACHE_TTL = CACHE_TTL.PROFILE;
 
   constructor(private configService: ConfigService) {
     // AUTH Supabase Client (tumakrguide - 인증용, Service Key)

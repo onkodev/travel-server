@@ -7,7 +7,9 @@ import {
   MemoryCache,
   handleSupabaseError,
   sanitizeSearch,
+  sanitizeSupabaseSearch,
 } from '../../common/utils';
+import { CACHE_TTL } from '../../common/constants/cache';
 import {
   calculateSkip,
   createPaginatedResponse,
@@ -16,8 +18,8 @@ import {
 @Injectable()
 export class TourService {
   private readonly logger = new Logger(TourService.name);
-  private cache = new MemoryCache(10 * 60 * 1000); // 10분
-  private readonly STATIC_CACHE_TTL = 60 * 60 * 1000; // 1시간 (카테고리, 태그)
+  private cache = new MemoryCache(CACHE_TTL.TOUR);
+  private readonly STATIC_CACHE_TTL = CACHE_TTL.ITEM; // 1시간 (카테고리, 태그)
 
   constructor(private supabaseService: SupabaseService) {}
 
@@ -99,7 +101,7 @@ export class TourService {
       query = query.overlaps('tags', tags);
     }
 
-    const sanitized = sanitizeSearch(search);
+    const sanitized = sanitizeSupabaseSearch(search);
     if (sanitized) {
       query = query.or(
         `title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`,
@@ -153,7 +155,7 @@ export class TourService {
       query = query.eq('status', status);
     }
 
-    const sanitized = sanitizeSearch(search);
+    const sanitized = sanitizeSupabaseSearch(search);
     if (sanitized) {
       query = query.or(
         `title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`,

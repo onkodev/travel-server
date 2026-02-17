@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   Query,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -75,12 +76,12 @@ export class ReviewController {
     type: ReviewListResponseDto,
   })
   async getPublicReviewsByTour(
-    @Param('tourId') tourId: string,
+    @Param('tourId', ParseIntPipe) tourId: number,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.reviewService.getPublicReviewsByTour(
-      parseInt(tourId),
+      tourId,
       page ? parseInt(page) : 1,
       limit ? parseInt(limit) : 10,
     );
@@ -99,8 +100,8 @@ export class ReviewController {
     description: '리뷰 없음',
     type: ErrorResponseDto,
   })
-  async getReview(@Param('id') id: string) {
-    return this.reviewService.getReview(parseInt(id));
+  async getReview(@Param('id', ParseIntPipe) id: number) {
+    return this.reviewService.getReview(id);
   }
 
   @Post()
@@ -141,8 +142,8 @@ export class ReviewController {
     description: '리뷰 없음',
     type: ErrorResponseDto,
   })
-  async updateReview(@Param('id') id: string, @Body() body: UpdateReviewDto) {
-    return this.reviewService.updateReview(parseInt(id), body);
+  async updateReview(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateReviewDto) {
+    return this.reviewService.updateReview(id, body);
   }
 
   @Patch(':id/toggle-visibility')
@@ -158,8 +159,8 @@ export class ReviewController {
     description: '리뷰 없음',
     type: ErrorResponseDto,
   })
-  async toggleVisibility(@Param('id') id: string) {
-    return this.reviewService.toggleVisibility(parseInt(id));
+  async toggleVisibility(@Param('id', ParseIntPipe) id: number) {
+    return this.reviewService.toggleVisibility(id);
   }
 
   @Delete(':id')
@@ -179,7 +180,7 @@ export class ReviewController {
     description: '리뷰 없음',
     type: ErrorResponseDto,
   })
-  async deleteReview(@Param('id') id: string) {
-    return this.reviewService.deleteReview(parseInt(id));
+  async deleteReview(@Param('id', ParseIntPipe) id: number) {
+    return this.reviewService.deleteReview(id);
   }
 }

@@ -24,7 +24,6 @@ import {
   UserDetailDto,
   UserListItemDto,
   UserStatsDto,
-  MyStatsDto,
   UserListQueryDto,
   UpdateUserStatusDto,
   UpdateUserRoleDto,
@@ -112,38 +111,6 @@ export class UserController {
   })
   async getMyEstimates(@CurrentUser('id') userId: string) {
     return this.userService.getMyEstimates(userId);
-  }
-
-  @Get('me/tours')
-  @SkipThrottle({ default: true, strict: true })
-  @ApiOperation({
-    summary: '내 구매 투어 목록',
-    description: '현재 로그인한 사용자가 구매한 투어 목록을 조회합니다.',
-  })
-  @ApiResponse({ status: 200, description: '조회 성공' })
-  @ApiResponse({
-    status: 401,
-    description: '인증 필요',
-    type: ErrorResponseDto,
-  })
-  async getMyTours(@CurrentUser('id') userId: string) {
-    return this.userService.getMyTours(userId);
-  }
-
-  @Get('me/stats')
-  @SkipThrottle({ default: true, strict: true })
-  @ApiOperation({
-    summary: '내 통계 조회',
-    description: '현재 로그인한 사용자의 예약, 결제, 리뷰 통계를 조회합니다.',
-  })
-  @ApiResponse({ status: 200, description: '조회 성공', type: MyStatsDto })
-  @ApiResponse({
-    status: 401,
-    description: '인증 필요',
-    type: ErrorResponseDto,
-  })
-  async getMyStats(@CurrentUser('id') userId: string) {
-    return this.userService.getMyStats(userId);
   }
 
   @Get(':id/estimates')

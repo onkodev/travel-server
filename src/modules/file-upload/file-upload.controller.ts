@@ -106,8 +106,8 @@ export class FileUploadController {
   ) {
     return this.unsplashService.search(
       query,
-      page ? parseInt(page) : 1,
-      perPage ? parseInt(perPage) : 20,
+      page ? parseInt(page, 10) || 1 : 1,
+      perPage ? parseInt(perPage, 10) || 20 : 20,
     );
   }
 }

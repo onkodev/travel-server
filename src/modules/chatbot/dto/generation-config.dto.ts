@@ -9,6 +9,11 @@ import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateGenerationConfigDto {
+  @ApiPropertyOptional({ description: 'Gemini 모델명', example: 'gemini-2.5-flash' })
+  @IsOptional()
+  @IsString()
+  geminiModel?: string;
+
   @ApiPropertyOptional({ description: 'RAG 검색 개수', example: 5 })
   @IsOptional()
   @Type(() => Number)

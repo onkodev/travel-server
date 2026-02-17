@@ -9,6 +9,7 @@ import {
   Req,
   UseGuards,
   Logger,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -140,10 +141,10 @@ export class VisitorController {
     type: VisitorSuccessDto,
   })
   async updatePageView(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdatePageViewDto,
   ) {
-    return this.visitorService.updatePageView(parseInt(id), body);
+    return this.visitorService.updatePageView(id, body);
   }
 
   @Get('session/:id')

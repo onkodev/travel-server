@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   Query,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -78,8 +79,8 @@ export class ItineraryTemplateController {
     description: '템플릿 없음',
     type: ErrorResponseDto,
   })
-  async getTemplate(@Param('id') id: string) {
-    return this.templateService.getTemplate(parseInt(id));
+  async getTemplate(@Param('id', ParseIntPipe) id: number) {
+    return this.templateService.getTemplate(id);
   }
 
   @Post()
@@ -116,10 +117,10 @@ export class ItineraryTemplateController {
     type: ErrorResponseDto,
   })
   async updateTemplate(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdateTemplateDto,
   ) {
-    return this.templateService.updateTemplate(parseInt(id), body);
+    return this.templateService.updateTemplate(id, body);
   }
 
   @Post(':id/duplicate')
@@ -135,10 +136,10 @@ export class ItineraryTemplateController {
     type: ErrorResponseDto,
   })
   async duplicateTemplate(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.templateService.duplicateTemplate(parseInt(id), user?.id);
+    return this.templateService.duplicateTemplate(id, user?.id);
   }
 
   @Delete(':id')
@@ -157,7 +158,7 @@ export class ItineraryTemplateController {
     description: '템플릿 없음',
     type: ErrorResponseDto,
   })
-  async deleteTemplate(@Param('id') id: string) {
-    return this.templateService.deleteTemplate(parseInt(id));
+  async deleteTemplate(@Param('id', ParseIntPipe) id: number) {
+    return this.templateService.deleteTemplate(id);
   }
 }

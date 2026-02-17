@@ -40,10 +40,10 @@ export type FaqCategory = (typeof FAQ_CATEGORIES)[number];
 export class FaqQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
     description: '상태 필터',
-    enum: ['pending', 'approved', 'rejected'],
+    enum: ['pending', 'needs_review', 'approved', 'rejected'],
   })
   @IsOptional()
-  @IsIn(['pending', 'approved', 'rejected'])
+  @IsIn(['pending', 'needs_review', 'approved', 'rejected'])
   status?: string;
 
   @ApiPropertyOptional({ description: '소스 필터', enum: ['manual', 'gmail'] })

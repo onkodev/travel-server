@@ -563,6 +563,7 @@ model EmailThread {
 model AiGenerationConfig {
   id                Int       @id @default(1)
   aiEnabled         Boolean   @default(true) @map("ai_enabled")
+  geminiModel       String    @default("gemini-2.5-flash") @map("gemini_model") @db.VarChar(50)
   ragSearchLimit    Int       @default(5) @map("rag_search_limit")
   ragSimilarityMin  Float     @default(0.3) @map("rag_similarity_min")
   ragTimeout        Int       @default(25000) @map("rag_timeout")

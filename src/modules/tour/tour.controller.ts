@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   Query,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -126,8 +127,8 @@ export class TourController {
     description: '투어 없음',
     type: ErrorResponseDto,
   })
-  async getTour(@Param('id') id: string, @Query('source') source?: string) {
-    return this.tourService.getTour(parseInt(id), source);
+  async getTour(@Param('id', ParseIntPipe) id: number, @Query('source') source?: string) {
+    return this.tourService.getTour(id, source);
   }
 
   @Post()
@@ -159,8 +160,8 @@ export class TourController {
     description: '투어 없음',
     type: ErrorResponseDto,
   })
-  async updateTour(@Param('id') id: string, @Body() body: UpdateTourDto) {
-    return this.tourService.updateTour(parseInt(id), body);
+  async updateTour(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateTourDto) {
+    return this.tourService.updateTour(id, body);
   }
 
   @Delete(':id')
@@ -180,7 +181,7 @@ export class TourController {
     description: '투어 없음',
     type: ErrorResponseDto,
   })
-  async deleteTour(@Param('id') id: string) {
-    return this.tourService.deleteTour(parseInt(id));
+  async deleteTour(@Param('id', ParseIntPipe) id: number) {
+    return this.tourService.deleteTour(id);
   }
 }

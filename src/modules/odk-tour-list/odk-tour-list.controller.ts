@@ -8,6 +8,7 @@ import {
   Param,
   Query,
   UseGuards,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -72,8 +73,8 @@ export class OdkTourListController {
   @ApiParam({ name: 'id', description: '투어 ID' })
   @ApiResponse({ status: 200, type: OdkTourListDto })
   @ApiResponse({ status: 404, type: ErrorResponseDto })
-  async getById(@Param('id') id: string) {
-    return this.odkTourListService.getById(parseInt(id));
+  async getById(@Param('id', ParseIntPipe) id: number) {
+    return this.odkTourListService.getById(id);
   }
 
   @Post()
@@ -89,8 +90,8 @@ export class OdkTourListController {
   @ApiParam({ name: 'id', description: '투어 ID' })
   @ApiResponse({ status: 200, type: OdkTourListDto })
   @ApiResponse({ status: 404, type: ErrorResponseDto })
-  async update(@Param('id') id: string, @Body() body: UpdateOdkTourListDto) {
-    return this.odkTourListService.update(parseInt(id), body);
+  async update(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateOdkTourListDto) {
+    return this.odkTourListService.update(id, body);
   }
 
   @Patch(':id/toggle-active')
@@ -98,8 +99,8 @@ export class OdkTourListController {
   @ApiParam({ name: 'id', description: '투어 ID' })
   @ApiResponse({ status: 200, type: OdkTourListDto })
   @ApiResponse({ status: 404, type: ErrorResponseDto })
-  async toggleActive(@Param('id') id: string) {
-    return this.odkTourListService.toggleActive(parseInt(id));
+  async toggleActive(@Param('id', ParseIntPipe) id: number) {
+    return this.odkTourListService.toggleActive(id);
   }
 
   @Delete(':id')
@@ -107,7 +108,7 @@ export class OdkTourListController {
   @ApiParam({ name: 'id', description: '투어 ID' })
   @ApiResponse({ status: 200, type: SuccessResponseDto })
   @ApiResponse({ status: 404, type: ErrorResponseDto })
-  async delete(@Param('id') id: string) {
-    return this.odkTourListService.delete(parseInt(id));
+  async delete(@Param('id', ParseIntPipe) id: number) {
+    return this.odkTourListService.delete(id);
   }
 }

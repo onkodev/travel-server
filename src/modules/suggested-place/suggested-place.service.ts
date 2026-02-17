@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
+import { jsonCast } from '../../common/utils';
 import {
   calculateSkip,
   createPaginatedResponse,
@@ -257,13 +258,13 @@ export class SuggestedPlaceService {
     let upsertCount = 0;
 
     for (const est of estimates) {
-      const items = est.items as unknown as Array<{
+      const items = jsonCast<Array<{
         isTbd?: boolean;
         itemName?: string;
         name?: string;
         nameEng?: string;
         note?: string;
-      }>;
+      }>>(est.items);
       if (!Array.isArray(items)) continue;
 
       const region = est.regions?.[0] ?? undefined;
@@ -413,7 +414,7 @@ export class SuggestedPlaceService {
     const place = await this.findPlaceOrThrow(placeId);
 
     const candidates = Array.isArray(place.matchCandidates)
-      ? (place.matchCandidates as unknown as MatchCandidate[])
+      ? jsonCast<MatchCandidate[]>(place.matchCandidates)
       : [];
     const score = candidates.find((c) => c.itemId === itemId)?.similarity ?? 0;
 

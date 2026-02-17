@@ -137,6 +137,14 @@ export class ContactQueryDto {
   })
   @IsOptional()
   status?: string;
+
+  @ApiPropertyOptional({
+    description: '검색어 (이름, 이메일, 내용)',
+    example: 'john',
+  })
+  @IsString()
+  @IsOptional()
+  search?: string;
 }
 
 /**

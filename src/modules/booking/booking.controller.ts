@@ -69,6 +69,7 @@ export class BookingController {
       search: query.search,
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
+      paymentStatus: query.paymentStatus,
     });
   }
 

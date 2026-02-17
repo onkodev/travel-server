@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   Query,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -78,12 +79,12 @@ export class PaymentController {
   @Public()
   @Get('paypal/:paypalOrderId')
   @ApiOperation({
-    summary: 'PayPal 주문 ID로 결제 조회',
+    summary: 'PayPal 주문 ID로 결제 상태 조회',
     description:
-      'PayPal 주문 ID로 결제 정보를 조회합니다. 결제 확인용으로 인증 없이 접근 가능합니다.',
+      'PayPal 주문 ID로 결제 상태를 조회합니다. 결제 확인용으로 최소 정보만 반환합니다.',
   })
   @ApiParam({ name: 'paypalOrderId', description: 'PayPal 주문 ID' })
-  @ApiResponse({ status: 200, description: '조회 성공', type: PaymentDto })
+  @ApiResponse({ status: 200, description: '조회 성공' })
   @ApiResponse({
     status: 404,
     description: '결제 없음',
@@ -92,7 +93,7 @@ export class PaymentController {
   async getPaymentByPaypalOrderId(
     @Param('paypalOrderId') paypalOrderId: string,
   ) {
-    return this.paymentService.getPaymentByPaypalOrderId(paypalOrderId);
+    return this.paymentService.getPaymentStatusByPaypalOrderId(paypalOrderId);
   }
 
   @Get(':id')
@@ -107,8 +108,8 @@ export class PaymentController {
     description: '결제 없음',
     type: ErrorResponseDto,
   })
-  async getPayment(@Param('id') id: string) {
-    return this.paymentService.getPayment(parseInt(id));
+  async getPayment(@Param('id', ParseIntPipe) id: number) {
+    return this.paymentService.getPayment(id);
   }
 
   @Post()
@@ -138,8 +139,8 @@ export class PaymentController {
     description: '결제 없음',
     type: ErrorResponseDto,
   })
-  async updatePayment(@Param('id') id: string, @Body() body: CreatePaymentDto) {
-    return this.paymentService.updatePayment(parseInt(id), body);
+  async updatePayment(@Param('id', ParseIntPipe) id: number, @Body() body: CreatePaymentDto) {
+    return this.paymentService.updatePayment(id, body);
   }
 
   @Patch(':id/status')
@@ -155,12 +156,12 @@ export class PaymentController {
     type: ErrorResponseDto,
   })
   async updatePaymentStatus(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdatePaymentStatusDto,
   ) {
-    return this.paymentService.updatePaymentStatus(parseInt(id), body.status, {
+    return this.paymentService.updatePaymentStatus(id, body.status, {
       paypalCaptureId: body.paypalCaptureId,
-      paidAt: body.paidAt ? new Date(body.paidAt) : undefined,
+      paidAt: body.paidAt && !isNaN(new Date(body.paidAt).getTime()) ? new Date(body.paidAt) : undefined,
       failureReason: body.failureReason,
     });
   }
@@ -177,8 +178,8 @@ export class PaymentController {
     description: '결제 없음',
     type: ErrorResponseDto,
   })
-  async processRefund(@Param('id') id: string, @Body() body: ProcessRefundDto) {
-    return this.paymentService.processRefund(parseInt(id), body);
+  async processRefund(@Param('id', ParseIntPipe) id: number, @Body() body: ProcessRefundDto) {
+    return this.paymentService.processRefund(id, body);
   }
 
   @Delete(':id')
@@ -197,7 +198,7 @@ export class PaymentController {
     description: '결제 없음',
     type: ErrorResponseDto,
   })
-  async deletePayment(@Param('id') id: string) {
-    return this.paymentService.deletePayment(parseInt(id));
+  async deletePayment(@Param('id', ParseIntPipe) id: number) {
+    return this.paymentService.deletePayment(id);
   }
 }

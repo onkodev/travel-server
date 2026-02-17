@@ -33,6 +33,7 @@ export class BookingService {
     search?: string;
     dateFrom?: string;
     dateTo?: string;
+    paymentStatus?: string;
   }) {
     const {
       page = 1,
@@ -42,6 +43,7 @@ export class BookingService {
       search,
       dateFrom,
       dateTo,
+      paymentStatus,
     } = params;
     const skip = calculateSkip(page, limit);
 
@@ -78,6 +80,10 @@ export class BookingService {
       if (dateTo) where.bookingDate.lte = new Date(dateTo);
     }
 
+    if (paymentStatus) {
+      where.payments = { some: { status: paymentStatus } };
+    }
+
     const [bookings, total] = await Promise.all([
       this.prisma.booking.findMany({
         where,
@@ -86,7 +92,11 @@ export class BookingService {
         take: limit,
         include: {
           tour: { select: { title: true, thumbnailUrl: true } },
-          // payments 제외 - 목록에서 불필요, 상세 조회에서만 로드
+          payments: {
+            select: { id: true, status: true, amount: true, paidAt: true },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
         },
       }),
       this.prisma.booking.count({ where }),
@@ -166,6 +176,17 @@ export class BookingService {
   async createBooking(
     data: Omit<Prisma.BookingCreateInput, 'confirmationCode'>,
   ) {
+    // 투어 존재 여부 검증 (FK 에러 대신 명확한 400 응답)
+    if ((data as any).tourId) {
+      const tour = await this.prisma.tour.findUnique({
+        where: { id: (data as any).tourId },
+        select: { id: true },
+      });
+      if (!tour) {
+        throw new BadRequestException('존재하지 않는 투어입니다');
+      }
+    }
+
     // 확인 코드 생성 (8자리 영숫자)
     const confirmationCode = randomBytes(4).toString('hex').toUpperCase();
 
@@ -216,13 +237,18 @@ export class BookingService {
 
   // 예약 통계
   async getStats() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
     const [total, pending, confirmed, todayBookings] = await Promise.all([
       this.prisma.booking.count(),
       this.prisma.booking.count({ where: { status: 'pending' } }),
       this.prisma.booking.count({ where: { status: 'confirmed' } }),
-      this.prisma.booking.count({ where: { bookingDate: today } }),
+      this.prisma.booking.count({
+        where: { bookingDate: { gte: today, lt: tomorrow } },
+      }),
     ]);
 
     return { total, pending, confirmed, todayBookings };

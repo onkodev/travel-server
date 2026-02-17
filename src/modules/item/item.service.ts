@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
 import { MemoryCache, sanitizeSearch } from '../../common/utils';
+import { CACHE_TTL } from '../../common/constants/cache';
 import {
   calculateSkip,
   createPaginatedResponse,
@@ -24,7 +25,7 @@ export interface ItemListItem {
 
 @Injectable()
 export class ItemService {
-  private cache = new MemoryCache(60 * 60 * 1000); // 1시간
+  private cache = new MemoryCache(CACHE_TTL.ITEM);
 
   constructor(private prisma: PrismaService) {}
 

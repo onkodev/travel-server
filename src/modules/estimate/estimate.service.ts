@@ -17,6 +17,7 @@ import {
   sanitizeSearch,
   extractImageUrls,
   MemoryCache,
+  jsonCast,
 } from '../../common/utils';
 import { CreateEstimateDto } from './dto/estimate-create.dto';
 import { UpdateEstimateDto } from './dto/estimate-update.dto';
@@ -32,6 +33,7 @@ import {
   EstimateSentEvent,
   ChatbotEstimateStatusEvent,
 } from '../../common/events';
+import { CACHE_TTL } from '../../common/constants/cache';
 
 // Item 캐시 타입 (Prisma 타입과 호환)
 interface ItemCacheEntry {
@@ -55,9 +57,9 @@ export class EstimateService {
   private readonly logger = new Logger(EstimateService.name);
   // Item 정보 캐시 (enrichEstimateItems용)
   private itemCache: ItemCacheEntry | null = null;
-  private readonly ITEM_CACHE_TTL = 30 * 60 * 1000; // 30분
+  private readonly ITEM_CACHE_TTL = CACHE_TTL.AI_CONFIG; // 30분 (common/constants/cache.ts)
   // 통계 캐시 (2분 TTL)
-  private statsCache = new MemoryCache(2 * 60 * 1000);
+  private statsCache = new MemoryCache(CACHE_TTL.PROFILE);
 
   constructor(
     private prisma: PrismaService,
@@ -172,12 +174,15 @@ export class EstimateService {
     if (dateFrom || dateTo) {
       where.createdAt = {};
       if (dateFrom) {
-        where.createdAt.gte = new Date(dateFrom);
+        const d = new Date(dateFrom);
+        if (!isNaN(d.getTime())) where.createdAt.gte = d;
       }
       if (dateTo) {
         const endDate = new Date(dateTo);
-        endDate.setHours(23, 59, 59, 999);
-        where.createdAt.lte = endDate;
+        if (!isNaN(endDate.getTime())) {
+          endDate.setHours(23, 59, 59, 999);
+          where.createdAt.lte = endDate;
+        }
       }
     }
 
@@ -248,14 +253,14 @@ export class EstimateService {
 
   // 아이템 정보 보강 헬퍼 (캐싱 적용)
   private async enrichEstimateItems(estimate: Estimate) {
-    const items = estimate.items as unknown as EstimateItemExtendedDto[];
+    const items = jsonCast<EstimateItemExtendedDto[]>(estimate.items);
     if (!items || items.length === 0) return estimate;
 
     // itemInfo가 없거나 lat/lng가 없는 아이템들의 itemId 수집
     const itemsToEnrich = items.filter(
       (item) =>
         !item.itemInfo ||
-        !item.itemInfo.images ||
+        !Array.isArray(item.itemInfo.images) ||
         item.itemInfo.images.length === 0 ||
         item.itemInfo.lat == null ||
         item.itemInfo.lng == null,
@@ -465,8 +470,10 @@ export class EstimateService {
     // 유효기간 기본값: 오늘 + 10일 (명시적으로 제공되지 않은 경우)
     let validDate: Date | undefined;
     if (cleanData.validDate) {
-      validDate = new Date(cleanData.validDate);
-    } else {
+      const parsed = new Date(cleanData.validDate);
+      validDate = isNaN(parsed.getTime()) ? undefined : parsed;
+    }
+    if (!validDate) {
       validDate = new Date();
       validDate.setDate(validDate.getDate() + 10);
     }
@@ -618,13 +625,13 @@ export class EstimateService {
     // 고객 이메일이 있으면 이메일 발송
     if (estimate.customerEmail) {
       const items =
-        (estimate.items as unknown as Array<{
+        jsonCast<Array<{
           name: string;
           type?: string;
           price: number;
           quantity: number;
           date?: string;
-        }>) || [];
+        }>>(estimate.items) || [];
 
       this.emailService
         .sendEstimate({
@@ -633,13 +640,13 @@ export class EstimateService {
           estimateTitle: estimate.title || 'Your Travel Quotation',
           shareHash: estimate.shareHash || '',
           items,
-          totalAmount: Number(estimate.totalAmount) || 0,
+          totalAmount: Number(estimate.totalAmount) ?? 0,
           currency: estimate.currency || 'USD',
-          travelDays: estimate.travelDays || undefined,
+          travelDays: estimate.travelDays ?? undefined,
           startDate: estimate.startDate,
           endDate: estimate.endDate,
-          adultsCount: estimate.adultsCount || undefined,
-          childrenCount: estimate.childrenCount || undefined,
+          adultsCount: estimate.adultsCount ?? undefined,
+          childrenCount: estimate.childrenCount ?? undefined,
         })
         .catch((error) => {
           this.logger.error(
@@ -654,7 +661,9 @@ export class EstimateService {
                 internalMemo: `[자동] 이메일 발송 실패: ${error.message?.substring(0, 200) || 'unknown'}`,
               },
             })
-            .catch(() => {});
+            .catch((dbErr) => {
+              this.logger.error(`Failed to update estimate memo: ${dbErr.message}`);
+            });
         });
     }
 
@@ -878,10 +887,11 @@ export class EstimateService {
 
   // 아이템 업데이트
   async updateItems(id: number, items: EstimateItemDto[]) {
-    const subtotal = items.reduce(
-      (sum, item) => sum + ((item as any).subtotal || item.price * item.quantity || 0),
+    const rawSubtotal = items.reduce(
+      (sum, item) => sum + ((item as any).subtotal ?? (item.price * item.quantity || 0)),
       0,
     );
+    const subtotal = Number.isFinite(rawSubtotal) ? rawSubtotal : 0;
     return this.prisma.estimate.update({
       where: { id },
       data: { items: items as unknown as Prisma.InputJsonValue, subtotal },
@@ -901,7 +911,7 @@ export class EstimateService {
         throw new NotFoundException('견적을 찾을 수 없습니다');
       }
 
-      const totalAmount = Number(estimate.subtotal || 0) + amount;
+      const totalAmount = Number(estimate.subtotal ?? 0) + amount;
 
       const updated = await tx.estimate.update({
         where: { id },
@@ -1039,7 +1049,7 @@ export class EstimateService {
     if (!estimate) throw new NotFoundException('견적을 찾을 수 없습니다');
 
     // JSON items - use Record type for flexibility
-    const items = estimate.items as unknown as Record<string, unknown>[];
+    const items = jsonCast<Record<string, unknown>[]>(estimate.items);
     if (itemIndex < 0 || itemIndex >= items.length) {
       throw new NotFoundException('아이템 인덱스가 유효하지 않습니다');
     }
@@ -1176,7 +1186,7 @@ export class EstimateService {
       });
 
       for (const estimate of estimates) {
-        const items = estimate.items as unknown as Record<string, unknown>[];
+        const items = jsonCast<Record<string, unknown>[]>(estimate.items);
         let modified = false;
 
         for (let i = 0; i < items.length; i++) {

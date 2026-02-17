@@ -92,6 +92,12 @@ export function parseJsonResponse<T>(text: string, defaultValue: T): T {
     const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (codeBlockMatch) {
       jsonStr = codeBlockMatch[1].trim();
+    } else {
+      // 닫는 ``` 없이 잘린 마크다운 펜스 처리
+      const openFenceMatch = text.match(/```(?:json)?\s*([\s\S]*)/);
+      if (openFenceMatch) {
+        jsonStr = openFenceMatch[1].trim();
+      }
     }
 
     // 중첩된 JSON 추출 헬퍼 (괄호 매칭)

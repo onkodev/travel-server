@@ -114,12 +114,32 @@ export class PaymentService {
     return convertDecimalFields(payment);
   }
 
-  // PayPal Order ID로 결제 조회
+  // PayPal Order ID로 결제 조회 (내부용 — 전체 정보)
   async getPaymentByPaypalOrderId(paypalOrderId: string) {
     const payment = await this.prisma.payment.findFirst({
       where: { paypalOrderId },
       include: {
         booking: true,
+      },
+    });
+
+    if (!payment) {
+      throw new NotFoundException('결제를 찾을 수 없습니다');
+    }
+
+    return convertDecimalFields(payment);
+  }
+
+  // PayPal Order ID로 결제 상태 조회 (공개용 — 최소 정보만 반환)
+  async getPaymentStatusByPaypalOrderId(paypalOrderId: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { paypalOrderId },
+      select: {
+        id: true,
+        status: true,
+        amount: true,
+        currency: true,
+        paidAt: true,
       },
     });
 
@@ -182,7 +202,7 @@ export class PaymentService {
     });
   }
 
-  // 환불 처리 (트랜잭션으로 race condition 방지)
+  // 환불 처리 (FOR UPDATE 락으로 동시 환불 방지)
   async processRefund(
     id: number,
     data: {
@@ -192,7 +212,11 @@ export class PaymentService {
     },
   ) {
     return this.prisma.$transaction(async (tx) => {
-      const payment = await tx.payment.findUnique({ where: { id } });
+      // FOR UPDATE로 행 잠금 — 동시 환불 요청 직렬화
+      const [payment] = await tx.$queryRaw<
+        Array<{ id: number; status: string; amount: number; refunded_amount: number | null }>
+      >`SELECT id, status, amount, refunded_amount FROM payments WHERE id = ${id} FOR UPDATE`;
+
       if (!payment) {
         throw new NotFoundException('결제를 찾을 수 없습니다');
       }
@@ -202,7 +226,7 @@ export class PaymentService {
       if (data.refundedAmount <= 0) {
         throw new BadRequestException('환불 금액은 0보다 커야 합니다');
       }
-      const alreadyRefunded = Number(payment.refundedAmount || 0);
+      const alreadyRefunded = Number(payment.refunded_amount || 0);
       if (alreadyRefunded + data.refundedAmount > Number(payment.amount)) {
         throw new BadRequestException('누적 환불 금액이 결제 금액을 초과할 수 없습니다');
       }

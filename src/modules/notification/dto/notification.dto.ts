@@ -114,6 +114,16 @@ export class NotificationQueryDto {
   @IsBoolean()
   @IsOptional()
   unreadOnly?: boolean;
+
+  @ApiPropertyOptional({
+    description: '읽은 알림만 조회',
+    default: false,
+    example: true,
+  })
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  @IsOptional()
+  readOnly?: boolean;
 }
 
 /**
