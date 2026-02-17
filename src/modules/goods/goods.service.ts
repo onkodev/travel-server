@@ -237,6 +237,19 @@ export class GoodsService {
     return { success: true, message: '삭제되었습니다' };
   }
 
+  // 굿즈 통계 (관리자)
+  async getStats() {
+    const [total, active, draft, soldout] = await Promise.all([
+      this.prisma.goods.count(),
+      this.prisma.goods.count({ where: { status: 'active' } }),
+      this.prisma.goods.count({ where: { status: 'draft' } }),
+      this.prisma.goods.count({
+        where: { OR: [{ status: 'soldout' }, { stock: 0 }] },
+      }),
+    ]);
+    return { total, active, draft, soldout };
+  }
+
   // 추천 상품 목록 (공개)
   async getFeaturedGoods(limit = 4) {
     const goods = await this.prisma.goods.findMany({

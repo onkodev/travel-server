@@ -146,6 +146,16 @@ export class GoodsAdminController {
     });
   }
 
+  @Get('stats')
+  @ApiOperation({
+    summary: '굿즈 통계',
+    description: '굿즈 상태별 통계를 조회합니다.',
+  })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getStats() {
+    return this.goodsService.getStats();
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: '굿즈 상세 조회 (관리자)',
