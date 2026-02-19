@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -227,10 +228,11 @@ export class ConversationalEstimateService {
   /**
    * 일정 확정 및 전문가에게 전송
    */
-  async finalizeItinerary(sessionId: string): Promise<{
+  async finalizeItinerary(sessionId: string, userId?: string): Promise<{
     success: boolean;
     message: string;
     estimateId: number;
+    alreadyFinalized?: boolean;
   }> {
     const flow = await this.prisma.chatbotFlow.findUnique({
       where: { sessionId },
@@ -240,11 +242,28 @@ export class ConversationalEstimateService {
       throw new BadRequestException('No estimate found.');
     }
 
-    // 플로우 완료 상태로 변경
-    await this.prisma.chatbotFlow.update({
-      where: { sessionId },
+    // 소유자 검증
+    if (userId && flow.userId && flow.userId !== userId) {
+      throw new ForbiddenException(
+        'You do not have permission to finalize this session.',
+      );
+    }
+
+    // Atomic check: isCompleted=false인 경우에만 업데이트 (race condition 방지)
+    const lockResult = await this.prisma.chatbotFlow.updateMany({
+      where: { sessionId, isCompleted: false },
       data: { isCompleted: true },
     });
+
+    if (lockResult.count === 0) {
+      // 이미 완료됨 (멱등성 반환, 알림 재발송 방지)
+      return {
+        success: true,
+        alreadyFinalized: true,
+        message: 'Your itinerary has already been sent to our travel expert.',
+        estimateId: flow.estimateId,
+      };
+    }
 
     // 견적 상태를 pending으로 변경 (전문가 검토 대기)
     await this.prisma.estimate.update({
@@ -399,6 +418,19 @@ export class ConversationalEstimateService {
       })
       .filter(Boolean) as EstimateItem[];
 
+    // 새 아이템이 0개면 기존 일정 유지하고 실패 반환
+    if (newItems.length === 0) {
+      this.logger.warn(
+        `handleRegenerateDay: no items selected for Day ${dayNumber}, keeping original`,
+      );
+      return {
+        success: false,
+        updatedItems: items,
+        botMessage: `I couldn't find suitable places for Day ${dayNumber}. Your current itinerary has been kept. Please try with different preferences or specify what you'd like.`,
+        intent,
+      };
+    }
+
     const updatedItems = [...otherDayItems, ...newItems].sort((a, b) => {
       if (a.dayNumber !== b.dayNumber) return a.dayNumber - b.dayNumber;
       return a.orderIndex - b.orderIndex;
@@ -489,14 +521,22 @@ export class ConversationalEstimateService {
         return aDiff - bDiff;
       });
 
+      // 공백 제거 버전도 비교 (e.g. "노량진 수산시장" vs "노량진수산시장")
+      const requestedNoSpace = requestedLower.replace(/\s+/g, '');
       const foundItem = sortedResults.find((item) => {
         const nameEng = (item.nameEng || '').toLowerCase();
         const nameKor = (item.nameKor || '').toLowerCase();
+        const nameEngNoSpace = nameEng.replace(/\s+/g, '');
+        const nameKorNoSpace = nameKor.replace(/\s+/g, '');
         return (
           nameEng.includes(requestedLower) ||
           requestedLower.includes(nameEng) ||
           nameKor.includes(requestedLower) ||
-          requestedLower.includes(nameKor)
+          requestedLower.includes(nameKor) ||
+          nameEngNoSpace.includes(requestedNoSpace) ||
+          requestedNoSpace.includes(nameEngNoSpace) ||
+          nameKorNoSpace.includes(requestedNoSpace) ||
+          requestedNoSpace.includes(nameKorNoSpace)
         );
       });
 
@@ -547,14 +587,21 @@ export class ConversationalEstimateService {
     });
 
     if (!selection) {
-      // AI 선택 실패 시 첫 번째 후보 사용
+      // AI 선택 실패 + 특정 장소명 요청 시 → TBD 아이템으로 저장
+      if (intent.itemName && intent.itemName.length > 3) {
+        this.logger.log(
+          `AI selection failed for "${intent.itemName}", creating TBD item`,
+        );
+        return this.addTbdItemToItinerary(flow, items, intent.itemName, intent);
+      }
+      // 카테고리 요청이면 첫 번째 후보 사용
       const fallbackItem = candidateItems[0];
       return this.addItemToItinerary(
         flow,
         items,
         fallbackItem,
         intent,
-        `I couldn't find "${intent.itemName}" exactly, but here's a similar place I recommend`,
+        `Here's a recommended place based on your interest in "${intent.category}"`,
       );
     }
 
@@ -562,14 +609,16 @@ export class ConversationalEstimateService {
       (c) => c.id === selection.selectedId,
     );
     if (!selectedDbItem) {
-      // 선택된 ID가 없으면 첫 번째 후보 사용
+      if (intent.itemName && intent.itemName.length > 3) {
+        return this.addTbdItemToItinerary(flow, items, intent.itemName, intent);
+      }
       const fallbackItem = candidateItems[0];
       return this.addItemToItinerary(
         flow,
         items,
         fallbackItem,
         intent,
-        `I couldn't find "${intent.itemName}" exactly, but here's a similar place`,
+        `Here's a recommended place based on your interest in "${intent.category}"`,
       );
     }
 
@@ -775,11 +824,27 @@ export class ConversationalEstimateService {
     let removedCount = 0;
 
     if (intent.itemName) {
-      // 이름으로 제거
+      // 이름으로 제거 (itemInfo.nameEng/nameKor 포함, 공백 무시 비교)
       const itemNameLower = intent.itemName.toLowerCase();
+      const itemNameNoSpace = itemNameLower.replace(/\s+/g, '');
       updatedItems = items.filter((i) => {
-        const name = (i.itemName || i.name || '').toLowerCase();
-        const shouldRemove = name.includes(itemNameLower);
+        const names = [
+          i.itemName,
+          i.name,
+          i.itemInfo?.nameEng,
+          i.itemInfo?.nameKor,
+        ]
+          .filter(Boolean)
+          .map((n) => (n as string).toLowerCase());
+        const shouldRemove = names.some((n) => {
+          const nNoSpace = n.replace(/\s+/g, '');
+          return (
+            n.includes(itemNameLower) ||
+            itemNameLower.includes(n) ||
+            nNoSpace.includes(itemNameNoSpace) ||
+            itemNameNoSpace.includes(nNoSpace)
+          );
+        });
         if (shouldRemove) removedCount++;
         return !shouldRemove;
       });
@@ -788,9 +853,17 @@ export class ConversationalEstimateService {
       const categoryLower = intent.category.toLowerCase();
       updatedItems = items.filter((i) => {
         const type = (i.type || '').toLowerCase();
-        const name = (i.itemName || i.name || '').toLowerCase();
+        const names = [
+          i.itemName,
+          i.name,
+          i.itemInfo?.nameEng,
+          i.itemInfo?.nameKor,
+        ]
+          .filter(Boolean)
+          .map((n) => (n as string).toLowerCase());
         const shouldRemove =
-          type.includes(categoryLower) || name.includes(categoryLower);
+          type.includes(categoryLower) ||
+          names.some((n) => n.includes(categoryLower));
         if (shouldRemove) removedCount++;
         return !shouldRemove;
       });
@@ -841,11 +914,27 @@ export class ConversationalEstimateService {
       };
     }
 
-    // 교체할 아이템 찾기
+    // 교체할 아이템 찾기 (itemInfo.nameEng/nameKor 포함, 공백 무시 비교)
     const itemNameLower = intent.itemName.toLowerCase();
+    const itemNameNoSpace = itemNameLower.replace(/\s+/g, '');
     const itemIndex = items.findIndex((i) => {
-      const name = (i.itemName || i.name || '').toLowerCase();
-      return name.includes(itemNameLower);
+      const names = [
+        i.itemName,
+        i.name,
+        i.itemInfo?.nameEng,
+        i.itemInfo?.nameKor,
+      ]
+        .filter(Boolean)
+        .map((n) => (n as string).toLowerCase());
+      return names.some((n) => {
+        const nNoSpace = n.replace(/\s+/g, '');
+        return (
+          n.includes(itemNameLower) ||
+          itemNameLower.includes(n) ||
+          nNoSpace.includes(itemNameNoSpace) ||
+          itemNameNoSpace.includes(nNoSpace)
+        );
+      });
     });
 
     if (itemIndex === -1) {
@@ -962,6 +1051,7 @@ export class ConversationalEstimateService {
   async chat(
     sessionId: string,
     userMessage: string,
+    userId?: string,
     conversationHistory?: Array<{
       role: 'user' | 'assistant';
       content: string;
@@ -978,6 +1068,13 @@ export class ConversationalEstimateService {
 
     if (!flow) {
       throw new NotFoundException('Session not found.');
+    }
+
+    // 소유자 검증
+    if (userId && flow.userId && flow.userId !== userId) {
+      throw new ForbiddenException(
+        'You do not have permission to chat in this session.',
+      );
     }
 
     // 컨텍스트 구성

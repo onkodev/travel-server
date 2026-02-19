@@ -334,13 +334,6 @@ export class AiEstimateService {
       return est;
     });
 
-    // TBD 아이템 → SuggestedPlace fire-and-forget
-    if (tbdItems.length > 0) {
-      this.trackTbdItems(tbdItems, flow.region, estimate.id).catch((err) =>
-        this.logger.warn(`[SuggestedPlace tracking failed] ${err.message}`),
-      );
-    }
-
     this.logger.log(
       `[generateFirstEstimate] 완료 - estimateId: ${estimate.id}, source: ${generationSource}`,
     );
@@ -380,42 +373,6 @@ export class AiEstimateService {
           }
         : undefined,
     }));
-  }
-
-  /**
-   * TBD 아이템을 SuggestedPlace에 upsert (fire-and-forget)
-   */
-  private async trackTbdItems(
-    tbdItems: Array<{ name: string; reason: string }>,
-    region: string | null,
-    estimateId: number,
-  ) {
-    await Promise.allSettled(
-      tbdItems.map(async (item) => {
-        try {
-          await this.prisma.suggestedPlace.upsert({
-            where: { name: item.name },
-            update: {
-              count: { increment: 1 },
-              estimateIds: { push: estimateId },
-              lastSeenAt: new Date(),
-              sampleNote: item.reason || undefined,
-            },
-            create: {
-              name: item.name,
-              region: region || undefined,
-              source: 'rag',
-              estimateIds: [estimateId],
-              sampleNote: item.reason || undefined,
-            },
-          });
-        } catch (err) {
-          this.logger.warn(
-            `[trackTbdItems] Failed for "${item.name}": ${err.message}`,
-          );
-        }
-      }),
-    );
   }
 
   /**

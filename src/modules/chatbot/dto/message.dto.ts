@@ -6,6 +6,7 @@ import {
   IsIn,
   IsArray,
   ArrayMaxSize,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -36,6 +37,7 @@ export class SaveMessageDto {
   @ApiProperty({ description: '메시지 내용' })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(10000)
   content: string;
 
   @ApiPropertyOptional({

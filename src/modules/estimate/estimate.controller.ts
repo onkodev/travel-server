@@ -157,40 +157,6 @@ export class EstimateController {
     return this.estimateService.getEstimateByShareHash(shareHash);
   }
 
-  @Get('suggested-places')
-  @ApiOperation({ summary: 'TBD 장소 목록 조회' })
-  @ApiResponse({ status: 200, description: '조회 성공' })
-  async getSuggestedPlaces(
-    @Query('status') status?: string,
-    @Query('sort') sort?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.estimateService.getSuggestedPlaces({
-      status,
-      sort,
-      limit: limit ? parseInt(limit) : undefined,
-    });
-  }
-
-  @Patch('suggested-places/:id/resolve')
-  @ApiOperation({ summary: 'Suggested Place 일괄 매칭' })
-  @ApiParam({ name: 'id', description: 'Suggested Place ID' })
-  @ApiResponse({ status: 200, description: '매칭 성공' })
-  async resolveSuggestedPlace(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() body: { itemId: number },
-  ) {
-    return this.estimateService.resolveSuggestedPlace(id, body.itemId);
-  }
-
-  @Patch('suggested-places/:id/reject')
-  @ApiOperation({ summary: 'Suggested Place 거부' })
-  @ApiParam({ name: 'id', description: 'Suggested Place ID' })
-  @ApiResponse({ status: 200, description: '거부 성공' })
-  async rejectSuggestedPlace(@Param('id', ParseIntPipe) id: number) {
-    return this.estimateService.rejectSuggestedPlace(id);
-  }
-
   @Get('stats/rag-quality')
   @ApiOperation({ summary: 'RAG 품질 통계 조회' })
   @ApiResponse({ status: 200, description: '조회 성공' })

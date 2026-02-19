@@ -605,20 +605,29 @@ export class ChatbotService {
 
     const flow = await this.getFlow(sessionId);
 
-    // 이미 완료된 경우
-    if (flow.isCompleted && flow.estimateId) {
+    // 이미 완료된 경우 (멱등성)
+    if (flow.isCompleted) {
       this.logger.log(
-        `Flow already completed: sessionId=${sessionId}, estimateId=${flow.estimateId}`,
+        `Flow already completed: sessionId=${sessionId}, estimateId=${flow.estimateId ?? 'none'}`,
       );
-      const estimate = await this.estimateService.getEstimate(flow.estimateId);
-      const items = (
-        Array.isArray(estimate.items) ? estimate.items : []
-      ) as EstimateItem[];
+      if (flow.estimateId) {
+        const estimate = await this.estimateService.getEstimate(flow.estimateId);
+        const items = (
+          Array.isArray(estimate.items) ? estimate.items : []
+        ) as EstimateItem[];
+        return {
+          flow,
+          estimate,
+          templateUsed: null,
+          hasTbdDays: items.some((item) => item.isTbd),
+        };
+      }
+      // hasPlan 또는 AI 비활성 경로: 견적 없이 완료된 경우
       return {
         flow,
-        estimate,
+        estimate: null,
         templateUsed: null,
-        hasTbdDays: items.some((item) => item.isTbd),
+        hasTbdDays: false,
       };
     }
 
@@ -656,6 +665,17 @@ export class ChatbotService {
         this.logger.log(
           `Flow completed (${flow.hasPlan ? 'has plan' : 'AI disabled'}): sessionId=${sessionId}`,
         );
+
+        // 알림/이메일 발송 (실패해도 core 동작 유지)
+        try {
+          await this.notifyExpertSubmission(sessionId, updatedFlow);
+        } catch (error) {
+          this.logger.error(
+            `Notification failed for completeFlow (hasPlan/AI disabled): sessionId=${sessionId}`,
+            error.stack,
+          );
+        }
+
         return {
           flow: updatedFlow,
           estimate: null,
@@ -713,17 +733,37 @@ export class ChatbotService {
         `Failed to complete flow: sessionId=${sessionId}`,
         error.stack,
       );
+
+      // AI 견적 생성 실패 시 isCompleted 롤백 (재시도 가능하도록)
+      try {
+        await this.prisma.chatbotFlow.update({
+          where: { sessionId },
+          data: { isCompleted: false },
+        });
+        this.logger.log(
+          `Rolled back isCompleted for sessionId=${sessionId}`,
+        );
+      } catch (rollbackError) {
+        this.logger.error(
+          `Failed to rollback isCompleted for sessionId=${sessionId}`,
+          rollbackError.stack,
+        );
+      }
+
       throw new InternalServerErrorException(
         '견적 생성 처리 중 오류가 발생했습니다',
       );
     }
   }
 
-  // 전문가에게 보내기 (견적 없이도 상담 요청 전송 가능)
-  async sendToExpert(sessionId: string) {
-    const flow = await this.getFlow(sessionId);
-
-    // 알림/이메일 결과 추적
+  /**
+   * 알림/이메일 발송 전용 private 메서드
+   * DB 변경 없이 알림만 담당 (푸시 알림, 관리자 이메일, 고객 확인 이메일)
+   */
+  private async notifyExpertSubmission(
+    sessionId: string,
+    flow: Awaited<ReturnType<ChatbotService['getFlow']>>,
+  ) {
     const notificationResults = {
       pushNotification: { sent: false, error: null as string | null },
       adminEmail: { sent: false, error: null as string | null },
@@ -733,12 +773,6 @@ export class ChatbotService {
         skipped: false,
       },
     };
-
-    // 플로우를 완료 상태로 변경 (견적 유무와 관계없이)
-    await this.prisma.chatbotFlow.update({
-      where: { sessionId },
-      data: { isCompleted: true },
-    });
 
     // 관리자에게 푸시 알림 전송
     try {
@@ -872,6 +906,55 @@ export class ChatbotService {
 
     await Promise.all(emailPromises);
 
+    return notificationResults;
+  }
+
+  /**
+   * 전문가 알림 발송 public 래퍼 (컨트롤러에서 finalize 후 체이닝용)
+   */
+  async triggerExpertNotification(sessionId: string) {
+    const flow = await this.getFlow(sessionId);
+    try {
+      await this.notifyExpertSubmission(sessionId, flow);
+    } catch (error) {
+      this.logger.error(
+        `triggerExpertNotification failed for session ${sessionId}: ${error.message}`,
+      );
+    }
+  }
+
+  // 전문가에게 보내기 (견적 없이도 상담 요청 전송 가능)
+  async sendToExpert(sessionId: string, userId?: string) {
+    const flow = await this.getFlow(sessionId);
+
+    // 소유자 검증 (userId가 주어지고 flow에도 userId가 있으면 일치해야 함)
+    if (userId && flow.userId && flow.userId !== userId) {
+      throw new ForbiddenException(
+        'You do not have permission to submit this session.',
+      );
+    }
+
+    // Atomic 멱등성 가드: isCompleted=false → true (TOCTOU 레이스 방지)
+    const lockResult = await this.prisma.chatbotFlow.updateMany({
+      where: { sessionId, isCompleted: false },
+      data: { isCompleted: true },
+    });
+    if (lockResult.count === 0) {
+      // 이미 완료됨 — 이메일 재발송 방지
+      return {
+        success: true,
+        alreadySent: true,
+        message: flow.estimateId
+          ? 'Already sent to expert for review.'
+          : 'Inquiry already submitted.',
+        estimateId: flow.estimateId ?? null,
+        status: ESTIMATE_STATUS.PENDING,
+      };
+    }
+
+    // 알림/이메일 발송
+    const notificationResults = await this.notifyExpertSubmission(sessionId, flow);
+
     // 견적이 있으면 상태 업데이트
     let estimateStatus: string | null = ESTIMATE_STATUS.PENDING;
     if (flow.estimateId) {
@@ -920,6 +1003,15 @@ export class ChatbotService {
     sessionId: string,
     response: 'approved' | 'declined', // approved: 결제 대기, declined: 거절
     modificationRequest?: string,
+    revisionDetails?: {
+      items?: Array<{ itemIndex: number; action: 'keep' | 'remove' | 'replace'; preference?: string }>;
+      dateChange?: string;
+      durationChange?: number;
+      groupChange?: { adults?: number; children?: number; infants?: number };
+      budgetChange?: string;
+      note?: string;
+    },
+    userId?: string,
   ) {
     const flow = await this.getFlow(sessionId);
 
@@ -927,10 +1019,17 @@ export class ChatbotService {
       throw new BadRequestException('Estimate not found.');
     }
 
+    // 소유자 검증
+    if (userId && flow.userId && flow.userId !== userId) {
+      throw new ForbiddenException(
+        'You do not have permission to respond to this estimate.',
+      );
+    }
+
     // 상태 전이 검증 — sent 또는 pending 상태에서만 응답 가능
     const currentEstimate = await this.prisma.estimate.findUnique({
       where: { id: flow.estimateId },
-      select: { statusAi: true, requestContent: true, customerName: true },
+      select: { statusAi: true, requestContent: true, customerName: true, revisionHistory: true },
     });
     const respondableStates: string[] = [ESTIMATE_STATUS.SENT, ESTIMATE_STATUS.PENDING];
     if (!respondableStates.includes(currentEstimate?.statusAi || '')) {
@@ -940,19 +1039,34 @@ export class ChatbotService {
     }
 
     // 수정 요청이 있으면 revisionRequested 플래그 활성화 및 상태를 pending으로 변경
-    if (modificationRequest) {
+    if (modificationRequest || revisionDetails) {
       const existingContent = currentEstimate?.requestContent || '';
+      const freeText = modificationRequest || revisionDetails?.note || '';
       const updatedContent = existingContent
-        ? `${existingContent}\n\n--- Modification Request ---\n${modificationRequest}`
-        : modificationRequest;
+        ? `${existingContent}\n\n--- Modification Request ---\n${freeText}`
+        : freeText;
+
+      // Build revision history entry
+      const existingHistory = Array.isArray(currentEstimate?.revisionHistory)
+        ? (currentEstimate.revisionHistory as Array<Record<string, unknown>>)
+        : [];
+      const newEntry = {
+        revisionNumber: existingHistory.length + 1,
+        requestedAt: new Date().toISOString(),
+        details: revisionDetails || null,
+        freeTextNote: modificationRequest || null,
+        status: 'pending',
+      };
 
       await this.prisma.estimate.update({
         where: { id: flow.estimateId },
         data: {
           requestContent: updatedContent,
           revisionRequested: true,
-          revisionNote: modificationRequest,
-          statusAi: ESTIMATE_STATUS.PENDING, // 상태를 pending으로 변경하여 관리자 검토 필요 표시
+          revisionNote: freeText,
+          revisedAt: new Date(),
+          revisionHistory: [...existingHistory, newEntry] as unknown as import('@prisma/client').Prisma.InputJsonValue,
+          statusAi: ESTIMATE_STATUS.PENDING,
         },
       });
 
@@ -963,7 +1077,7 @@ export class ChatbotService {
           sessionId: sessionId,
           customerName:
             currentEstimate?.customerName || flow.customerName || undefined,
-          requestContent: modificationRequest,
+          requestContent: freeText,
         });
       } catch (error) {
         const errorMessage =
@@ -988,7 +1102,7 @@ export class ChatbotService {
               currentEstimate?.customerName || flow.customerName || '고객',
             customerEmail: flow.customerEmail || '-',
             estimateId: flow.estimateId,
-            requestContent: modificationRequest,
+            requestContent: freeText,
             sessionId: sessionId,
             adminUrl,
           }),

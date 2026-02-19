@@ -486,9 +486,42 @@ export class ChatbotController {
   })
   async getFlow(@Param('sessionId') sessionId: string) {
     const flow = await this.chatbotService.getFlow(sessionId);
-    // 공개 엔드포인트에서 PII 제거
-    const { ipAddress, userAgent, pageVisits, ...safeFlow } = flow as Record<string, unknown>;
-    return safeFlow;
+    // 공개 엔드포인트: allowlist 방식으로 필요한 필드만 반환 (PII 최소화)
+    return {
+      sessionId: flow.sessionId,
+      currentStep: flow.currentStep,
+      isCompleted: flow.isCompleted,
+      tourType: flow.tourType,
+      isFirstVisit: flow.isFirstVisit,
+      interestMain: flow.interestMain,
+      interestSub: flow.interestSub,
+      region: flow.region,
+      hasPlan: flow.hasPlan,
+      planDetails: flow.planDetails,
+      isFlexible: flow.isFlexible,
+      // 폼 복원에 필요한 최소 필드
+      customerName: flow.customerName,
+      customerEmail: flow.customerEmail,
+      customerPhone: flow.customerPhone,
+      nationality: flow.nationality,
+      travelDate: flow.travelDate,
+      duration: flow.duration,
+      adultsCount: flow.adultsCount,
+      childrenCount: flow.childrenCount,
+      infantsCount: flow.infantsCount,
+      seniorsCount: flow.seniorsCount,
+      budgetRange: flow.budgetRange,
+      needsPickup: flow.needsPickup,
+      needsGuide: flow.needsGuide,
+      additionalNotes: flow.additionalNotes,
+      // 견적 관련
+      estimateId: flow.estimateId,
+      estimateStatus: flow.estimateStatus,
+      shareHash: flow.shareHash,
+      title: flow.title,
+      createdAt: flow.createdAt,
+      updatedAt: flow.updatedAt,
+    };
   }
 
   @Get(':sessionId/step/:step')
@@ -732,6 +765,7 @@ export class ChatbotController {
 
   @Post(':sessionId/send-to-expert')
   @Public()
+  @UseGuards(AuthGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } }) // 1분에 5회 제한
   @ApiOperation({
     summary: '전문가에게 보내기',
@@ -740,8 +774,11 @@ export class ChatbotController {
   })
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '전문가에게 전달 성공' })
-  async sendToExpert(@Param('sessionId') sessionId: string) {
-    return this.chatbotService.sendToExpert(sessionId);
+  async sendToExpert(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser('id') userId?: string,
+  ) {
+    return this.chatbotService.sendToExpert(sessionId, userId);
   }
 
   @Post(':sessionId/respond')
@@ -767,12 +804,14 @@ export class ChatbotController {
   async respondToEstimate(
     @Param('sessionId') sessionId: string,
     @Body() dto: RespondToEstimateDto,
-    @RequireUserId() _userId: string, // 인증 확인용
+    @RequireUserId() userId: string,
   ) {
     return this.chatbotService.respondToEstimate(
       sessionId,
       dto.response,
       dto.modificationRequest,
+      dto.revisionDetails,
+      userId,
     );
   }
 
@@ -921,7 +960,7 @@ export class ChatbotController {
   // ============ AI 견적 API ============
 
   @Post(':sessionId/estimate/generate')
-  @Public()
+  @ApiBearerAuth('access-token')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({
     summary: 'AI 견적 생성 (향상된 버전)',
@@ -1000,6 +1039,7 @@ export class ChatbotController {
 
   @Post(':sessionId/chat')
   @Public()
+  @UseGuards(AuthGuard)
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @ApiOperation({
     summary: '여행 도우미 대화',
@@ -1020,8 +1060,9 @@ export class ChatbotController {
   async travelChat(
     @Param('sessionId') sessionId: string,
     @Body() dto: TravelChatDto,
+    @CurrentUser('id') userId?: string,
   ): Promise<TravelChatResponseDto> {
-    return this.conversationalEstimateService.chat(sessionId, dto.message);
+    return this.conversationalEstimateService.chat(sessionId, dto.message, userId);
   }
 
   @Post(':sessionId/itinerary/modify')
@@ -1096,6 +1137,7 @@ export class ChatbotController {
 
   @Post(':sessionId/itinerary/finalize')
   @Public()
+  @UseGuards(AuthGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({
     summary: '일정 확정 및 전문가에게 전송',
@@ -1117,7 +1159,17 @@ export class ChatbotController {
     description: '세션 없음',
     type: ErrorResponseDto,
   })
-  async finalizeItinerary(@Param('sessionId') sessionId: string) {
-    return this.conversationalEstimateService.finalizeItinerary(sessionId);
+  async finalizeItinerary(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser('id') userId?: string,
+  ) {
+    const result = await this.conversationalEstimateService.finalizeItinerary(sessionId, userId);
+
+    // 알림/이메일 체이닝 (최초 finalize 시에만, 멱등성 반환 시 스킵)
+    if (result.success && !result.alreadyFinalized) {
+      await this.chatbotService.triggerExpertNotification(sessionId);
+    }
+
+    return result;
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
@@ -25,6 +25,7 @@ export interface ItemListItem {
 
 @Injectable()
 export class ItemService {
+  private readonly logger = new Logger(ItemService.name);
   private cache = new MemoryCache(CACHE_TTL.ITEM);
 
   constructor(private prisma: PrismaService) {}
@@ -368,7 +369,23 @@ export class ItemService {
     // 지역 조건은 별도로 관리 (나중에 AND로 조합)
     const regionFilter = regionCondition;
 
-    // 1차 시도: 쿼리 텍스트로 이름 + 설명 통합 검색 (1쿼리)
+    // 아이템 select 필드 (공통)
+    const itemSelect = {
+      id: true,
+      type: true,
+      nameKor: true,
+      nameEng: true,
+      keyword: true,
+      categories: true,
+      description: true,
+      descriptionEng: true,
+      price: true,
+      region: true,
+      area: true,
+      images: true,
+    } as const;
+
+    // 1차 시도: 쿼리 텍스트로 이름 + 설명 통합 검색 (ILIKE)
     if (query) {
       const queryWhere: Prisma.ItemWhereInput = {
         AND: [
@@ -390,24 +407,49 @@ export class ItemService {
         where: queryWhere,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          type: true,
-          nameKor: true,
-          nameEng: true,
-          keyword: true,
-          categories: true,
-          description: true,
-          descriptionEng: true,
-          price: true,
-          region: true,
-          area: true,
-          images: true,
-        },
+        select: itemSelect,
       });
 
       if (results.length > 0) {
         return results.map(convertDecimalFields);
+      }
+
+      // 1-1. 공백 제거 후 재시도 (e.g. "노량진 수산시장" → "노량진수산시장")
+      const queryNoSpace = query.replace(/\s+/g, '');
+      if (queryNoSpace !== query) {
+        const noSpaceResults = await this.prisma.item.findMany({
+          where: {
+            AND: [
+              baseWhere,
+              ...(regionFilter ? [regionFilter] : []),
+              {
+                OR: [
+                  { nameEng: { contains: queryNoSpace, mode: 'insensitive' } },
+                  { nameKor: { contains: queryNoSpace, mode: 'insensitive' } },
+                  { keyword: { contains: queryNoSpace, mode: 'insensitive' } },
+                ],
+              },
+            ],
+          },
+          take: limit,
+          orderBy: { createdAt: 'desc' },
+          select: itemSelect,
+        });
+
+        if (noSpaceResults.length > 0) {
+          return noSpaceResults.map(convertDecimalFields);
+        }
+      }
+
+      // 1-2. pg_trgm 유사도 검색 (fuzzy matching)
+      const trigramResults = await this.findByTrigramSimilarity(
+        query,
+        type,
+        excludeIds,
+        limit,
+      );
+      if (trigramResults.length > 0) {
+        return trigramResults;
       }
     }
 
@@ -445,20 +487,7 @@ export class ItemService {
       where: { AND: categoryConditions },
       take: limit,
       orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        type: true,
-        nameKor: true,
-        nameEng: true,
-        keyword: true,
-        categories: true,
-        description: true,
-        descriptionEng: true,
-        price: true,
-        region: true,
-        area: true,
-        images: true,
-      },
+      select: itemSelect,
     });
 
     if (categoryResults.length > 0) {
@@ -473,23 +502,81 @@ export class ItemService {
       where: { AND: fallbackConditions },
       take: limit,
       orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        type: true,
-        nameKor: true,
-        nameEng: true,
-        keyword: true,
-        categories: true,
-        description: true,
-        descriptionEng: true,
-        price: true,
-        region: true,
-        area: true,
-        images: true,
-      },
+      select: itemSelect,
     });
 
     return fallbackResults.map(convertDecimalFields);
+  }
+
+  /**
+   * pg_trgm 유사도 기반 fuzzy 검색
+   * - "Namsan Tower" → "N Seoul Tower" 등 다른 이름이지만 유사한 장소 매칭
+   * - GIN trigram 인덱스 활용 (idx_items_name_eng_trgm, idx_items_name_kor_trgm)
+   */
+  private async findByTrigramSimilarity(
+    query: string,
+    type: string,
+    excludeIds: number[],
+    limit: number,
+  ) {
+    try {
+      const excludeClause =
+        excludeIds.length > 0
+          ? Prisma.sql`AND id NOT IN (${Prisma.join(excludeIds)})`
+          : Prisma.empty;
+
+      const results = await this.prisma.$queryRaw<
+        Array<{
+          id: number;
+          type: string;
+          nameKor: string;
+          nameEng: string;
+          keyword: string | null;
+          categories: string[];
+          description: string;
+          descriptionEng: string | null;
+          price: number;
+          region: string | null;
+          area: string | null;
+          images: unknown;
+        }>
+      >`
+        SELECT
+          id, type,
+          name_kor AS "nameKor",
+          name_eng AS "nameEng",
+          keyword, categories, description,
+          description_eng AS "descriptionEng",
+          price::float8 AS price,
+          region, area, images
+        FROM items
+        WHERE type = ${type}
+          ${excludeClause}
+          AND (
+            similarity(name_eng, ${query}) > 0.2
+            OR similarity(name_kor, ${query}) > 0.2
+            OR similarity(COALESCE(keyword, ''), ${query}) > 0.3
+          )
+        ORDER BY GREATEST(
+          similarity(name_eng, ${query}),
+          similarity(name_kor, ${query}),
+          similarity(COALESCE(keyword, ''), ${query})
+        ) DESC
+        LIMIT ${limit}
+      `;
+
+      if (results.length > 0) {
+        this.logger.log(
+          `Trigram search for "${query}": found ${results.length} items (top: ${results[0].nameEng})`,
+        );
+      }
+
+      return results as any;
+    } catch (e) {
+      // pg_trgm 확장 스키마 이슈 등 — 조용히 빈 배열 반환
+      this.logger.warn(`Trigram similarity search failed: ${e.message}`);
+      return [];
+    }
   }
 
   /**

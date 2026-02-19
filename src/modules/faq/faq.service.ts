@@ -1462,11 +1462,12 @@ export class FaqService {
     const directThreshold = chatConfig.directThreshold ?? FaqService.DEFAULT_DIRECT_THRESHOLD;
     const ragThreshold = chatConfig.ragThreshold ?? FaqService.DEFAULT_RAG_THRESHOLD;
 
-    // 1. 의도 분류 + 유사 FAQ 검색 + 투어 검색 (병렬)
+    // 1. 의도 분류 + 유사 FAQ 검색 + 투어 검색 (병렬, 대화 컨텍스트 반영)
+    const tourSearchQuery = this.buildTourSearchQuery(message, history);
     const [intent, similar, relatedTours] = await Promise.all([
       this.classifyIntent(message),
       this.searchSimilar(message, 5),
-      this.searchOdkTours(message, 5),
+      this.searchOdkTours(tourSearchQuery, 5),
     ]);
     const topSimilarity = similar.length > 0 ? similar[0].similarity : 0;
 
@@ -1549,8 +1550,16 @@ export class FaqService {
     }
 
     // 2.5. 투어 추천 보충: tour_recommend가 아닌 응답에서도 관련 투어가 있으면 카드 첨부
-    if (!tourRecommendations && relatedTours.length > 0) {
-      tourRecommendations = mapTours(relatedTours);
+    if (!tourRecommendations || tourRecommendations.length === 0) {
+      if (relatedTours.length > 0) {
+        tourRecommendations = mapTours(relatedTours);
+      } else {
+        // 폴백: 랜덤 활성 투어 3개
+        const fallbackTours = await this.getPopularFallbackTours(3);
+        if (fallbackTours.length > 0) {
+          tourRecommendations = fallbackTours;
+        }
+      }
     }
 
     // 3. 매칭된 FAQ 정보
@@ -1634,6 +1643,26 @@ export class FaqService {
   }
 
   /**
+   * 대화 컨텍스트를 반영한 투어 검색 쿼리 구성
+   * 현재 메시지 + 최근 user 메시지 2-3개를 합쳐 임베딩 검색 쿼리 보강
+   */
+  private buildTourSearchQuery(
+    message: string,
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  ): string {
+    if (!history || history.length === 0) return message;
+
+    const recentUserMessages = history
+      .filter((h) => h.role === 'user')
+      .slice(-3)
+      .map((h) => h.content.substring(0, 100));
+
+    if (recentUserMessages.length === 0) return message;
+
+    return `${message} Context: ${recentUserMessages.join(' ')}`;
+  }
+
+  /**
    * OdkTourList 유사도 검색
    */
   private async searchOdkTours(message: string, limit = 5) {
@@ -1679,6 +1708,42 @@ export class FaqService {
         duration: r.duration,
         similarity: Number(r.similarity),
       }));
+  }
+
+  /**
+   * 폴백: 랜덤 활성 투어 반환 (썸네일 있는 투어만)
+   */
+  private async getPopularFallbackTours(limit: number) {
+    const results = await this.prisma.$queryRawUnsafe<
+      Array<{
+        id: number;
+        name: string;
+        name_kor: string | null;
+        thumbnail_url: string | null;
+        website_url: string;
+        price: string | null;
+        region: string | null;
+        duration: string | null;
+      }>
+    >(
+      `SELECT id, name, name_kor, thumbnail_url, website_url, price, region, duration
+       FROM odk_tours
+       WHERE is_active = true AND thumbnail_url IS NOT NULL
+       ORDER BY RANDOM()
+       LIMIT $1`,
+      limit,
+    );
+
+    return results.map((r) => ({
+      id: r.id,
+      name: r.name,
+      nameKor: r.name_kor,
+      thumbnailUrl: r.thumbnail_url,
+      websiteUrl: r.website_url,
+      price: r.price ? Number(r.price) : null,
+      region: r.region,
+      duration: r.duration,
+    }));
   }
 
   /**

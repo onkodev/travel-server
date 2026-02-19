@@ -100,8 +100,18 @@ export class AiPromptService implements OnModuleInit {
     variables: Record<string, string> = {},
   ): Promise<BuiltPrompt> {
     const tpl = await this.getTemplate(key);
+    // Auto-inject currentDate for all prompts
+    const vars = {
+      currentDate: new Date().toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      }),
+      ...variables,
+    };
     return {
-      text: resolveTemplate(tpl.text, variables),
+      text: resolveTemplate(tpl.text, vars),
       temperature: tpl.temperature,
       maxOutputTokens: tpl.maxOutputTokens,
     };

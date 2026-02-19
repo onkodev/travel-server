@@ -30,7 +30,6 @@ import { GeoIpModule } from './modules/geoip/geoip.module';
 import { FaqModule } from './modules/faq/faq.module';
 import { GmailModule } from './modules/gmail/gmail.module';
 import { EmailRagModule } from './modules/email-rag/email-rag.module';
-import { SuggestedPlaceModule } from './modules/suggested-place/suggested-place.module';
 import { HealthModule } from './modules/health/health.module';
 import { OdkTourListModule } from './modules/odk-tour-list/odk-tour-list.module';
 import { AiPromptModule } from './modules/ai-prompt/ai-prompt.module';
@@ -86,7 +85,6 @@ import { AiPromptModule } from './modules/ai-prompt/ai-prompt.module';
     FaqModule,
     GmailModule,
     EmailRagModule,
-    SuggestedPlaceModule,
     HealthModule,
     OdkTourListModule,
     AiPromptModule,

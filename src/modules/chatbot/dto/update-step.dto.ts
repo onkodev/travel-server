@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsBoolean,
@@ -14,6 +15,8 @@ import {
   ArrayMaxSize,
   MaxLength,
   MinLength,
+  ValidateNested,
+  IsObject,
 } from 'class-validator';
 import {
   TOUR_TYPES,
@@ -307,6 +310,91 @@ export class UpdateStep7Dto {
   additionalNotes?: string;
 }
 
+// Revision Item Change DTO
+export class RevisionItemChangeDto {
+  @ApiProperty({ description: 'Index of item in estimate items array' })
+  @IsNumber()
+  @Min(0)
+  itemIndex: number;
+
+  @ApiProperty({ description: 'Action for this item', enum: ['keep', 'remove', 'replace'] })
+  @IsString()
+  @IsIn(['keep', 'remove', 'replace'])
+  action: 'keep' | 'remove' | 'replace';
+
+  @ApiPropertyOptional({ description: 'Preference for replacement', maxLength: 500 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  preference?: string;
+}
+
+// Revision Group Change DTO
+export class RevisionGroupChangeDto {
+  @ApiPropertyOptional({ description: 'New adults count' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(50)
+  adults?: number;
+
+  @ApiPropertyOptional({ description: 'New children count' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  children?: number;
+
+  @ApiPropertyOptional({ description: 'New infants count' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  infants?: number;
+}
+
+// Revision Details DTO (structured modification request)
+export class RevisionDetailsDto {
+  @ApiPropertyOptional({ description: 'Item-level changes', type: [RevisionItemChangeDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RevisionItemChangeDto)
+  items?: RevisionItemChangeDto[];
+
+  @ApiPropertyOptional({ description: 'Requested date change', maxLength: 200 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  dateChange?: string;
+
+  @ApiPropertyOptional({ description: 'Requested duration change (days)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(30)
+  durationChange?: number;
+
+  @ApiPropertyOptional({ description: 'Group size change' })
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => RevisionGroupChangeDto)
+  groupChange?: RevisionGroupChangeDto;
+
+  @ApiPropertyOptional({ description: 'Budget change request', maxLength: 200 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  budgetChange?: string;
+
+  @ApiPropertyOptional({ description: 'Additional note', maxLength: 1000 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+}
+
 // Customer Response DTO
 export class RespondToEstimateDto {
   @ApiProperty({
@@ -317,13 +405,19 @@ export class RespondToEstimateDto {
   @IsIn(['approved', 'declined'], { message: 'Invalid response.' })
   response: 'approved' | 'declined';
 
-  @ApiPropertyOptional({ description: 'Modification request', maxLength: 2000 })
+  @ApiPropertyOptional({ description: 'Modification request (free text)', maxLength: 2000 })
   @IsOptional()
   @IsString()
   @MaxLength(2000, {
     message: 'Modification request cannot exceed 2000 characters.',
   })
   modificationRequest?: string;
+
+  @ApiPropertyOptional({ description: 'Structured revision details' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => RevisionDetailsDto)
+  revisionDetails?: RevisionDetailsDto;
 }
 
 // Page Visit Tracking
