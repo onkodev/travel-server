@@ -960,7 +960,7 @@ export class ChatbotController {
   // ============ AI 견적 API ============
 
   @Post(':sessionId/estimate/generate')
-  @ApiBearerAuth('access-token')
+  @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({
     summary: 'AI 견적 생성 (향상된 버전)',
