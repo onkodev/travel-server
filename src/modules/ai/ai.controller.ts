@@ -137,8 +137,9 @@ export class AiController {
           regions: result.regions,
           interests: result.interests,
           keywords: result.keywords,
-          groupType: result.groupType,
-          budgetLevel: result.budgetLevel,
+          tourType: result.tourType,
+          travelerType: result.travelerType,
+          priceRange: result.priceRange,
           specialNeeds: result.specialNeeds,
         },
       });
@@ -151,8 +152,9 @@ export class AiController {
       regions: [],
       interests: [],
       keywords: [],
-      groupType: null,
-      budgetLevel: null,
+      tourType: null,
+      travelerType: null,
+      priceRange: null,
       specialNeeds: [],
     };
   }

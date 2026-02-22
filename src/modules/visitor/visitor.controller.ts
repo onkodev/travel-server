@@ -147,28 +147,6 @@ export class VisitorController {
     return this.visitorService.updatePageView(id, body);
   }
 
-  @Get('session/:id')
-  @Public()
-  @SkipThrottle({ default: true, strict: true })
-  @ApiOperation({
-    summary: '세션 상세 조회',
-    description: '방문자 세션의 상세 정보와 페이지뷰 목록을 조회합니다.',
-  })
-  @ApiParam({
-    name: 'id',
-    description: '세션 ID',
-    type: String,
-    example: 'visitor_abc123',
-  })
-  @ApiResponse({
-    status: 200,
-    description: '조회 성공',
-    type: VisitorSessionDto,
-  })
-  async getSession(@Param('id') id: string) {
-    return this.visitorService.getSession(id);
-  }
-
   // ==================== 관리자 API ====================
 
   @Get('admin/sessions')

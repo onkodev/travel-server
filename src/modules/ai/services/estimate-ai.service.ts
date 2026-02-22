@@ -12,8 +12,9 @@ export interface EstimateAnalysisResult {
   regions: string[];
   interests: string[];
   keywords: string[];
-  groupType: string | null;
-  budgetLevel: string | null;
+  tourType: string | null;
+  travelerType: string | null;
+  priceRange: string | null;
   specialNeeds: string[];
 }
 
@@ -56,13 +57,15 @@ export class EstimateAiService {
     const text = await this.geminiCore.callGemini(built.text, {
       temperature: built.temperature,
       maxOutputTokens: built.maxOutputTokens,
+      disableThinking: true,
     });
 
     interface ParsedResult {
       regions?: string[];
       interests?: string[];
       keywords?: string[];
-      groupType?: string | null;
+      tourType?: string | null;
+      travelerType?: string | null;
       budgetLevel?: string | null;
       specialNeeds?: string[];
     }
@@ -70,12 +73,16 @@ export class EstimateAiService {
     const result = parseJsonResponse<ParsedResult | null>(text, null);
 
     if (result) {
+      // budgetLevel → priceRange 매핑 (luxury → premium)
+      const priceRange = result.budgetLevel === 'luxury' ? 'premium' : (result.budgetLevel || null);
+
       return {
         regions: result.regions || [],
         interests: result.interests || [],
         keywords: result.keywords || [],
-        groupType: result.groupType || null,
-        budgetLevel: result.budgetLevel || null,
+        tourType: result.tourType || null,
+        travelerType: result.travelerType || null,
+        priceRange,
         specialNeeds: result.specialNeeds || [],
       };
     }

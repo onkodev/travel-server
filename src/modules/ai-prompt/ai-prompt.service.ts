@@ -14,6 +14,25 @@ export interface BuiltPrompt {
   maxOutputTokens: number;
 }
 
+// FAQ 프리셋 → 실제 값 매핑
+const FAQ_STYLE_MAP: Record<string, number> = {
+  precise: 0.2,
+  balanced: 0.5,
+  conversational: 0.8,
+};
+
+const FAQ_LENGTH_MAP: Record<string, number> = {
+  concise: 300,
+  standard: 600,
+  detailed: 1200,
+};
+
+const FAQ_ANSWER_PROMPT_KEYS = new Set([
+  PromptKey.FAQ_RAG_ANSWER,
+  PromptKey.FAQ_GENERAL_TRAVEL,
+  PromptKey.FAQ_TOUR_RECOMMENDATION,
+]);
+
 @Injectable()
 export class AiPromptService implements OnModuleInit {
   private readonly logger = new Logger(AiPromptService.name);
@@ -94,6 +113,7 @@ export class AiPromptService implements OnModuleInit {
 
   /**
    * 템플릿 + 변수 치환 + config 반환
+   * FAQ 답변 프롬프트의 경우 프리셋 오버라이드 적용
    */
   async buildPrompt(
     key: PromptKey,
@@ -101,7 +121,7 @@ export class AiPromptService implements OnModuleInit {
   ): Promise<BuiltPrompt> {
     const tpl = await this.getTemplate(key);
     // Auto-inject currentDate for all prompts
-    const vars = {
+    const vars: Record<string, string> = {
       currentDate: new Date().toLocaleDateString('en-US', {
         weekday: 'long',
         year: 'numeric',
@@ -110,11 +130,56 @@ export class AiPromptService implements OnModuleInit {
       }),
       ...variables,
     };
+
+    let temperature = tpl.temperature;
+    let maxOutputTokens = tpl.maxOutputTokens;
+
+    // FAQ 답변 프롬프트에 프리셋 오버라이드 적용
+    if (FAQ_ANSWER_PROMPT_KEYS.has(key)) {
+      const config = await this.getFaqConfigCached();
+      temperature = FAQ_STYLE_MAP[config.faqAnswerStyle] ?? temperature;
+      maxOutputTokens = FAQ_LENGTH_MAP[config.faqAnswerLength] ?? maxOutputTokens;
+      if (config.faqCustomInstructions) {
+        vars.faqCustomInstructions = config.faqCustomInstructions;
+      }
+    }
+
     return {
       text: resolveTemplate(tpl.text, vars),
-      temperature: tpl.temperature,
-      maxOutputTokens: tpl.maxOutputTokens,
+      temperature,
+      maxOutputTokens,
     };
+  }
+
+  /**
+   * FAQ config 캐시 (10분)
+   */
+  private async getFaqConfigCached() {
+    const cacheKey = 'faq-config';
+    const cached = this.cache.get<{
+      faqAnswerStyle: string;
+      faqAnswerLength: string;
+      faqCustomInstructions: string | null;
+    }>(cacheKey);
+    if (cached) return cached;
+
+    const config = await this.prisma.aiGenerationConfig.findFirst({
+      where: { id: 1 },
+      select: {
+        faqAnswerStyle: true,
+        faqAnswerLength: true,
+        faqCustomInstructions: true,
+      },
+    });
+
+    const result = {
+      faqAnswerStyle: config?.faqAnswerStyle ?? 'balanced',
+      faqAnswerLength: config?.faqAnswerLength ?? 'standard',
+      faqCustomInstructions: config?.faqCustomInstructions ?? null,
+    };
+
+    this.cache.set(cacheKey, result);
+    return result;
   }
 
   /**
@@ -227,41 +292,130 @@ export class AiPromptService implements OnModuleInit {
       where: { id: 1 },
       select: {
         id: true,
-        directThreshold: true,
-        ragThreshold: true,
+        topFaqCount: true,
         noMatchResponse: true,
+        faqAnswerStyle: true,
+        faqAnswerLength: true,
+        faqCustomInstructions: true,
         updatedAt: true,
       },
     });
     return config ?? {
       id: 1,
-      directThreshold: 0.7,
-      ragThreshold: 0.5,
+      topFaqCount: 4,
       noMatchResponse: null,
+      faqAnswerStyle: 'balanced',
+      faqAnswerLength: 'standard',
+      faqCustomInstructions: null,
       updatedAt: new Date(),
     };
   }
 
+  // ============================================================================
+  // EstimateConfig
+  // ============================================================================
+
+  async getEstimateConfig() {
+    const config = await this.prisma.aiGenerationConfig.findFirst({
+      where: { id: 1 },
+      select: {
+        id: true,
+        geminiModel: true,
+        geminiTemperature: true,
+        geminiMaxTokens: true,
+        ragSearchLimit: true,
+        ragSimilarityMin: true,
+        ragTimeout: true,
+        placesPerDay: true,
+        fuzzyMatchThreshold: true,
+        customPromptAddon: true,
+        aiEstimateValidityDays: true,
+        updatedAt: true,
+      },
+    });
+    return config ?? {
+      id: 1,
+      geminiModel: 'gemini-2.5-flash',
+      geminiTemperature: 0.7,
+      geminiMaxTokens: 8192,
+      ragSearchLimit: 5,
+      ragSimilarityMin: 0.3,
+      ragTimeout: 30000,
+      placesPerDay: 4,
+      fuzzyMatchThreshold: 0.6,
+      customPromptAddon: null,
+      aiEstimateValidityDays: 7,
+      updatedAt: new Date(),
+    };
+  }
+
+  async updateEstimateConfig(data: {
+    geminiModel?: string;
+    geminiTemperature?: number;
+    geminiMaxTokens?: number;
+    ragSearchLimit?: number;
+    ragSimilarityMin?: number;
+    ragTimeout?: number;
+    placesPerDay?: number;
+    fuzzyMatchThreshold?: number;
+    customPromptAddon?: string | null;
+    aiEstimateValidityDays?: number;
+  }) {
+    const updated = await this.prisma.aiGenerationConfig.upsert({
+      where: { id: 1 },
+      create: { id: 1, ...data },
+      update: data,
+    });
+
+    // estimate config 캐시 무효화
+    this.cache.delete('estimate-config');
+
+    return {
+      id: updated.id,
+      geminiModel: updated.geminiModel,
+      geminiTemperature: updated.geminiTemperature,
+      geminiMaxTokens: updated.geminiMaxTokens,
+      ragSearchLimit: updated.ragSearchLimit,
+      ragSimilarityMin: updated.ragSimilarityMin,
+      ragTimeout: updated.ragTimeout,
+      placesPerDay: updated.placesPerDay,
+      fuzzyMatchThreshold: updated.fuzzyMatchThreshold,
+      customPromptAddon: updated.customPromptAddon,
+      aiEstimateValidityDays: updated.aiEstimateValidityDays,
+      updatedAt: updated.updatedAt,
+    };
+  }
+
   async updateFaqChatConfig(data: {
-    directThreshold?: number;
-    ragThreshold?: number;
+    topFaqCount?: number;
     noMatchResponse?: string | null;
+    faqAnswerStyle?: string;
+    faqAnswerLength?: string;
+    faqCustomInstructions?: string | null;
   }) {
     const updated = await this.prisma.aiGenerationConfig.upsert({
       where: { id: 1 },
       create: {
         id: 1,
-        directThreshold: data.directThreshold ?? 0.7,
-        ragThreshold: data.ragThreshold ?? 0.5,
+        topFaqCount: data.topFaqCount ?? 4,
         noMatchResponse: data.noMatchResponse ?? null,
+        faqAnswerStyle: data.faqAnswerStyle ?? 'balanced',
+        faqAnswerLength: data.faqAnswerLength ?? 'standard',
+        faqCustomInstructions: data.faqCustomInstructions ?? null,
       },
       update: data,
     });
+
+    // FAQ config 캐시 무효화
+    this.cache.delete('faq-config');
+
     return {
       id: updated.id,
-      directThreshold: updated.directThreshold,
-      ragThreshold: updated.ragThreshold,
+      topFaqCount: updated.topFaqCount,
       noMatchResponse: updated.noMatchResponse,
+      faqAnswerStyle: updated.faqAnswerStyle,
+      faqAnswerLength: updated.faqAnswerLength,
+      faqCustomInstructions: updated.faqCustomInstructions,
       updatedAt: updated.updatedAt,
     };
   }

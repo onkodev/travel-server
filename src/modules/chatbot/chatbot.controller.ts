@@ -8,16 +8,10 @@ import {
   Param,
   ParseIntPipe,
   Query,
-  Req,
-  Res,
   UseGuards,
   ForbiddenException,
-  Sse,
-  MessageEvent,
 } from '@nestjs/common';
-import type { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
-import { Observable, interval, map, takeWhile, merge } from 'rxjs';
 import {
   ApiTags,
   ApiOperation,
@@ -27,11 +21,11 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
-import type { Request } from 'express';
 import { parseBooleanQuery } from '../../common/utils';
 import { ChatbotService } from './chatbot.service';
+import { ChatbotMessageService } from './chatbot-message.service';
+import { ChatbotCompletionService } from './chatbot-completion.service';
 import { ChatbotAnalyticsService } from './chatbot-analytics.service';
-import { ChatbotSseService } from './chatbot-sse.service';
 import { AiEstimateService } from './ai-estimate.service';
 import { ConversationalEstimateService } from './conversational-estimate.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -41,7 +35,6 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/types';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { RequireUserId } from '../../common/decorators/require-user.decorator';
-import { SupabaseService } from '../../supabase/supabase.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   StartFlowDto,
@@ -53,7 +46,6 @@ import {
   UpdatePlanDto,
   UpdateStep5Dto,
   UpdateStep6Dto,
-  UpdateStep7Dto,
   TrackPageDto,
   SaveMessageDto,
   SaveMessageBatchDto,
@@ -62,8 +54,6 @@ import {
   ModifyEstimateDto,
   GenerateEstimateResponseDto,
   ModifyEstimateResponseDto,
-  ModifyItineraryMessageDto,
-  ModifyItineraryResponseDto,
   RegenerateDayResponseDto,
   FinalizeItineraryResponseDto,
   TravelChatDto,
@@ -80,17 +70,18 @@ import { ErrorResponseDto } from '../../common/dto';
 export class ChatbotController {
   constructor(
     private chatbotService: ChatbotService,
+    private chatbotMessageService: ChatbotMessageService,
+    private chatbotCompletionService: ChatbotCompletionService,
     private chatbotAnalyticsService: ChatbotAnalyticsService,
-    private chatbotSseService: ChatbotSseService,
     private aiEstimateService: AiEstimateService,
     private conversationalEstimateService: ConversationalEstimateService,
-    private supabaseService: SupabaseService,
     private prisma: PrismaService,
     private configService: ConfigService,
   ) {}
 
   @Post('start')
   @Public()
+  @UseGuards(AuthGuard) // Public이지만 토큰 있으면 userId 추출
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '챗봇 플로우 시작',
@@ -101,20 +92,10 @@ export class ChatbotController {
     description: '플로우 시작 성공',
     type: FlowStartResponseDto,
   })
-  async startFlow(@Body() dto: StartFlowDto, @Req() req: Request) {
-    // 선택적으로 userId 추출 (로그인한 경우)
-    let userId: string | undefined;
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.split(' ')[1];
-        const user = await this.supabaseService.getUserFromToken(token);
-        userId = user?.id;
-      } catch {
-        // 토큰이 유효하지 않아도 무시 (비로그인 사용자로 처리)
-      }
-    }
-
+  async startFlow(
+    @Body() dto: StartFlowDto,
+    @CurrentUser('id') userId?: string,
+  ) {
     return this.chatbotService.startFlow(dto, userId);
   }
 
@@ -147,7 +128,7 @@ export class ChatbotController {
     type: ErrorResponseDto,
   })
   async getUserSessions(@RequireUserId() userId: string) {
-    return this.chatbotService.getUserSessions(userId);
+    return this.chatbotMessageService.getUserSessions(userId);
   }
 
   @Get('admin/flows')
@@ -187,57 +168,6 @@ export class ChatbotController {
   @ApiResponse({ status: 200, description: '조회 성공' })
   async getFlowStats() {
     return this.chatbotAnalyticsService.getFlowStats();
-  }
-
-  @Get('admin/funnel')
-  @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @SkipThrottle({ default: true, strict: true })
-  @ApiOperation({
-    summary: '퍼널 분석 (관리자)',
-    description: '단계별 전환율과 이탈률을 분석합니다.',
-  })
-  @ApiQuery({ name: 'days', required: false, description: '조회 기간 (일)' })
-  @ApiResponse({ status: 200, description: '조회 성공' })
-  async getFunnelAnalysis(@Query('days') days?: string) {
-    return this.chatbotAnalyticsService.getFunnelAnalysis(
-      days ? parseInt(days, 10) || 30 : 30,
-    );
-  }
-
-  @Get('admin/leads')
-  @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @SkipThrottle({ default: true, strict: true })
-  @ApiOperation({
-    summary: '유망 리드 목록 (관리자)',
-    description: '리드 스코어 기반으로 유망 고객을 분석합니다.',
-  })
-  @ApiQuery({ name: 'limit', required: false, description: '조회 개수' })
-  @ApiResponse({ status: 200, description: '조회 성공' })
-  async getLeadScores(@Query('limit') limit?: string) {
-    return this.chatbotAnalyticsService.getLeadScores(
-      limit ? parseInt(limit, 10) || 50 : 50,
-    );
-  }
-
-  @Get('admin/countries')
-  @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @SkipThrottle({ default: true, strict: true })
-  @ApiOperation({
-    summary: '국가별 통계 (관리자)',
-    description: '국가별 방문 및 전환율을 분석합니다.',
-  })
-  @ApiQuery({ name: 'days', required: false, description: '조회 기간 (일)' })
-  @ApiResponse({ status: 200, description: '조회 성공' })
-  async getCountryStats(@Query('days') days?: string) {
-    return this.chatbotAnalyticsService.getCountryStats(
-      days ? parseInt(days, 10) || 30 : 30,
-    );
   }
 
   @Get('admin/flow/:sessionId')
@@ -362,7 +292,7 @@ export class ChatbotController {
     @Body() body: { title?: string },
     @RequireUserId() _userId: string, // 인증 확인용
   ) {
-    return this.chatbotService.createEstimateFromFlow(sessionId, body.title);
+    return this.chatbotCompletionService.createEstimateFromFlow(sessionId, body.title);
   }
 
   @Get('by-estimate/:estimateId')
@@ -381,91 +311,6 @@ export class ChatbotController {
     @Param('estimateId', ParseIntPipe) estimateId: number,
   ) {
     return this.chatbotService.getFlowByEstimateId(estimateId);
-  }
-
-  // ============ SSE 실시간 이벤트 ============
-
-  @Get(':sessionId/events')
-  @Public()
-  @SkipThrottle({ default: true, strict: true })
-  @Sse()
-  @ApiOperation({
-    summary: 'SSE 이벤트 구독',
-    description:
-      '세션의 실시간 이벤트(새 메시지, 견적 상태 변경)를 SSE로 구독합니다.',
-  })
-  @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({ status: 200, description: 'SSE 연결 성공' })
-  async subscribeToEvents(
-    @Param('sessionId') sessionId: string,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<Observable<MessageEvent>> {
-    // 세션 존재 여부 검증 (UUID 형식 + DB 존재)
-    await this.chatbotService.getFlow(sessionId);
-
-    // Set headers for SSE (passthrough allows NestJS to still handle response)
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
-
-    // 각 연결마다 독립적인 Subject 생성 (다중 구독자 지원)
-    const subject = this.chatbotSseService.createSubscriber(sessionId);
-
-    // Ping every 30 seconds to keep connection alive
-    const ping$ = interval(30000).pipe(
-      map(
-        () =>
-          ({
-            type: 'ping',
-            data: JSON.stringify({ timestamp: Date.now() }),
-          }) as MessageEvent,
-      ),
-    );
-
-    // Cleanup on disconnect - 이 연결의 Subject만 제거 (다른 구독자에 영향 없음)
-    res.on('close', () => {
-      this.chatbotSseService.removeSubscriber(sessionId, subject);
-    });
-
-    // Merge events and pings, complete when subject completes
-    return merge(subject.asObservable(), ping$).pipe(
-      takeWhile(() => !subject.closed),
-      map(
-        (event) =>
-          ({
-            type: event.type,
-            data: event.data,
-            id: event.id,
-          }) as MessageEvent,
-      ),
-    );
-  }
-
-  @Get(':sessionId/events/missed')
-  @Public()
-  @SkipThrottle({ default: true, strict: true })
-  @ApiOperation({
-    summary: '누락된 SSE 이벤트 조회',
-    description:
-      '재연결 시 누락된 이벤트를 조회합니다. since 파라미터로 특정 시점 이후 이벤트만 조회 가능.',
-  })
-  @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiQuery({
-    name: 'since',
-    required: false,
-    description: '이 타임스탬프 이후의 이벤트만 조회 (밀리초)',
-  })
-  @ApiResponse({ status: 200, description: '조회 성공' })
-  getMissedEvents(
-    @Param('sessionId') sessionId: string,
-    @Query('since') since?: string,
-  ): { events: import('./chatbot-sse.service').QueuedEvent[] } {
-    const sinceTimestamp = since ? parseInt(since, 10) : undefined;
-    const events = this.chatbotSseService.getMissedEvents(
-      sessionId,
-      sinceTimestamp,
-    );
-    return { events };
   }
 
   // ============ 동적 라우트 ============
@@ -697,33 +542,6 @@ export class ChatbotController {
     return this.chatbotService.updateStep6(sessionId, dto, userId);
   }
 
-  @Patch(':sessionId/step/7')
-  @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
-  @SkipThrottle({ default: true, strict: true })
-  @ApiOperation({
-    summary: 'Step 7 업데이트 (로그인 필수)',
-    description: '연락처 정보 입력 - 로그인이 필요합니다.',
-  })
-  @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({
-    status: 200,
-    description: '업데이트 성공',
-    type: ChatbotFlowDto,
-  })
-  @ApiResponse({
-    status: 401,
-    description: '인증 필요',
-    type: ErrorResponseDto,
-  })
-  async updateStep7(
-    @Param('sessionId') sessionId: string,
-    @Body() dto: UpdateStep7Dto,
-    @RequireUserId() userId: string,
-  ) {
-    return this.chatbotService.updateStep7(sessionId, dto, userId);
-  }
-
   @Post(':sessionId/track')
   @Public()
   @SkipThrottle({ default: true, strict: true })
@@ -760,7 +578,7 @@ export class ChatbotController {
     @Param('sessionId') sessionId: string,
     @CurrentUser('id') userId?: string,
   ) {
-    return this.chatbotService.completeFlow(sessionId, userId);
+    return this.chatbotCompletionService.completeFlow(sessionId, userId);
   }
 
   @Post(':sessionId/send-to-expert')
@@ -778,7 +596,7 @@ export class ChatbotController {
     @Param('sessionId') sessionId: string,
     @CurrentUser('id') userId?: string,
   ) {
-    return this.chatbotService.sendToExpert(sessionId, userId);
+    return this.chatbotCompletionService.sendToExpert(sessionId, userId);
   }
 
   @Post(':sessionId/respond')
@@ -806,7 +624,7 @@ export class ChatbotController {
     @Body() dto: RespondToEstimateDto,
     @RequireUserId() userId: string,
   ) {
-    return this.chatbotService.respondToEstimate(
+    return this.chatbotCompletionService.respondToEstimate(
       sessionId,
       dto.response,
       dto.modificationRequest,
@@ -835,7 +653,7 @@ export class ChatbotController {
     @Param('sessionId') sessionId: string,
     @Body() dto: SaveMessageDto,
   ) {
-    return this.chatbotService.saveMessage(sessionId, dto);
+    return this.chatbotMessageService.saveMessage(sessionId, dto);
   }
 
   @Post(':sessionId/messages/batch')
@@ -856,7 +674,7 @@ export class ChatbotController {
     @Param('sessionId') sessionId: string,
     @Body() dto: SaveMessageBatchDto,
   ) {
-    return this.chatbotService.saveMessagesBatch(sessionId, dto.messages);
+    return this.chatbotMessageService.saveMessagesBatch(sessionId, dto.messages);
   }
 
   @Get(':sessionId/messages')
@@ -874,7 +692,7 @@ export class ChatbotController {
     type: ErrorResponseDto,
   })
   async getMessages(@Param('sessionId') sessionId: string) {
-    return this.chatbotService.getMessages(sessionId);
+    return this.chatbotMessageService.getMessages(sessionId);
   }
 
   @Patch(':sessionId/title')
@@ -903,7 +721,7 @@ export class ChatbotController {
     @CurrentUser('id') userId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.chatbotService.updateSessionTitle(sessionId, dto.title, userId, userRole);
+    return this.chatbotMessageService.updateSessionTitle(sessionId, dto.title, userId, userRole);
   }
 
   @Patch(':sessionId/link-user')
@@ -926,7 +744,7 @@ export class ChatbotController {
     @Param('sessionId') sessionId: string,
     @RequireUserId() userId: string,
   ) {
-    return this.chatbotService.linkSessionToUser(sessionId, userId);
+    return this.chatbotMessageService.linkSessionToUser(sessionId, userId);
   }
 
   @Delete(':sessionId')
@@ -1065,41 +883,6 @@ export class ChatbotController {
     return this.conversationalEstimateService.chat(sessionId, dto.message, userId);
   }
 
-  @Post(':sessionId/itinerary/modify')
-  @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard)
-  @Throttle({ default: { limit: 20, ttl: 60000 } })
-  @ApiOperation({
-    summary: '대화형 일정 수정',
-    description:
-      '사용자의 자연어 메시지를 분석하여 AI가 일정을 수정합니다. Step 7에서 사용됩니다.',
-  })
-  @ApiParam({ name: 'sessionId', description: '세션 ID' })
-  @ApiResponse({
-    status: 200,
-    description: '수정 성공',
-    type: ModifyItineraryResponseDto,
-  })
-  @ApiResponse({
-    status: 400,
-    description: '견적 없음',
-    type: ErrorResponseDto,
-  })
-  @ApiResponse({
-    status: 404,
-    description: '세션 없음',
-    type: ErrorResponseDto,
-  })
-  async modifyItineraryConversational(
-    @Param('sessionId') sessionId: string,
-    @Body() dto: ModifyItineraryMessageDto,
-  ) {
-    return this.conversationalEstimateService.modifyItinerary(
-      sessionId,
-      dto.message,
-    );
-  }
-
   @Post(':sessionId/itinerary/regenerate-day/:dayNumber')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
@@ -1167,7 +950,7 @@ export class ChatbotController {
 
     // 알림/이메일 체이닝 (최초 finalize 시에만, 멱등성 반환 시 스킵)
     if (result.success && !result.alreadyFinalized) {
-      await this.chatbotService.triggerExpertNotification(sessionId);
+      await this.chatbotCompletionService.triggerExpertNotification(sessionId);
     }
 
     return result;

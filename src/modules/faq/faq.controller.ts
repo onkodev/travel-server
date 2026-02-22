@@ -26,6 +26,11 @@ import { Public } from '../../common/decorators/public.decorator';
 import { UserRole } from '../../common/types';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { FaqService } from './faq.service';
+import { FaqEmbeddingService } from './faq-embedding.service';
+import { FaqChatService } from './faq-chat.service';
+import { FaqReviewService } from './faq-review.service';
+import { FaqCategorizeService } from './faq-categorize.service';
+import { FaqChatLogService } from './faq-chat-log.service';
 import {
   FaqQueryDto,
   CreateFaqDto,
@@ -35,6 +40,8 @@ import {
   BulkActionDto,
   FaqSearchQueryDto,
   FaqChatDto,
+  FaqFeedbackDto,
+  FaqRegenerateDto,
   FaqChatLogQueryDto,
   CheckDuplicateDto,
   ScanDuplicatesDto,
@@ -48,7 +55,14 @@ import {
 @SkipThrottle({ default: true, strict: true })
 @Controller('faq')
 export class FaqController {
-  constructor(private faqService: FaqService) {}
+  constructor(
+    private faqService: FaqService,
+    private faqEmbeddingService: FaqEmbeddingService,
+    private faqChatService: FaqChatService,
+    private faqReviewService: FaqReviewService,
+    private faqCategorizeService: FaqCategorizeService,
+    private faqChatLogService: FaqChatLogService,
+  ) {}
 
   // ============================================================================
   // FAQ CRUD
@@ -72,7 +86,7 @@ export class FaqController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'FAQ 유사 검색 (챗봇용)' })
   async searchSimilar(@Query() query: FaqSearchQueryDto) {
-    return this.faqService.searchSimilar(query.q, query.limit);
+    return this.faqEmbeddingService.searchSimilar(query.q, query.limit);
   }
 
   @Post('chat')
@@ -80,10 +94,26 @@ export class FaqController {
   @Throttle({ default: { limit: 15, ttl: 60000 } })
   @ApiOperation({ summary: 'FAQ 기반 AI 채팅' })
   async chatWithFaq(@Body() dto: FaqChatDto, @Req() req: Request) {
-    return this.faqService.chatWithFaq(dto.message, dto.history, {
+    return this.faqChatService.chatWithFaq(dto.message, dto.history, {
       ipAddress: extractIpAddress(req),
       visitorId: dto.visitorId,
     });
+  }
+
+  @Post('feedback')
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'FAQ 챗봇 응답 피드백 (👍/👎)' })
+  async submitFeedback(@Body() dto: FaqFeedbackDto) {
+    return this.faqChatService.submitFeedback(dto.chatLogId, dto.helpful);
+  }
+
+  @Post('regenerate')
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'FAQ 답변 재생성 (다른 유사 FAQ 기반)' })
+  async regenerateAnswer(@Body() dto: FaqRegenerateDto) {
+    return this.faqChatService.regenerateAnswer(dto.chatLogId);
   }
 
   @Get('answer/:id')
@@ -92,7 +122,7 @@ export class FaqController {
   @ApiOperation({ summary: 'FAQ 원문 답변 조회 (제안 질문 클릭용)' })
   @ApiParam({ name: 'id', description: 'FAQ ID' })
   async getDirectFaqAnswer(@Param('id', ParseIntPipe) id: number) {
-    return this.faqService.getDirectFaqAnswer(id);
+    return this.faqChatService.getDirectFaqAnswer(id);
   }
 
   @Post('remove-duplicates')
@@ -110,13 +140,13 @@ export class FaqController {
   @Post('auto-categorize')
   @ApiOperation({ summary: 'AI 자동 카테고리 분류 (미분류 FAQ 대상)' })
   async autoCategorize() {
-    return this.faqService.autoCategorizeFaqs();
+    return this.faqCategorizeService.autoCategorizeFaqs();
   }
 
   @Post('check-duplicate')
   @ApiOperation({ summary: 'FAQ 중복 체크' })
   async checkDuplicate(@Body() body: CheckDuplicateDto) {
-    return this.faqService.checkDuplicates(
+    return this.faqEmbeddingService.checkDuplicates(
       body.question,
       body.threshold,
       body.excludeId,
@@ -132,7 +162,7 @@ export class FaqController {
   @Get('chat-logs')
   @ApiOperation({ summary: 'FAQ 채팅 로그 목록 (관리자)' })
   async getChatLogs(@Query() query: FaqChatLogQueryDto) {
-    return this.faqService.getFaqChatLogs({
+    return this.faqChatLogService.getFaqChatLogs({
       page: query.page,
       limit: query.limit,
       noMatch: parseBooleanQuery(query.noMatch),
@@ -147,7 +177,7 @@ export class FaqController {
   @Get('chat-stats')
   @ApiOperation({ summary: 'FAQ 채팅 통계 (관리자)' })
   async getChatStats() {
-    return this.faqService.getFaqChatStats();
+    return this.faqChatLogService.getFaqChatStats();
   }
 
   @Get(':id')
@@ -245,7 +275,7 @@ export class FaqController {
     @CurrentUser('id') userId: string,
     @Body() body: AutoReviewFaqsDto,
   ) {
-    return this.faqService.autoReviewFaqs(userId, {
+    return this.faqReviewService.autoReviewFaqs(userId, {
       batchSize: body.batchSize,
       dryRun: body.dryRun,
     });
@@ -254,6 +284,6 @@ export class FaqController {
   @Post('regenerate-embeddings')
   @ApiOperation({ summary: '승인된 FAQ 전체 임베딩 재생성 (한국어 포함)' })
   async regenerateEmbeddings() {
-    return this.faqService.regenerateAllEmbeddings();
+    return this.faqEmbeddingService.regenerateAllEmbeddings();
   }
 }

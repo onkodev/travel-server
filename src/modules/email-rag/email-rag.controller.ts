@@ -4,7 +4,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { EmailEmbeddingService } from './email-embedding.service';
 import { EmailRagService } from './email-rag.service';
-import { SearchEmailRagDto, SyncEmailRagDto, AnalyzePlacesDto } from './dto';
+import { SearchEmailRagDto, SyncEmailRagDto, AnalyzePlacesDto, EmbedEstimatesDto } from './dto';
 
 @SkipThrottle({ default: true, strict: true })
 @Controller('email-rag/admin')
@@ -65,5 +65,58 @@ export class EmailRagController {
       dto.limit,
       dto.similarityMin,
     );
+  }
+
+  /**
+   * 노이즈 이메일 일괄 마킹
+   * POST /api/email-rag/admin/mark-noise
+   */
+  @Public()
+  @Post('mark-noise')
+  async markNoise() {
+    this.logger.log('Starting noise email marking');
+    return this.embeddingService.batchMarkNoise();
+  }
+
+  /**
+   * 노이즈 통계 조회
+   * GET /api/email-rag/admin/noise-stats
+   */
+  @Public()
+  @Get('noise-stats')
+  async noiseStats() {
+    return this.embeddingService.getNoiseStats();
+  }
+
+  /**
+   * 견적 일괄 임베딩
+   * POST /api/email-rag/admin/sync-estimate-embeddings
+   */
+  @Public()
+  @Post('sync-estimate-embeddings')
+  async syncEstimateEmbeddings(@Body() dto: SyncEmailRagDto) {
+    this.logger.log(`Starting estimate embedding sync (batchSize: ${dto.batchSize || 100})`);
+    return this.embeddingService.syncEstimateEmbeddings(dto.batchSize);
+  }
+
+  /**
+   * 견적 임베딩 상태 조회
+   * GET /api/email-rag/admin/estimate-embedding-status
+   */
+  @Public()
+  @Get('estimate-embedding-status')
+  async estimateEmbeddingStatus() {
+    return this.embeddingService.getEstimateEmbeddingStatus();
+  }
+
+  /**
+   * 선택한 견적 임베딩
+   * POST /api/email-rag/admin/embed-estimates
+   */
+  @Public()
+  @Post('embed-estimates')
+  async embedEstimates(@Body() dto: EmbedEstimatesDto) {
+    this.logger.log(`Selected estimate embedding: ${dto.ids.length}건`);
+    return this.embeddingService.embedEstimatesByIds(dto.ids);
   }
 }

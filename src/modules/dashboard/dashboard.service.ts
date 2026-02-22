@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
+import { DASHBOARD_EVENTS } from '../../common/events';
+import { CACHE_TTL } from '../../common/constants/cache';
 
 // 일별 트렌드 데이터
 export interface DailyTrend {
@@ -14,14 +17,6 @@ export interface MonthlyRevenue {
   month: string;
   revenue: number;
   bookingCount: number;
-}
-
-// 국가별 통계
-export interface CountryStats {
-  country: string;
-  countryName: string;
-  count: number;
-  percentage: number;
 }
 
 // 인기 투어
@@ -86,13 +81,10 @@ export interface DashboardData {
     inProgress: number;
     completed: number;
   };
-  // 새로운 통계
   dailyTrends: DailyTrend[];
   monthlyRevenue: MonthlyRevenue[];
-  countryStats: CountryStats[];
   popularTours: PopularTour[];
   conversionFunnel: ConversionFunnel;
-  tourTypeStats: Array<{ type: string; count: number; percentage: number }>;
 }
 
 // 간단한 인메모리 캐시
@@ -105,14 +97,22 @@ interface CacheEntry {
 export class DashboardService {
   private readonly logger = new Logger(DashboardService.name);
   private cache: CacheEntry | null = null;
-  private readonly CACHE_TTL = 5 * 60 * 1000; // 5분 캐시
 
   constructor(private prisma: PrismaService) {}
+
+  /** 데이터 변경 이벤트 수신 → 캐시 즉시 무효화 */
+  @OnEvent(DASHBOARD_EVENTS.INVALIDATE)
+  invalidateCache() {
+    if (this.cache) {
+      this.logger.debug('대시보드 캐시 무효화');
+      this.cache = null;
+    }
+  }
 
   async getDashboardData() {
     // 캐시 확인
     const now = Date.now();
-    if (this.cache && now - this.cache.timestamp < this.CACHE_TTL) {
+    if (this.cache && now - this.cache.timestamp < CACHE_TTL.DASHBOARD) {
       this.logger.debug('캐시 히트');
       return this.cache.data;
     }
@@ -219,12 +219,10 @@ export class DashboardService {
       ]);
     this.logger.debug(`리스트 데이터: ${Date.now() - startTime}ms`);
 
-    const [dailyTrends, countryStats, popularTours, tourTypeStats] =
+    const [dailyTrends, popularTours] =
       await Promise.all([
         this.getDailyTrends(),
-        this.getCountryStats(),
         this.getPopularTours(),
-        this.getTourTypeStats(),
       ]);
     this.logger.debug(`차트 데이터: ${Date.now() - startTime}ms`);
 
@@ -311,10 +309,8 @@ export class DashboardService {
       chatStats,
       dailyTrends,
       monthlyRevenue,
-      countryStats,
       popularTours,
       conversionFunnel,
-      tourTypeStats,
     };
 
     // 캐시 저장
@@ -385,17 +381,17 @@ export class DashboardService {
     return Array.from(dateMap.values());
   }
 
-  // 월별 매출 (최근 6개월)
+  // 월별 매출 (최근 3개월)
   private async getMonthlyRevenue(): Promise<MonthlyRevenue[]> {
     const start = Date.now();
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-    sixMonthsAgo.setDate(1);
-    sixMonthsAgo.setHours(0, 0, 0, 0);
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    threeMonthsAgo.setDate(1);
+    threeMonthsAgo.setHours(0, 0, 0, 0);
 
     const bookings = await this.prisma.booking.findMany({
       where: {
-        createdAt: { gte: sixMonthsAgo },
+        createdAt: { gte: threeMonthsAgo },
         status: { in: ['confirmed', 'completed'] },
       },
       select: {
@@ -406,8 +402,8 @@ export class DashboardService {
 
     // 월별 집계
     const monthMap = new Map<string, { revenue: number; count: number }>();
-    for (let i = 0; i < 6; i++) {
-      const date = new Date(sixMonthsAgo);
+    for (let i = 0; i < 3; i++) {
+      const date = new Date(threeMonthsAgo);
       date.setMonth(date.getMonth() + i);
       const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       monthMap.set(monthStr, { revenue: 0, count: 0 });
@@ -430,38 +426,6 @@ export class DashboardService {
       bookingCount: data.count,
     }));
     this.logger.debug(`getMonthlyRevenue: ${Date.now() - start}ms`);
-    return result;
-  }
-
-  // 국가별 통계 - Raw SQL로 최적화
-  private async getCountryStats(): Promise<CountryStats[]> {
-    const start = Date.now();
-
-    const countryData = await this.prisma.$queryRaw<
-      Array<{
-        country: string;
-        country_name: string;
-        count: bigint;
-      }>
-    >`
-      SELECT vs.country, vs.country_name, COUNT(*) as count
-      FROM chat_sessions cs
-      JOIN visitor_sessions vs ON cs.visitor_id = vs.id
-      WHERE vs.country IS NOT NULL
-      GROUP BY vs.country, vs.country_name
-      ORDER BY COUNT(*) DESC
-      LIMIT 10
-    `;
-
-    const total = countryData.reduce((sum, c) => sum + Number(c.count), 0);
-
-    const result = countryData.map((c) => ({
-      country: c.country || 'unknown',
-      countryName: c.country_name || c.country || 'Unknown',
-      count: Number(c.count),
-      percentage: total > 0 ? Math.round((Number(c.count) / total) * 100) : 0,
-    }));
-    this.logger.debug(`getCountryStats: ${Date.now() - start}ms`);
     return result;
   }
 
@@ -491,7 +455,7 @@ export class DashboardService {
       WHERE t.status = 'published'
       GROUP BY t.id, t.title, t.thumbnail_url, t.view_count
       ORDER BY COUNT(b.id) DESC
-      LIMIT 5
+      LIMIT 3
     `;
 
     this.logger.debug(`getPopularTours: ${Date.now() - start}ms`);
@@ -505,85 +469,4 @@ export class DashboardService {
     }));
   }
 
-  // 전환율 퍼널 - Raw SQL로 최적화
-  private async getConversionFunnel(): Promise<ConversionFunnel> {
-    const start = Date.now();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    // 단일 쿼리로 모든 통계 조회
-    const [funnelData] = await this.prisma.$queryRaw<
-      Array<{
-        chatbot_started: bigint;
-        estimate_created: bigint;
-        booking_created: bigint;
-        booking_confirmed: bigint;
-      }>
-    >`
-      SELECT
-        (SELECT COUNT(*) FROM chat_sessions WHERE created_at >= ${thirtyDaysAgo}) as chatbot_started,
-        (SELECT COUNT(*) FROM chat_sessions WHERE created_at >= ${thirtyDaysAgo} AND estimate_id IS NOT NULL) as estimate_created,
-        (SELECT COUNT(*) FROM bookings WHERE created_at >= ${thirtyDaysAgo}) as booking_created,
-        (SELECT COUNT(*) FROM bookings WHERE created_at >= ${thirtyDaysAgo} AND status IN ('confirmed', 'completed')) as booking_confirmed
-    `;
-
-    const chatbotStarted = Number(funnelData.chatbot_started);
-    const estimateCreated = Number(funnelData.estimate_created);
-    const bookingCreated = Number(funnelData.booking_created);
-    const bookingConfirmed = Number(funnelData.booking_confirmed);
-
-    const chatToEstimateRate =
-      chatbotStarted > 0
-        ? ((estimateCreated / chatbotStarted) * 100).toFixed(1) + '%'
-        : '0%';
-    const estimateToBookingRate =
-      estimateCreated > 0
-        ? ((bookingCreated / estimateCreated) * 100).toFixed(1) + '%'
-        : '0%';
-    const overallConversionRate =
-      chatbotStarted > 0
-        ? ((bookingConfirmed / chatbotStarted) * 100).toFixed(1) + '%'
-        : '0%';
-
-    this.logger.debug(`getConversionFunnel: ${Date.now() - start}ms`);
-    return {
-      chatbotStarted,
-      estimateCreated,
-      bookingCreated,
-      bookingConfirmed,
-      chatToEstimateRate,
-      estimateToBookingRate,
-      overallConversionRate,
-    };
-  }
-
-  // 투어 타입별 선호도 - Raw SQL로 최적화
-  private async getTourTypeStats(): Promise<
-    Array<{ type: string; count: number; percentage: number }>
-  > {
-    const start = Date.now();
-
-    const typeData = await this.prisma.$queryRaw<
-      Array<{
-        tour_type: string;
-        count: bigint;
-      }>
-    >`
-      SELECT tour_type, COUNT(*) as count
-      FROM chat_sessions
-      WHERE tour_type IS NOT NULL
-      GROUP BY tour_type
-      ORDER BY COUNT(*) DESC
-    `;
-
-    const total = typeData.reduce((sum, t) => sum + Number(t.count), 0);
-
-    const result = typeData.map((t) => ({
-      type: t.tour_type || 'unknown',
-      count: Number(t.count),
-      percentage: total > 0 ? Math.round((Number(t.count) / total) * 100) : 0,
-    }));
-    this.logger.debug(`getTourTypeStats: ${Date.now() - start}ms`);
-    return result;
-  }
 }

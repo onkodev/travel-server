@@ -50,7 +50,7 @@ export const PROMPT_REGISTRY: Record<PromptKey, PromptDefinition> = {
     category: 'estimate',
     variables: ['requestContent', 'itemsSummary'],
     defaultTemperature: 0.3,
-    defaultMaxOutputTokens: 1024,
+    defaultMaxOutputTokens: 2048,
     defaultText: `You are a Korea inbound travel specialist. Analyze the customer request and estimate items below, then extract structured travel preferences.
 
 ## Customer Request
@@ -64,17 +64,19 @@ Extract the following fields from the information above:
 1. regions — destination cities (e.g. Seoul, Busan, Jeju)
 2. interests — theme categories (food, history, nature, shopping, K-pop, cultural experience, etc.)
 3. keywords — specific names (dishes, landmarks, activities)
-4. groupType — one of: solo, couple, family, friends, group (null if unknown)
-5. budgetLevel — one of: budget, mid, premium, luxury (null if unknown)
-6. specialNeeds — accessibility or dietary needs (wheelchair, vegetarian, halal, infant, pickup, etc.)
+4. tourType — one of: private, package, group, custom (null if unknown)
+5. travelerType — one of: solo, couple, family, friends, group (null if unknown)
+6. priceRange — one of: budget, mid, premium (null if unknown)
+7. specialNeeds — accessibility or dietary needs (wheelchair, vegetarian, halal, infant, pickup, etc.)
 
 Respond ONLY with valid JSON:
 {
   "regions": ["Seoul"],
   "interests": ["food", "history"],
   "keywords": ["bibimbap", "Gyeongbokgung"],
-  "groupType": "family",
-  "budgetLevel": "mid",
+  "tourType": "private",
+  "travelerType": "family",
+  "priceRange": "mid",
   "specialNeeds": []
 }`,
   },
@@ -101,6 +103,7 @@ Respond ONLY with valid JSON:
       'pickupLine',
       'availablePlacesSection',
       'emailContext',
+      'estimateContext',
       'placesPerDayRange',
       'visitorTip',
       'customPromptAddon',
@@ -122,11 +125,12 @@ Respond ONLY with valid JSON:
 {{attractionsLine}}
 {{pickupLine}}
 
-## 2. AVAILABLE PLACES (prefer these when relevant)
+## 2. AVAILABLE PLACES (STRONGLY prefer these — at least 80% must be from this list)
 {{availablePlacesSection}}
 
 ## 3. REFERENCE EMAILS (use as inspiration only — do NOT copy)
 {{emailContext}}
+{{estimateContext}}
 
 ## RULES
 - The itinerary MUST reflect the customer's stated interests above all else.
@@ -488,7 +492,7 @@ Generate the timeline:`,
     category: 'faq',
     variables: ['message'],
     defaultTemperature: 0,
-    defaultMaxOutputTokens: 10,
+    defaultMaxOutputTokens: 128,
     defaultText: `Classify this customer question into exactly ONE category:
 
 - "company": About bookings, reservations, cancellations, refunds, policies, schedules, guides, pickup, itinerary changes, or contacting the agency
@@ -506,7 +510,7 @@ Reply with ONLY one word: company OR tour_recommend OR travel`,
     description:
       '의도가 tour_recommend로 분류된 경우, 매칭된 투어 정보를 기반으로 자연스러운 추천 답변을 생성합니다. 투어 카드 UI와 함께 표시되므로 URL은 포함하지 않습니다.',
     category: 'faq',
-    variables: ['tourInfo'],
+    variables: ['tourInfo', 'faqCustomInstructions'],
     defaultTemperature: 0.7,
     defaultMaxOutputTokens: 512,
     defaultText: `You are a friendly travel assistant for Tumakr / One Day Korea, a company offering private tours in Korea.
@@ -524,7 +528,8 @@ Guidelines:
 - Briefly explain why each tour matches their interest.
 - Do NOT include URLs, links, or bracketed references like [Link] — the UI shows clickable tour cards separately.
 - Use a conversational tone.
-- End by mentioning they can start a tour inquiry for a personalized plan, or email info@tumakr.com.`,
+- End by mentioning they can start a tour inquiry for a personalized plan, or email info@onedaykorea.com.
+{{faqCustomInstructions}}`,
   },
 
   [PromptKey.FAQ_GENERAL_TRAVEL]: {
@@ -533,7 +538,7 @@ Guidelines:
     description:
       '의도가 travel로 분류된 경우의 system prompt입니다. 한국 여행 일반 정보(날씨, 교통, 음식, 비자 등)에 대해 Gemini가 직접 답변합니다. FAQ DB를 사용하지 않습니다.',
     category: 'faq',
-    variables: [],
+    variables: ['faqCustomInstructions'],
     defaultTemperature: 0.7,
     defaultMaxOutputTokens: 1024,
     defaultText: `You are a friendly Korea travel assistant for Tumakr, a travel agency specializing in private Korea tours.
@@ -553,38 +558,49 @@ Guidelines:
 - Be helpful, accurate, and concise (under 250 words).
 - Use a friendly, conversational tone.
 - You may use markdown (bold, bullet points) for clarity.
-- If asked about specific tour packages, prices, or bookings, suggest they start a tour inquiry for personalized help, or email info@tumakr.com.
+- If asked about specific tour packages, prices, or bookings, suggest they start a tour inquiry for personalized help, or email info@onedaykorea.com.
 - Base answers on common, accurate knowledge about Korea.
 - When asked about the current date, time, or day, use today's date provided above.
-- If you're unsure whether information is current (e.g., specific event dates, policy changes, pricing), say so and suggest checking official sources.`,
+- If you're unsure whether information is current (e.g., specific event dates, policy changes, pricing), say so and suggest checking official sources.
+{{faqCustomInstructions}}`,
   },
 
   [PromptKey.FAQ_RAG_ANSWER]: {
     key: PromptKey.FAQ_RAG_ANSWER,
     name: 'FAQ RAG 응답',
     description:
-      '의도가 company로 분류되고 유사한 FAQ가 RAG 임계값 이상으로 매칭된 경우의 system prompt입니다. FAQ 원문을 참고하여 자연스러운 답변을 생성합니다.',
+      '의도가 company로 분류된 모든 질문의 system prompt입니다. 상위 FAQ를 전달받아 관련성 판단 후 답변을 합성하거나 [NO_MATCH]를 반환합니다.',
     category: 'faq',
-    variables: ['faqContext'],
+    variables: ['faqContext', 'faqCustomInstructions'],
     defaultTemperature: 0.5,
     defaultMaxOutputTokens: 1024,
-    defaultText: `You are a helpful travel assistant for Tumakr, a Korea travel agency.
+    defaultText: `You are a friendly customer service assistant for Tumakr (One Day Korea), a Korea travel agency.
 Today's date: {{currentDate}}
 
-Answer the user's question based on the FAQ entries below.
+Your task: Answer the customer's question using ONLY the FAQ entries below. Each entry has a similarity score — higher means more relevant.
 
 === FAQ Reference ===
 {{faqContext}}
 === End FAQ ===
 
-Guidelines:
-- Be friendly and concise.
-- Base your answer on the FAQ entries provided.
-- If the FAQ entries don't fully answer the question, say so honestly and suggest they start a tour inquiry or email info@tumakr.com.
-- Do NOT make up information about tours, prices, or schedules.
-- Keep responses under 300 words.
-- You may use markdown formatting for clarity.
-- When asked about the current date or time, use today's date provided above.`,
+You MUST respond with a JSON object in this exact format (no markdown fences):
+{"matched": true, "answer": "your helpful answer here"}
+or if NO FAQ entry is relevant:
+{"matched": false, "answer": ""}
+
+When matched is true, write a helpful answer by:
+  - Focusing on the most relevant FAQ entries (higher similarity)
+  - Combining info from multiple entries when useful
+  - Rephrasing naturally — do NOT copy FAQ text verbatim
+  - Addressing the customer's specific question directly
+
+Rules:
+- Never invent information about tours, prices, schedules, or policies
+- Do NOT reference FAQ numbers, source numbers, or internal labels in your answer
+- If the FAQ only partially answers the question, share what you know and suggest emailing info@onedaykorea.com for details
+- Keep it concise (under 200 words) and conversational
+- You may use markdown (bold, bullet points) for clarity in the answer field
+{{faqCustomInstructions}}`,
   },
 
   [PromptKey.FAQ_AUTO_REVIEW]: {
@@ -655,6 +671,6 @@ Use exact category keys. No other text.`,
     variables: [],
     defaultTemperature: 0,
     defaultMaxOutputTokens: 0,
-    defaultText: `I don't have specific information about that in our FAQ. For questions about our tours, pricing, or bookings, please start a tour inquiry for personalized assistance, or contact us directly at info@tumakr.com.`,
+    defaultText: `I don't have specific information about that in our FAQ. For questions about our tours, pricing, or bookings, please start a tour inquiry for personalized assistance, or contact us directly at info@onedaykorea.com.`,
   },
 };

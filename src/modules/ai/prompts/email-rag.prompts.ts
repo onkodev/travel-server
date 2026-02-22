@@ -2,6 +2,49 @@
  * 관심사 키워드 확장 맵
  * 챗봇 카테고리 키 → 구체적 장소/경험 설명 (RAG + Gemini 양쪽에서 사용)
  */
+/**
+ * 챗봇 관심사 키 → DB 카테고리 값 매핑
+ * DB 카테고리: Theme:*, Target:*, Demographic:*
+ */
+export const INTEREST_TO_DB_CATEGORIES: Record<string, string[]> = {
+  // 메인 카테고리
+  culture: ['Theme:History', 'Theme:Art'],
+  kculture: ['Theme:K-pop'],
+  food_shopping: ['Theme:Foodie', 'Theme:Shopping'],
+  nature: ['Theme:Nature'],
+  local: ['Target:Local-Vibe'],
+  // 서브 카테고리
+  historical: ['Theme:History'],
+  museums: ['Theme:Art'],
+  architecture: ['Theme:Art'],
+  kpop: ['Theme:K-pop'],
+  kdrama: ['Theme:K-pop'],
+  beauty: ['Theme:Shopping'],
+  food: ['Theme:Foodie'],
+  markets: ['Theme:Shopping'],
+  shopping: ['Theme:Shopping'],
+  fashion: ['Theme:Shopping'],
+  hiking: ['Theme:Nature'],
+  adventure: ['Theme:Adventure'],
+  hidden_places: ['Target:Local-Vibe'],
+  like_local: ['Target:Local-Vibe'],
+  sports: ['Theme:Adventure'],
+  luxury: ['Theme:Luxury'],
+  nature_sub: ['Theme:Nature'],
+};
+
+/**
+ * 관심사 키 목록 → DB 카테고리 값 배열 (중복 제거)
+ */
+export function interestToCategories(interests: string[]): string[] {
+  const cats = new Set<string>();
+  for (const key of interests) {
+    const mapped = INTEREST_TO_DB_CATEGORIES[key];
+    if (mapped) mapped.forEach((c) => cats.add(c));
+  }
+  return [...cats];
+}
+
 export const INTEREST_KEYWORDS: Record<string, string> = {
   // 메인 카테고리
   culture: 'palaces, temples, historical sites, traditional villages, museums, UNESCO heritage, royal tombs, fortress walls',

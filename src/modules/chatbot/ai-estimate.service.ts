@@ -17,6 +17,7 @@ import {
 } from '../../common/utils';
 import { EstimateItem } from '../../common/types';
 import { EmailRagService, type PipelineLog } from '../email-rag/email-rag.service';
+import { EmailEmbeddingService } from '../email-rag/email-embedding.service';
 import type { DraftResult } from '../email-rag/dto';
 import {
   PlaceMatcherService,
@@ -123,7 +124,7 @@ interface ChatbotFlowData {
 @Injectable()
 export class AiEstimateService {
   private readonly logger = new Logger(AiEstimateService.name);
-  private configCache: { data: { geminiModel: string; ragSearchLimit: number; ragSimilarityMin: number; geminiTemperature: number; geminiMaxTokens: number; placesPerDay: number; ragTimeout: number; customPromptAddon: string | null; fuzzyMatchThreshold: number; directThreshold: number; ragThreshold: number; noMatchResponse: string | null }; expiresAt: number } | null = null;
+  private configCache: { data: { geminiModel: string; ragSearchLimit: number; ragSimilarityMin: number; geminiTemperature: number; geminiMaxTokens: number; placesPerDay: number; ragTimeout: number; customPromptAddon: string | null; fuzzyMatchThreshold: number; directThreshold: number; ragThreshold: number; noMatchResponse: string | null; estimateValidityDays: number; aiEstimateValidityDays: number }; expiresAt: number } | null = null;
   private static readonly CONFIG_TTL_MS = CACHE_TTL.AI_CONFIG;
 
   // 영어 → 한글 지역명 매핑
@@ -145,6 +146,7 @@ export class AiEstimateService {
     private configService: ConfigService,
     private emailRagService: EmailRagService,
     private placeMatcher: PlaceMatcherService,
+    private emailEmbeddingService: EmailEmbeddingService,
   ) {}
 
   /**
@@ -276,7 +278,7 @@ export class AiEstimateService {
         },
       };
 
-      return this.generateTbdEstimate(flow, metadata);
+      return this.generateTbdEstimate(flow, metadata, config.aiEstimateValidityDays);
     }
 
     // 사용자 attractions 반영
@@ -324,7 +326,7 @@ export class AiEstimateService {
         generationSource,
         ragSources: ragDraft?.ragSources,
         aiMetadata: metadata,
-      }, tx);
+      }, tx, config.aiEstimateValidityDays);
 
       await tx.chatbotFlow.update({
         where: { sessionId: flow.sessionId },
@@ -337,6 +339,11 @@ export class AiEstimateService {
     this.logger.log(
       `[generateFirstEstimate] 완료 - estimateId: ${estimate.id}, source: ${generationSource}`,
     );
+
+    // 견적 임베딩 fire-and-forget
+    this.emailEmbeddingService.embedEstimate(estimate.id).catch((e) => {
+      this.logger.warn(`견적 임베딩 실패 (${estimate.id}): ${(e as Error).message}`);
+    });
 
     return {
       estimateId: estimate.id,
@@ -421,7 +428,7 @@ export class AiEstimateService {
     if (nameMatchInputs.length > 0) {
       const matchResults = await this.placeMatcher.matchPlaces(
         nameMatchInputs.map((m) => ({ name: m.name, nameKor: m.nameKor })),
-        { fuzzyThreshold, fullSelect: true },
+        { fuzzyThreshold, fullSelect: true, region: flow.region || undefined },
       ) as PlaceMatchResult<MatchedItemFull>[];
 
       for (let j = 0; j < nameMatchInputs.length; j++) {
@@ -679,14 +686,21 @@ export class AiEstimateService {
 
   /**
    * 신뢰도 점수 계산 (0-100)
-   * confidence = (0.35 * matchRate) + (0.25 * avgRagSimilarity) + (0.20 * interestCoverage) + (0.20 * (1 - tbdRate))
+   * 매칭 tier별 가중치: geminiId/exact=1.0, partial=0.8, fuzzy=0.5
    */
   private calculateConfidenceScore(metadata: AiEstimateMetadata): number {
     const { itemMatching, ragSearch, pipelineLog } = metadata;
 
-    // matchRate: 매칭된 아이템 / 전체 아이템
     const totalItems = itemMatching.totalDraftItems;
-    const matchRate = totalItems > 0 ? itemMatching.matchedCount / totalItems : 0;
+    if (totalItems === 0) return 0;
+
+    // matchQuality: tier별 가중 매칭률 (geminiId/exact=1.0, partial=0.8, fuzzy=0.5)
+    const tierWeights: Record<string, number> = { geminiId: 1.0, exact: 1.0, partial: 0.8, fuzzy: 0.5 };
+    const weightedMatchSum = itemMatching.matchedItems.reduce(
+      (sum, m) => sum + (tierWeights[m.tier] ?? 0.5),
+      0,
+    );
+    const matchQuality = weightedMatchSum / totalItems;
 
     // avgRagSimilarity: 상위 3개 RAG 소스 평균 유사도
     const sources = ragSearch?.sources || [];
@@ -699,7 +713,6 @@ export class AiEstimateService {
     let interestCoverage = 0;
     if (pipelineLog?.reranking?.keywords?.length) {
       const totalKeywords = pipelineLog.reranking.keywords.length;
-      // 선택된 이메일에서 매칭된 고유 키워드 수
       const matchedKeywords = new Set<string>();
       for (const detail of pipelineLog.reranking.details.slice(0, topSources.length)) {
         for (const kw of detail.matchedKeywords) {
@@ -712,7 +725,7 @@ export class AiEstimateService {
     // tbdRate: TBD 아이템 / 전체 아이템
     const tbdRate = itemMatching.tbdCount / totalItems;
 
-    const score = (0.35 * matchRate) + (0.25 * avgRagSimilarity) + (0.20 * interestCoverage) + (0.20 * (1 - tbdRate));
+    const score = (0.35 * matchQuality) + (0.25 * avgRagSimilarity) + (0.20 * interestCoverage) + (0.20 * (1 - tbdRate));
 
     // 0-100으로 스케일
     return Math.round(Math.min(100, Math.max(0, score * 100)));
@@ -724,6 +737,7 @@ export class AiEstimateService {
   private async generateTbdEstimate(
     flow: ChatbotFlowData,
     aiMetadata?: AiEstimateMetadata,
+    validityDays?: number,
   ): Promise<{ estimateId: number; shareHash: string; items: FormattedEstimateItem[]; hasTbdDays: boolean }> {
     const duration = flow.duration || 3;
     const items: EstimateItem[] = [];
@@ -753,7 +767,7 @@ export class AiEstimateService {
     const estimate = await this.prisma.$transaction(async (tx) => {
       const est = await this.createEstimate(flow, finalItems, {
         aiMetadata,
-      }, tx);
+      }, tx, validityDays);
 
       await tx.chatbotFlow.update({
         where: { sessionId: flow.sessionId },
@@ -783,6 +797,7 @@ export class AiEstimateService {
       aiMetadata?: AiEstimateMetadata;
     },
     tx?: Prisma.TransactionClient,
+    validityDays?: number,
   ): Promise<{ id: number; shareHash: string }> {
     const totalPax = calculateTotalPax(flow);
     const region = flow.region || 'unknown';
@@ -802,9 +817,9 @@ export class AiEstimateService {
     // 고객 요청사항 (requestContent)
     const requestContent = this.buildRequestContent(flow);
 
-    // 유효기간: 2일 후
+    // 유효기간: config에서 읽은 일수 (기본 2일)
     const validDate = new Date();
-    validDate.setDate(validDate.getDate() + 2);
+    validDate.setDate(validDate.getDate() + (validityDays ?? 2));
 
     const db = tx || this.prisma;
     const estimate = await db.estimate.create({

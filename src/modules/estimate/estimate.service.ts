@@ -6,8 +6,8 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EmailService } from '../email/email.service';
-import { NotificationService } from '../notification/notification.service';
+import { EstimateStatsService } from './estimate-stats.service';
+import { DASHBOARD_EVENTS } from '../../common/events';
 import { Prisma, Estimate } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import {
@@ -27,19 +27,7 @@ import {
   calculateSkip,
   createPaginatedResponse,
 } from '../../common/dto/pagination.dto';
-import {
-  ESTIMATE_EVENTS,
-  CHATBOT_EVENTS,
-  EstimateSentEvent,
-  ChatbotEstimateStatusEvent,
-} from '../../common/events';
 import { CACHE_TTL } from '../../common/constants/cache';
-
-// Item 캐시 타입 (Prisma 타입과 호환)
-interface ItemCacheEntry {
-  data: Map<number, ItemInfo>;
-  expiresAt: number;
-}
 
 interface ItemInfo {
   id: number;
@@ -55,38 +43,28 @@ interface ItemInfo {
 @Injectable()
 export class EstimateService {
   private readonly logger = new Logger(EstimateService.name);
-  // Item 정보 캐시 (enrichEstimateItems용)
-  private itemCache: ItemCacheEntry | null = null;
-  private readonly ITEM_CACHE_TTL = CACHE_TTL.AI_CONFIG; // 30분 (common/constants/cache.ts)
-  // 통계 캐시 (2분 TTL)
-  private statsCache = new MemoryCache(CACHE_TTL.PROFILE);
+  // Item 정보 캐시 (enrichEstimateItems용, 30분 TTL)
+  private itemCache = new MemoryCache(CACHE_TTL.AI_CONFIG);
 
   constructor(
     private prisma: PrismaService,
-    private emailService: EmailService,
-    private notificationService: NotificationService,
+    private statsService: EstimateStatsService,
     private eventEmitter: EventEmitter2,
   ) {}
 
-  // Item 캐시에서 가져오기 (만료되면 null)
-  private getItemFromCache(itemId: number): ItemInfo | null {
-    if (!this.itemCache || Date.now() > this.itemCache.expiresAt) {
-      this.itemCache = null;
-      return null;
-    }
-    return this.itemCache.data.get(itemId) || null;
+  /** 견적 통계 + 대시보드 캐시 동시 무효화 */
+  private invalidateCaches() {
+    this.statsService.invalidateStatsCache();
+    this.eventEmitter.emit(DASHBOARD_EVENTS.INVALIDATE);
   }
 
-  // Item 캐시에 추가
+  private getItemFromCache(itemId: number): ItemInfo | null {
+    return this.itemCache.get<ItemInfo>(`item_${itemId}`);
+  }
+
   private addItemsToCache(items: ItemInfo[]): void {
-    if (!this.itemCache || Date.now() > this.itemCache.expiresAt) {
-      this.itemCache = {
-        data: new Map(),
-        expiresAt: Date.now() + this.ITEM_CACHE_TTL,
-      };
-    }
     for (const item of items) {
-      this.itemCache.data.set(item.id, item);
+      this.itemCache.set(`item_${item.id}`, item);
     }
   }
 
@@ -228,8 +206,21 @@ export class EstimateService {
       this.prisma.estimate.count({ where }),
     ]);
 
+    // embedding 컬럼은 Unsupported("vector")라 select 불가 → raw SQL로 보충
+    const ids = estimates.map((e) => e.id);
+    const embeddingRows =
+      ids.length > 0
+        ? await this.prisma.$queryRaw<Array<{ id: number; has: boolean }>>`
+            SELECT id, (embedding IS NOT NULL) AS has FROM estimates WHERE id = ANY(${ids})
+          `
+        : [];
+    const embeddingMap = new Map(embeddingRows.map((r) => [r.id, r.has]));
+
     return createPaginatedResponse(
-      estimates.map(convertDecimalFields),
+      estimates.map((e) => ({
+        ...convertDecimalFields(e),
+        hasEmbedding: embeddingMap.get(e.id) ?? false,
+      })),
       total,
       page,
       limit,
@@ -467,15 +458,17 @@ export class EstimateService {
     // 공유 해시 생성
     const shareHash = randomBytes(16).toString('hex');
 
-    // 유효기간 기본값: 오늘 + 10일 (명시적으로 제공되지 않은 경우)
+    // 유효기간 기본값: config의 estimateValidityDays (기본 10일)
     let validDate: Date | undefined;
     if (cleanData.validDate) {
       const parsed = new Date(cleanData.validDate);
       validDate = isNaN(parsed.getTime()) ? undefined : parsed;
     }
     if (!validDate) {
+      const config = await this.prisma.aiGenerationConfig.findFirst({ where: { id: 1 }, select: { estimateValidityDays: true } });
+      const days = config?.estimateValidityDays ?? 10;
       validDate = new Date();
-      validDate.setDate(validDate.getDate() + 10);
+      validDate.setDate(validDate.getDate() + days);
     }
 
     const prismaData = {
@@ -495,7 +488,7 @@ export class EstimateService {
     const estimate = await this.prisma.estimate.create({
       data: prismaData,
     });
-    this.invalidateStatsCache();
+    this.invalidateCaches();
     return convertDecimalFields(estimate);
   }
 
@@ -589,7 +582,7 @@ export class EstimateService {
       },
     });
 
-    this.invalidateStatsCache();
+    this.invalidateCaches();
     return convertDecimalFields(estimate);
   }
 
@@ -598,249 +591,7 @@ export class EstimateService {
     const result = await this.prisma.estimate.delete({
       where: { id },
     });
-    this.invalidateStatsCache();
-    return result;
-  }
-
-  // 견적 발송 처리
-  async sendEstimate(id: number) {
-    // 조회 + 상태 업데이트를 트랜잭션으로 래핑
-    const { estimate, updatedEstimate } = await this.prisma.$transaction(
-      async (tx) => {
-        const est = await tx.estimate.findUnique({ where: { id } });
-        if (!est) {
-          throw new NotFoundException(`견적 ID ${id}를 찾을 수 없습니다.`);
-        }
-        const updated = await tx.estimate.update({
-          where: { id },
-          data: {
-            statusAi: ESTIMATE_STATUS.SENT,
-            sentAt: new Date(),
-          },
-        });
-        return { estimate: est, updatedEstimate: updated };
-      },
-    );
-
-    // 고객 이메일이 있으면 이메일 발송
-    if (estimate.customerEmail) {
-      const items =
-        jsonCast<Array<{
-          name: string;
-          type?: string;
-          price: number;
-          quantity: number;
-          date?: string;
-        }>>(estimate.items) || [];
-
-      this.emailService
-        .sendEstimate({
-          to: estimate.customerEmail,
-          customerName: estimate.customerName || 'Valued Customer',
-          estimateTitle: estimate.title || 'Your Travel Quotation',
-          shareHash: estimate.shareHash || '',
-          items,
-          totalAmount: Number(estimate.totalAmount) ?? 0,
-          currency: estimate.currency || 'USD',
-          travelDays: estimate.travelDays ?? undefined,
-          startDate: estimate.startDate,
-          endDate: estimate.endDate,
-          adultsCount: estimate.adultsCount ?? undefined,
-          childrenCount: estimate.childrenCount ?? undefined,
-        })
-        .catch((error) => {
-          this.logger.error(
-            `Failed to send estimate email to ${estimate.customerEmail}:`,
-            error,
-          );
-          // internalMemo에 실패 기록 (관리자 대시보드에서 확인 가능)
-          this.prisma.estimate
-            .update({
-              where: { id: estimate.id },
-              data: {
-                internalMemo: `[자동] 이메일 발송 실패: ${error.message?.substring(0, 200) || 'unknown'}`,
-              },
-            })
-            .catch((dbErr) => {
-              this.logger.error(`Failed to update estimate memo: ${dbErr.message}`);
-            });
-        });
-    }
-
-    // 관리자에게 견적 발송 완료 알림
-    this.notificationService
-      .notifyEstimateSent({
-        estimateId: estimate.id,
-        customerName: estimate.customerName || undefined,
-        customerEmail: estimate.customerEmail || undefined,
-      })
-      .catch((error) => {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        this.logger.error(
-          `Failed to send estimate notification: ${errorMessage}`,
-        );
-      });
-
-    // 채팅 세션이 있으면 이벤트 발송 (ChatbotService가 수신하여 메시지 저장)
-    if (estimate.chatSessionId) {
-      const event: EstimateSentEvent = {
-        chatSessionId: estimate.chatSessionId,
-        estimateId: estimate.id,
-      };
-      this.eventEmitter.emit(ESTIMATE_EVENTS.SENT, event);
-
-      // SSE로 상태 변경 알림 (클라이언트 UI 즉시 업데이트용)
-      const sseEvent: ChatbotEstimateStatusEvent = {
-        sessionId: estimate.chatSessionId,
-        estimateId: estimate.id,
-        status: ESTIMATE_STATUS.SENT,
-      };
-      this.eventEmitter.emit(CHATBOT_EVENTS.ESTIMATE_STATUS_CHANGED, sseEvent);
-    }
-
-    return convertDecimalFields(updatedEstimate);
-  }
-
-  // 통계 캐시 무효화
-  private invalidateStatsCache(): void {
-    this.statsCache.deleteByPrefix('stats_');
-  }
-
-  // 견적 통계
-  async getStats() {
-    const cached = this.statsCache.get<{ total: number; pending: number; sent: number; completed: number }>('stats_overall');
-    if (cached) return cached;
-
-    const [total, pending, sent, completed] = await Promise.all([
-      this.prisma.estimate.count(),
-      this.prisma.estimate.count({
-        where: {
-          OR: [
-            { statusAi: ESTIMATE_STATUS.PENDING },
-            { statusManual: 'planning' },
-          ],
-        },
-      }),
-      this.prisma.estimate.count({
-        where: { statusAi: ESTIMATE_STATUS.SENT },
-      }),
-      this.prisma.estimate.count({
-        where: {
-          OR: [
-            { statusAi: ESTIMATE_STATUS.COMPLETED },
-            { statusManual: 'completed' },
-          ],
-        },
-      }),
-    ]);
-
-    const result = { total, pending, sent, completed };
-    this.statsCache.set('stats_overall', result);
-    return result;
-  }
-
-  // 수동 견적 상태별 통계 (SQL 최적화 버전)
-  async getManualStats() {
-    const cached = this.statsCache.get<Record<string, unknown>>('stats_manual');
-    if (cached) return cached;
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const fiveDaysLater = new Date(today);
-    fiveDaysLater.setDate(fiveDaysLater.getDate() + 5);
-
-    // SQL로 직접 집계 (전체 레코드를 가져오지 않음)
-    const [statusCounts, upcomingCount, total] = await Promise.all([
-      // 상태별 카운트
-      this.prisma.estimate.groupBy({
-        by: ['statusManual'],
-        where: { source: 'manual' },
-        _count: { id: true },
-      }),
-      // 다가오는 견적 카운트 (5일 이내 시작)
-      this.prisma.estimate.count({
-        where: {
-          source: 'manual',
-          statusManual: {
-            notIn: ['cancelled', 'archived', 'completed', 'in_progress'],
-          },
-          startDate: { gte: today, lte: fiveDaysLater },
-        },
-      }),
-      // 전체 카운트 (archived 제외)
-      this.prisma.estimate.count({
-        where: {
-          source: 'manual',
-          statusManual: { not: 'archived' },
-        },
-      }),
-    ]);
-
-    // 결과 매핑
-    const stats = {
-      planning: 0,
-      inProgress: 0,
-      completed: 0,
-      cancelled: 0,
-      archived: 0,
-    };
-    statusCounts.forEach((item) => {
-      const status = item.statusManual as string;
-      if (status === 'in_progress') stats.inProgress = item._count.id;
-      else if (status === 'completed') stats.completed = item._count.id;
-      else if (status === 'cancelled') stats.cancelled = item._count.id;
-      else if (status === 'archived') stats.archived = item._count.id;
-      else stats.planning += item._count.id; // planning 및 기타 상태
-    });
-
-    const result = {
-      total,
-      ...stats,
-      upcoming: upcomingCount,
-    };
-    this.statsCache.set('stats_manual', result);
-    return result;
-  }
-
-  // AI 견적 상태별 통계 (SQL 최적화 버전)
-  async getAIStats() {
-    const cached = this.statsCache.get<Record<string, unknown>>('stats_ai');
-    if (cached) return cached;
-
-    // SQL groupBy로 직접 집계 (전체 레코드를 가져오지 않음)
-    const [statusCounts, total] = await Promise.all([
-      this.prisma.estimate.groupBy({
-        by: ['statusAi'],
-        where: { source: 'ai' },
-        _count: { id: true },
-      }),
-      this.prisma.estimate.count({
-        where: {
-          source: 'ai',
-          statusAi: { not: ESTIMATE_STATUS.CANCELLED },
-        },
-      }),
-    ]);
-
-    // 6개 상태: draft, pending, sent, approved, completed, cancelled
-    const stats = {
-      draft: 0,
-      pending: 0,
-      sent: 0,
-      approved: 0,
-      completed: 0,
-      cancelled: 0,
-    };
-    statusCounts.forEach((item) => {
-      const status = item.statusAi as keyof typeof stats;
-      if (status && stats[status] !== undefined) {
-        stats[status] = item._count.id;
-      }
-    });
-
-    const result = { total, ...stats };
-    this.statsCache.set('stats_ai', result);
+    this.invalidateCaches();
     return result;
   }
 
@@ -849,7 +600,7 @@ export class EstimateService {
     const updates: Prisma.EstimateUpdateInput = { statusManual: status };
     if (status === 'completed') updates.completedAt = new Date();
     const result = await this.prisma.estimate.update({ where: { id }, data: updates });
-    this.invalidateStatsCache();
+    this.invalidateCaches();
     return result;
   }
 
@@ -865,17 +616,7 @@ export class EstimateService {
       data: updates,
     });
 
-    this.invalidateStatsCache();
-
-    // SSE 이벤트 발행 (채팅 세션이 연결된 경우)
-    if (estimate.chatSessionId) {
-      const sseEvent: ChatbotEstimateStatusEvent = {
-        sessionId: estimate.chatSessionId,
-        estimateId: id,
-        status,
-      };
-      this.eventEmitter.emit(CHATBOT_EVENTS.ESTIMATE_STATUS_CHANGED, sseEvent);
-    }
+    this.invalidateCaches();
 
     return estimate;
   }
@@ -1067,9 +808,6 @@ export class EstimateService {
     });
     if (!place) throw new NotFoundException('장소를 찾을 수 없습니다');
 
-    // 기존 이름 저장 (SuggestedPlace 업데이트용)
-    const tbdName = (items[itemIndex].itemName || items[itemIndex].name || items[itemIndex].nameEng) as string | undefined;
-
     // 아이템 업데이트
     items[itemIndex] = {
       ...items[itemIndex],
@@ -1108,164 +846,22 @@ export class EstimateService {
       ((0.35 * matchRate) + (0.25 * avgSim) + (0.20 * 0.5) + (0.20 * (1 - tbdRate))) * 100
     )));
 
-    // 쓰기 작업은 $transaction으로 래핑 (estimate + SuggestedPlace 원자적 업데이트)
-    await this.prisma.$transaction(async (tx) => {
-      await tx.estimate.update({
-        where: { id: estimateId },
-        data: {
-          items: items as unknown as Prisma.InputJsonValue,
-          aiMetadata: aiMetadata as unknown as Prisma.InputJsonValue,
-        },
-      });
-
-      // SuggestedPlace 업데이트 (트랜잭션 내에서 실패하면 전체 롤백)
-      if (tbdName) {
-        await tx.suggestedPlace.updateMany({
-          where: { name: tbdName, status: 'pending' },
-          data: { linkedItemId: itemId, status: 'resolved', resolveMethod: 'manual' },
-        });
-      }
+    await this.prisma.estimate.update({
+      where: { id: estimateId },
+      data: {
+        items: items as unknown as Prisma.InputJsonValue,
+        aiMetadata: aiMetadata as unknown as Prisma.InputJsonValue,
+      },
     });
 
     return this.getEstimate(estimateId);
   }
 
   // RAG 품질 통계
-  async getRagQualityStats(query: { from?: string; to?: string }) {
-    const where: Prisma.EstimateWhereInput = {
-      source: 'ai',
-      aiMetadata: { not: Prisma.JsonNull },
-    };
-
-    if (query.from || query.to) {
-      where.createdAt = {};
-      if (query.from) where.createdAt.gte = new Date(query.from);
-      if (query.to) {
-        const endDate = new Date(query.to);
-        endDate.setHours(23, 59, 59, 999);
-        where.createdAt.lte = endDate;
-      }
-    }
-
-    const estimates = await this.prisma.estimate.findMany({
-      where,
-      select: { aiMetadata: true, createdAt: true },
-      orderBy: { createdAt: 'desc' },
-      take: 500,
-    });
-
-    // 집계
-    let totalConfidence = 0;
-    let confidenceCount = 0;
-    let totalMatchRate = 0;
-    let totalTbdRate = 0;
-    let matchRateCount = 0;
-    let totalRagSimilarity = 0;
-    let ragSimCount = 0;
-    const tierCounts: Record<string, number> = { geminiId: 0, exact: 0, partial: 0, fuzzy: 0, tbd: 0 };
-    const emailRefCounts: Record<string, { subject: string | null; count: number; totalSim: number }> = {};
-    const interestMatchRates: Record<string, { matched: number; total: number }> = {};
-
-    // 일별 추이 데이터
-    const dailyData: Record<string, { confidence: number[]; matchRate: number[] }> = {};
-
-    for (const est of estimates) {
-      const meta = est.aiMetadata as Record<string, unknown>;
-      if (!meta) continue;
-
-      const dateKey = est.createdAt ? est.createdAt.toISOString().slice(0, 10) : 'unknown';
-      if (!dailyData[dateKey]) dailyData[dateKey] = { confidence: [], matchRate: [] };
-
-      // 신뢰도 점수
-      if (typeof meta.confidenceScore === 'number') {
-        totalConfidence += meta.confidenceScore;
-        confidenceCount++;
-        dailyData[dateKey].confidence.push(meta.confidenceScore);
-      }
-
-      // 매칭 통계
-      const matching = meta.itemMatching as Record<string, unknown> | undefined;
-      if (matching) {
-        const total = (matching.totalDraftItems as number) || 0;
-        const matched = (matching.matchedCount as number) || 0;
-        const tbd = (matching.tbdCount as number) || 0;
-
-        if (total > 0) {
-          totalMatchRate += matched / total;
-          totalTbdRate += tbd / total;
-          matchRateCount++;
-          dailyData[dateKey].matchRate.push(matched / total);
-        }
-
-        // tier 분포
-        const matchedItems = (matching.matchedItems as Array<{ tier?: string }>) || [];
-        for (const item of matchedItems) {
-          if (item.tier && tierCounts[item.tier] !== undefined) {
-            tierCounts[item.tier]++;
-          }
-        }
-        tierCounts.tbd += tbd;
-      }
-
-      // RAG 소스
-      const ragSearch = meta.ragSearch as Record<string, unknown> | undefined;
-      if (ragSearch) {
-        const sources = (ragSearch.sources as Array<{ emailThreadId: number; subject: string | null; similarity: number }>) || [];
-        for (const src of sources) {
-          totalRagSimilarity += src.similarity;
-          ragSimCount++;
-
-          const key = String(src.emailThreadId);
-          if (!emailRefCounts[key]) {
-            emailRefCounts[key] = { subject: src.subject, count: 0, totalSim: 0 };
-          }
-          emailRefCounts[key].count++;
-          emailRefCounts[key].totalSim += src.similarity;
-        }
-      }
-    }
-
-    // 일별 추이 (avgMatchRate를 0-1 소수로 통일)
-    const dailyTrends = Object.entries(dailyData)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, data]) => ({
-        date,
-        avgConfidence: data.confidence.length > 0
-          ? Math.round(data.confidence.reduce((a, b) => a + b, 0) / data.confidence.length)
-          : null,
-        avgMatchRate: data.matchRate.length > 0
-          ? Math.round((data.matchRate.reduce((a, b) => a + b, 0) / data.matchRate.length) * 1000) / 1000
-          : null,
-        count: data.confidence.length || data.matchRate.length,
-      }));
-
-    // 이메일 top 10
-    const topEmails = Object.entries(emailRefCounts)
-      .sort(([, a], [, b]) => b.count - a.count)
-      .slice(0, 10)
-      .map(([threadId, data]) => ({
-        emailThreadId: Number(threadId),
-        subject: data.subject,
-        refCount: data.count,
-        avgSimilarity: Math.round((data.totalSim / data.count) * 1000) / 1000,
-      }));
-
-    return {
-      totalEstimates: estimates.length,
-      avgConfidenceScore: confidenceCount > 0 ? Math.round(totalConfidence / confidenceCount) : null,
-      avgMatchRate: matchRateCount > 0 ? Math.round((totalMatchRate / matchRateCount) * 1000) / 1000 : null,
-      avgTbdRate: matchRateCount > 0 ? Math.round((totalTbdRate / matchRateCount) * 1000) / 1000 : null,
-      avgRagSimilarity: ragSimCount > 0 ? Math.round((totalRagSimilarity / ragSimCount) * 1000) / 1000 : null,
-      tierDistribution: tierCounts,
-      topEmails,
-      dailyTrends,
-    };
-  }
-
   // 일괄 삭제
   async bulkDelete(ids: number[]) {
     const result = await this.prisma.estimate.deleteMany({ where: { id: { in: ids } } });
-    this.invalidateStatsCache();
+    this.invalidateCaches();
     return result;
   }
 
@@ -1275,7 +871,7 @@ export class EstimateService {
       where: { id: { in: ids } },
       data: { statusManual: status },
     });
-    this.invalidateStatsCache();
+    this.invalidateCaches();
     return result;
   }
 }

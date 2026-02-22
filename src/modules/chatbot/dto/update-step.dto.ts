@@ -26,7 +26,6 @@ import {
   ATTRACTIONS,
   BUDGET_RANGES,
   AGE_RANGES,
-  REFERRAL_SOURCES,
 } from '../constants/categories';
 
 // Valid value arrays
@@ -37,7 +36,6 @@ const VALID_REGIONS = Object.keys(REGIONS);
 const VALID_ATTRACTIONS = Object.keys(ATTRACTIONS);
 const VALID_BUDGET_RANGES = Object.keys(BUDGET_RANGES);
 const VALID_AGE_RANGES = Object.keys(AGE_RANGES);
-const VALID_REFERRAL_SOURCES = Object.keys(REFERRAL_SOURCES);
 
 // Step 1: Tour Type
 export class UpdateStep1Dto {
@@ -257,49 +255,6 @@ export class UpdateStep6Dto {
   @IsOptional()
   @IsBoolean()
   needsGuide?: boolean;
-
-  @ApiPropertyOptional({ description: 'Additional notes', maxLength: 2000 })
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000, {
-    message: 'Additional notes cannot exceed 2000 characters.',
-  })
-  additionalNotes?: string;
-}
-
-// Step 7: Contact Info (Login required)
-export class UpdateStep7Dto {
-  @ApiProperty({ description: 'Customer name', minLength: 2, maxLength: 100 })
-  @IsString()
-  @MinLength(2, { message: 'Name must be at least 2 characters.' })
-  @MaxLength(100, { message: 'Name cannot exceed 100 characters.' })
-  customerName: string;
-
-  @ApiProperty({ description: 'Customer email' })
-  @IsEmail({}, { message: 'Please enter a valid email address.' })
-  @MaxLength(255, { message: 'Email cannot exceed 255 characters.' })
-  customerEmail: string;
-
-  @ApiPropertyOptional({ description: 'Customer phone' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(30, { message: 'Phone number cannot exceed 30 characters.' })
-  customerPhone?: string;
-
-  @ApiPropertyOptional({ description: 'Nationality', maxLength: 100 })
-  @IsOptional()
-  @IsString()
-  @MaxLength(100, { message: 'Nationality cannot exceed 100 characters.' })
-  nationality?: string;
-
-  @ApiPropertyOptional({
-    description: 'Referral source',
-    enum: VALID_REFERRAL_SOURCES,
-  })
-  @IsOptional()
-  @IsString()
-  @IsIn(VALID_REFERRAL_SOURCES, { message: 'Invalid referral source.' })
-  referralSource?: string;
 
   @ApiPropertyOptional({ description: 'Additional notes', maxLength: 2000 })
   @IsOptional()

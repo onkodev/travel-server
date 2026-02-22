@@ -1,9 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { convertDecimalFields } from '../../common/utils/decimal.util';
 import { MemoryCache, sanitizeSearch } from '../../common/utils';
 import { CACHE_TTL } from '../../common/constants/cache';
+import { DASHBOARD_EVENTS } from '../../common/events';
 import {
   calculateSkip,
   createPaginatedResponse,
@@ -28,7 +30,10 @@ export class ItemService {
   private readonly logger = new Logger(ItemService.name);
   private cache = new MemoryCache(CACHE_TTL.ITEM);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private eventEmitter: EventEmitter2,
+  ) {}
 
   // 아이템 목록 조회
   async getItems(params: {
@@ -117,6 +122,28 @@ export class ItemService {
   async getItemsByIds(ids: number[]) {
     const items = await this.prisma.item.findMany({
       where: { id: { in: ids } },
+      select: {
+        id: true,
+        type: true,
+        nameKor: true,
+        nameEng: true,
+        description: true,
+        descriptionEng: true,
+        keyword: true,
+        price: true,
+        weekdayPrice: true,
+        weekendPrice: true,
+        address: true,
+        addressEnglish: true,
+        lat: true,
+        lng: true,
+        region: true,
+        area: true,
+        categories: true,
+        images: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
     return items.map(convertDecimalFields);
   }
@@ -263,8 +290,8 @@ export class ItemService {
     if (type) {
       this.cache.delete(`items_type_${type}`);
     }
-    // 지역 캐시는 키 패턴으로 삭제
     this.cache.deleteByPrefix('items_region_');
+    this.eventEmitter.emit(DASHBOARD_EVENTS.INVALIDATE);
   }
 
   // interests → DB categories 매핑

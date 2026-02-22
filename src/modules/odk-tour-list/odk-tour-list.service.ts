@@ -44,7 +44,7 @@ export class OdkTourListService {
     const [items, total] = await Promise.all([
       this.prisma.odkTourList.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ sortOrder: 'desc' }, { createdAt: 'desc' }],
         skip,
         take: limit,
       }),
@@ -87,6 +87,7 @@ export class OdkTourListService {
     if (data.region !== undefined) updateData.region = data.region;
     if (data.duration !== undefined) updateData.duration = data.duration;
     if (data.tags !== undefined) updateData.tags = data.tags;
+    if (data.sortOrder !== undefined) updateData.sortOrder = data.sortOrder;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
     const item = await this.prisma.odkTourList.update({
@@ -111,6 +112,7 @@ export class OdkTourListService {
         region: data.region,
         duration: data.duration,
         tags: data.tags || [],
+        sortOrder: data.sortOrder ?? 0,
         isActive: data.isActive ?? true,
       },
     });

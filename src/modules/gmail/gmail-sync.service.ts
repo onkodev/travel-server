@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GmailService, GmailThread, GmailMessage } from './gmail.service';
 import { FaqAiService, ExtractedFaqItem } from '../ai/services/faq-ai.service';
-import { FaqService } from '../faq/faq.service';
+import { FaqEmbeddingService } from '../faq/faq-embedding.service';
 import { EmailEmbeddingService } from '../email-rag/email-embedding.service';
 
 interface SyncProgress {
@@ -43,7 +43,7 @@ export class GmailSyncService implements OnModuleInit {
     private prisma: PrismaService,
     private gmailService: GmailService,
     private faqAiService: FaqAiService,
-    private faqService: FaqService,
+    private faqEmbeddingService: FaqEmbeddingService,
     private emailEmbeddingService: EmailEmbeddingService,
   ) {}
 
@@ -597,7 +597,7 @@ export class GmailSyncService implements OnModuleInit {
       // 중복 체크: similarity >= 0.9 인 기존 FAQ가 있으면 skip
       for (const faq of extractedFaqs) {
         try {
-          const { hasDuplicate } = await this.faqService.checkDuplicates(
+          const { hasDuplicate } = await this.faqEmbeddingService.checkDuplicates(
             faq.question,
             0.9,
           );

@@ -103,12 +103,6 @@ export class AnalyzeEstimateResponseDto {
   @ApiProperty({ description: '추출된 키워드 목록', type: [String] })
   keywords: string[];
 
-  @ApiPropertyOptional({ description: '그룹 타입' })
-  groupType?: string | null;
-
-  @ApiPropertyOptional({ description: '예산 수준' })
-  budgetLevel?: string | null;
-
   @ApiProperty({ description: '특별 요구사항', type: [String] })
   specialNeeds: string[];
 }

@@ -59,17 +59,17 @@ export class ItemDto {
 
 export class ItemQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
-    description: '페이지당 항목 수 (아이템은 최대 500)',
+    description: '페이지당 항목 수 (아이템은 최대 1000)',
     example: 20,
     minimum: 1,
-    maximum: 500,
+    maximum: 1000,
     default: 20,
   })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(500, { message: '페이지당 항목 수는 500 이하여야 합니다' })
+  @Max(1000, { message: '페이지당 항목 수는 1000 이하여야 합니다' })
   override limit?: number = 20;
 
   @ApiPropertyOptional({

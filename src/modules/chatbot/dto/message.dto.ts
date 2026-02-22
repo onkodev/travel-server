@@ -1,8 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
-  IsNotEmpty,
   IsOptional,
+  IsNotEmpty,
   IsIn,
   IsArray,
   ArrayMaxSize,
@@ -29,32 +29,28 @@ class MessageOptionDto {
 }
 
 export class SaveMessageDto {
-  @ApiProperty({ description: '메시지 역할', enum: ['bot', 'user'] })
+  @ApiProperty({ description: '메시지 역할', enum: ['bot', 'user', 'admin'] })
   @IsString()
-  @IsIn(['bot', 'user'])
-  role: 'bot' | 'user';
+  @IsIn(['bot', 'user', 'admin'])
+  role: 'bot' | 'user' | 'admin';
 
   @ApiProperty({ description: '메시지 내용' })
   @IsString()
-  @IsNotEmpty()
   @MaxLength(10000)
   content: string;
 
   @ApiPropertyOptional({
     description: '메시지 타입',
-    enum: ['text', 'options', 'form'],
+    enum: ['text', 'options', 'form', 'estimate', 'quickReply'],
   })
   @IsOptional()
   @IsString()
-  @IsIn(['text', 'options', 'form'])
-  messageType?: 'text' | 'options' | 'form';
+  @IsIn(['text', 'options', 'form', 'estimate', 'quickReply'])
+  messageType?: 'text' | 'options' | 'form' | 'estimate' | 'quickReply';
 
-  @ApiPropertyOptional({ description: '선택지 옵션', type: [MessageOptionDto] })
+  @ApiPropertyOptional({ description: '선택지 옵션 또는 견적 데이터' })
   @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => MessageOptionDto)
-  options?: MessageOptionDto[];
+  options?: unknown;
 }
 
 // 배치 메시지 저장 DTO

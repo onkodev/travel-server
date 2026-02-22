@@ -1,0 +1,191 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsString,
+  IsOptional,
+  IsArray,
+  IsBoolean,
+} from 'class-validator';
+
+/**
+ * 견적 공통 필드 Base DTO
+ * CreateEstimateDto / UpdateEstimateDto 에서 상속하여 사용
+ */
+export class BaseEstimateDto {
+  // 읽기 전용 날짜 필드들 (서버에서 무시됨)
+  @ApiPropertyOptional({ description: '생성일 (서버에서 무시)' })
+  @IsOptional()
+  @IsString()
+  createdAt?: string;
+
+  @ApiPropertyOptional({ description: '수정일 (서버에서 무시)' })
+  @IsOptional()
+  @IsString()
+  updatedAt?: string;
+
+  @ApiPropertyOptional({ description: '공유 해시 (서버에서 무시)' })
+  @IsOptional()
+  @IsString()
+  shareHash?: string;
+
+  @ApiPropertyOptional({ description: '수정일 (서버에서 무시)' })
+  @IsOptional()
+  @IsString()
+  revisedAt?: string;
+
+  @ApiPropertyOptional({ description: '조회일 (서버에서 무시)' })
+  @IsOptional()
+  @IsString()
+  viewedAt?: string;
+
+  @ApiPropertyOptional({ description: '발송일 (서버에서 무시)' })
+  @IsOptional()
+  @IsString()
+  sentAt?: string;
+
+  @ApiPropertyOptional({ description: '응답일 (서버에서 무시)' })
+  @IsOptional()
+  @IsString()
+  respondedAt?: string;
+
+  @ApiPropertyOptional({ description: '완료일 (서버에서 무시)' })
+  @IsOptional()
+  @IsString()
+  completedAt?: string;
+
+  @ApiPropertyOptional({ description: '결제일 (서버에서 무시)' })
+  @IsOptional()
+  @IsString()
+  paidAt?: string;
+
+  // 고객 정보
+  @ApiPropertyOptional({ description: '고객 이름' })
+  @IsOptional()
+  @IsString()
+  customerName?: string;
+
+  @ApiPropertyOptional({ description: '고객 전화번호' })
+  @IsOptional()
+  @IsString()
+  customerPhone?: string;
+
+  @ApiPropertyOptional({ description: '국적' })
+  @IsOptional()
+  @IsString()
+  nationality?: string;
+
+  // 상태
+  @ApiPropertyOptional({ description: '수동 견적 상태' })
+  @IsOptional()
+  @IsString()
+  statusManual?: string;
+
+  @ApiPropertyOptional({ description: 'AI 견적 상태' })
+  @IsOptional()
+  @IsString()
+  statusAi?: string;
+
+  // 여행 정보
+  @ApiPropertyOptional({ description: '여행 시작일' })
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: '여행 종료일' })
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+
+  @ApiPropertyOptional({ description: '투어 타입' })
+  @IsOptional()
+  @IsString()
+  tourType?: string;
+
+  @ApiPropertyOptional({ description: '여행자 유형' })
+  @IsOptional()
+  @IsString()
+  travelerType?: string;
+
+  @ApiPropertyOptional({ description: '가격대' })
+  @IsOptional()
+  @IsString()
+  priceRange?: string;
+
+  @ApiPropertyOptional({ description: '관심사 목록' })
+  @IsOptional()
+  @IsArray()
+  interests?: string[];
+
+  @ApiPropertyOptional({ description: '지역 목록' })
+  @IsOptional()
+  @IsArray()
+  regions?: string[];
+
+  // 금액 관련
+  @ApiPropertyOptional({ description: '조정 사유' })
+  @IsOptional()
+  @IsString()
+  adjustmentReason?: string;
+
+  @ApiPropertyOptional({ description: '통화' })
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  // 기타 정보
+  @ApiPropertyOptional({ description: '코멘트' })
+  @IsOptional()
+  @IsString()
+  comment?: string;
+
+  @ApiPropertyOptional({
+    description: '타임라인 (Record<number, string> 형태)',
+  })
+  @IsOptional()
+  timeline?: Record<number, string>;
+
+  @ApiPropertyOptional({ description: '요청 내용' })
+  @IsOptional()
+  @IsString()
+  requestContent?: string;
+
+  @ApiPropertyOptional({ description: '고정 여부' })
+  @IsOptional()
+  @IsBoolean()
+  isPinned?: boolean;
+
+  @ApiPropertyOptional({ description: '키워드 목록' })
+  @IsOptional()
+  @IsArray()
+  keywords?: string[];
+
+
+  @ApiPropertyOptional({ description: '특별 요구사항' })
+  @IsOptional()
+  @IsArray()
+  specialNeeds?: string[];
+
+  @ApiPropertyOptional({ description: '유효 날짜' })
+  @IsOptional()
+  @IsString()
+  validDate?: string;
+
+  @ApiPropertyOptional({ description: '고객 응답' })
+  @IsOptional()
+  @IsString()
+  customerResponse?: string;
+
+  @ApiPropertyOptional({ description: '내부 메모' })
+  @IsOptional()
+  @IsString()
+  internalMemo?: string;
+
+  @ApiPropertyOptional({ description: '사용자 ID' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiPropertyOptional({ description: '채팅 세션 ID' })
+  @IsOptional()
+  @IsString()
+  chatSessionId?: string;
+}

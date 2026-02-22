@@ -2,10 +2,13 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
   IsNumber,
+  IsInt,
   IsOptional,
   IsArray,
   IsBoolean,
   MaxLength,
+  Min,
+  Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/dto';
@@ -43,6 +46,21 @@ export class OdkTourListDto {
 
   @ApiPropertyOptional({ description: '태그', type: [String] })
   tags?: string[];
+
+  @ApiPropertyOptional({ description: '별점 (5.00)' })
+  rating?: number;
+
+  @ApiPropertyOptional({ description: '리뷰 수' })
+  reviewCount?: number;
+
+  @ApiPropertyOptional({ description: '사이트 카테고리' })
+  category?: string;
+
+  @ApiPropertyOptional({ description: '마지막 크롤링 시각' })
+  lastSyncedAt?: string;
+
+  @ApiProperty({ description: '우선순위 (0~10, 높을수록 먼저 노출)' })
+  sortOrder: number;
 
   @ApiProperty({ description: '활성 상태' })
   isActive: boolean;
@@ -121,6 +139,13 @@ export class CreateOdkTourListDto {
   @IsArray()
   tags?: string[];
 
+  @ApiPropertyOptional({ description: '우선순위 (0~10)', default: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  sortOrder?: number;
+
   @ApiPropertyOptional({ description: '활성 상태', default: true })
   @IsOptional()
   @IsBoolean()
@@ -142,6 +167,21 @@ export class UpdateOdkTourListDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({ description: '별점 (5.00)' })
+  @IsOptional()
+  @IsNumber()
+  rating?: number;
+
+  @ApiPropertyOptional({ description: '리뷰 수' })
+  @IsOptional()
+  @IsInt()
+  reviewCount?: number;
+
+  @ApiPropertyOptional({ description: '사이트 카테고리' })
+  @IsOptional()
+  @IsString()
+  category?: string;
 
   @ApiPropertyOptional({ description: '썸네일 URL' })
   @IsOptional()
@@ -172,6 +212,13 @@ export class UpdateOdkTourListDto {
   @IsOptional()
   @IsArray()
   tags?: string[];
+
+  @ApiPropertyOptional({ description: '우선순위 (0~10)' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  sortOrder?: number;
 
   @ApiPropertyOptional({ description: '활성 상태' })
   @IsOptional()

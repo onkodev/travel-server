@@ -103,23 +103,21 @@ export class UserService {
   async getUserStats(): Promise<UserStats> {
     const supabase = this.supabaseService.getAuthClient();
 
-    // 병렬 쿼리로 성능 개선
-    const [totalResult, activeResult, inactiveResult] = await Promise.all([
+    const [totalResult, activeResult] = await Promise.all([
       supabase.from('users').select('*', { count: 'exact', head: true }),
       supabase
         .from('users')
         .select('*', { count: 'exact', head: true })
         .eq('is_active', true),
-      supabase
-        .from('users')
-        .select('*', { count: 'exact', head: true })
-        .eq('is_active', false),
     ]);
 
+    const total = totalResult.count || 0;
+    const active = activeResult.count || 0;
+
     return {
-      total: totalResult.count || 0,
-      active: activeResult.count || 0,
-      inactive: inactiveResult.count || 0,
+      total,
+      active,
+      inactive: total - active,
     };
   }
 
@@ -236,6 +234,18 @@ export class UserService {
     const payments = await this.prisma.payment.findMany({
       where: { estimateId: { in: estimateIds } },
       orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        estimateId: true,
+        amount: true,
+        currency: true,
+        paymentMethod: true,
+        status: true,
+        paypalOrderId: true,
+        payerEmail: true,
+        paidAt: true,
+        createdAt: true,
+      },
     });
 
     return payments.map((p) => ({

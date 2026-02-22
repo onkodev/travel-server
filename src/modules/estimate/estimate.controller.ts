@@ -24,6 +24,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/types';
 import { EstimateService } from './estimate.service';
+import { EstimateStatsService } from './estimate-stats.service';
+import { EstimateDispatchService } from './estimate-dispatch.service';
 import { EstimateSchedulerService } from './estimate-scheduler.service';
 import { Public } from '../../common/decorators/public.decorator';
 import {
@@ -65,6 +67,8 @@ class EstimateListResponseDto {
 export class EstimateController {
   constructor(
     private estimateService: EstimateService,
+    private statsService: EstimateStatsService,
+    private dispatchService: EstimateDispatchService,
     private estimateSchedulerService: EstimateSchedulerService,
   ) {}
 
@@ -106,7 +110,7 @@ export class EstimateController {
     type: EstimateStatsDto,
   })
   async getStats() {
-    return this.estimateService.getStats();
+    return this.statsService.getStats();
   }
 
   @Get('stats/manual')
@@ -120,7 +124,7 @@ export class EstimateController {
     type: ManualEstimateStatsDto,
   })
   async getManualStats() {
-    return this.estimateService.getManualStats();
+    return this.statsService.getManualStats();
   }
 
   @Get('stats/ai')
@@ -134,7 +138,7 @@ export class EstimateController {
     type: AIEstimateStatsDto,
   })
   async getAIStats() {
-    return this.estimateService.getAIStats();
+    return this.statsService.getAIStats();
   }
 
   @Public()
@@ -155,16 +159,6 @@ export class EstimateController {
   @Header('Cache-Control', 'no-store')
   async getEstimateByShareHash(@Param('shareHash') shareHash: string) {
     return this.estimateService.getEstimateByShareHash(shareHash);
-  }
-
-  @Get('stats/rag-quality')
-  @ApiOperation({ summary: 'RAG 품질 통계 조회' })
-  @ApiResponse({ status: 200, description: '조회 성공' })
-  async getRagQualityStats(
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-  ) {
-    return this.estimateService.getRagQualityStats({ from, to });
   }
 
   @Post('bulk-delete')
@@ -406,7 +400,7 @@ export class EstimateController {
     type: ErrorResponseDto,
   })
   async sendEstimate(@Param('id', ParseIntPipe) id: number) {
-    return this.estimateService.sendEstimate(id);
+    return this.dispatchService.sendEstimate(id);
   }
 
   @Delete(':id')

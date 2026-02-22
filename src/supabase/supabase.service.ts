@@ -2,12 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { CACHE_TTL } from '../common/constants/cache';
-
-// 인메모리 캐시 인터페이스
-interface CacheEntry<T> {
-  data: T;
-  timestamp: number;
-}
+import { MemoryCache } from '../common/utils/memory-cache';
 
 // 사용자 프로필 타입
 interface UserProfile {
@@ -30,14 +25,9 @@ export class SupabaseService {
   private authAnonClient: SupabaseClient; // signUp용 (이메일 발송 O)
   private adminClient: SupabaseClient;
 
-  // 토큰 검증 캐시
-  private tokenCache: Map<string, CacheEntry<User | null>> = new Map();
-  // 프로필 캐시
-  private profileCache: Map<string, CacheEntry<UserProfile | null>> = new Map();
-
-  // 캐시 TTL 설정 (common/constants/cache.ts에서 중앙 관리)
-  private readonly TOKEN_CACHE_TTL = CACHE_TTL.TOKEN;
-  private readonly PROFILE_CACHE_TTL = CACHE_TTL.PROFILE;
+  // 토큰 검증 캐시 & 프로필 캐시 (MemoryCache로 통합)
+  private tokenCache = new MemoryCache(CACHE_TTL.TOKEN, 100);
+  private profileCache = new MemoryCache(CACHE_TTL.PROFILE, 100);
 
   constructor(private configService: ConfigService) {
     // AUTH Supabase Client (tumakrguide - 인증용, Service Key)
@@ -94,44 +84,25 @@ export class SupabaseService {
 
   // JWT 토큰으로 사용자 정보 가져오기 (캐싱 적용)
   async getUserFromToken(token: string): Promise<User | null> {
-    const now = Date.now();
+    const cached = this.tokenCache.get<User | null>(token);
+    if (cached !== null) return cached;
 
-    // 캐시 확인 (1분 TTL)
-    const cached = this.tokenCache.get(token);
-    if (cached && now - cached.timestamp < this.TOKEN_CACHE_TTL) {
-      return cached.data;
-    }
-
-    // Supabase API 호출
     const {
       data: { user },
       error,
     } = await this.authClient.auth.getUser(token);
 
     const result = error ? null : user;
-
-    // 캐시 저장
-    this.tokenCache.set(token, { data: result, timestamp: now });
-
-    // 오래된 캐시 정리 (100개 초과 시)
-    if (this.tokenCache.size > 100) {
-      this.cleanupTokenCache();
-    }
+    this.tokenCache.set(token, result);
 
     return result;
   }
 
   // 사용자 프로필 조회 (캐싱 적용)
   async getUserProfile(userId: string) {
-    const now = Date.now();
+    const cached = this.profileCache.get<UserProfile>(userId);
+    if (cached !== null) return cached;
 
-    // 캐시 확인 (2분 TTL)
-    const cached = this.profileCache.get(userId);
-    if (cached && now - cached.timestamp < this.PROFILE_CACHE_TTL) {
-      return cached.data;
-    }
-
-    // Supabase DB 쿼리
     const { data, error } = await this.authClient
       .from('users')
       .select('*')
@@ -139,14 +110,7 @@ export class SupabaseService {
       .single();
 
     const result = error ? null : data;
-
-    // 캐시 저장
-    this.profileCache.set(userId, { data: result, timestamp: now });
-
-    // 오래된 캐시 정리
-    if (this.profileCache.size > 100) {
-      this.cleanupProfileCache();
-    }
+    this.profileCache.set(userId, result);
 
     return result;
   }
@@ -159,25 +123,5 @@ export class SupabaseService {
   // 토큰 캐시 무효화 (로그아웃 시 호출)
   invalidateTokenCache(token: string) {
     this.tokenCache.delete(token);
-  }
-
-  // 토큰 캐시 정리 (1분 TTL 기준)
-  private cleanupTokenCache() {
-    const now = Date.now();
-    for (const [key, entry] of this.tokenCache.entries()) {
-      if (now - entry.timestamp >= this.TOKEN_CACHE_TTL) {
-        this.tokenCache.delete(key);
-      }
-    }
-  }
-
-  // 프로필 캐시 정리 (2분 TTL 기준)
-  private cleanupProfileCache() {
-    const now = Date.now();
-    for (const [key, entry] of this.profileCache.entries()) {
-      if (now - entry.timestamp >= this.PROFILE_CACHE_TTL) {
-        this.profileCache.delete(key);
-      }
-    }
   }
 }

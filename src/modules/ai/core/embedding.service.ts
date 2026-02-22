@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
+import { MemoryCache } from '../../../common/utils';
+import { CACHE_TTL } from '../../../common/constants/cache';
 
 const TIMEOUT_MS = 10_000;
 const MAX_TEXT_LENGTH = 8_000;
@@ -12,6 +15,8 @@ export class EmbeddingService {
   private readonly apiKey: string;
   private readonly baseUrl =
     'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent';
+  private readonly cache = new MemoryCache(CACHE_TTL.EMBEDDING, 200);
+  private readonly inflight = new Map<string, Promise<number[] | null>>();
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('GEMINI_API_KEY') || '';
@@ -28,7 +33,24 @@ export class EmbeddingService {
     const truncated =
       text.length > MAX_TEXT_LENGTH ? text.slice(0, MAX_TEXT_LENGTH) : text;
 
-    return this.callEmbeddingAPI(truncated);
+    const key = createHash('md5').update(truncated).digest('hex');
+
+    // 캐시 히트
+    const cached = this.cache.get<number[]>(key);
+    if (cached) return cached;
+
+    // inflight 요청 병합
+    const existing = this.inflight.get(key);
+    if (existing) return existing;
+
+    const promise = this.callEmbeddingAPI(truncated).then((result) => {
+      this.inflight.delete(key);
+      if (result) this.cache.set(key, result);
+      return result;
+    });
+
+    this.inflight.set(key, promise);
+    return promise;
   }
 
   private async callEmbeddingAPI(text: string): Promise<number[] | null> {

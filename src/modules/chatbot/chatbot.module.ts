@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ChatbotController } from './chatbot.controller';
 import { ChatbotService } from './chatbot.service';
+import { ChatbotMessageService } from './chatbot-message.service';
+import { ChatbotCompletionService } from './chatbot-completion.service';
 import { ChatbotAnalyticsService } from './chatbot-analytics.service';
-import { ChatbotSseService } from './chatbot-sse.service';
 import { ChatbotStepResponseService } from './chatbot-step-response.service';
 import { AiEstimateService } from './ai-estimate.service';
 import { ConversationalEstimateService } from './conversational-estimate.service';
@@ -27,16 +28,18 @@ import { SupabaseModule } from '../../supabase/supabase.module';
   controllers: [ChatbotController],
   providers: [
     ChatbotService,
+    ChatbotMessageService,
+    ChatbotCompletionService,
     ChatbotAnalyticsService,
-    ChatbotSseService,
     ChatbotStepResponseService,
     AiEstimateService,
     ConversationalEstimateService,
   ],
   exports: [
     ChatbotService,
+    ChatbotMessageService,
+    ChatbotCompletionService,
     ChatbotAnalyticsService,
-    ChatbotSseService,
     AiEstimateService,
     ConversationalEstimateService,
   ],

@@ -67,6 +67,16 @@ export class ReviewService {
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
+        select: {
+          id: true,
+          tourId: true,
+          rating: true,
+          content: true,
+          images: true,
+          reviewerName: true,
+          isVisible: true,
+          createdAt: true,
+        },
       }),
       this.prisma.review.count({ where }),
     ]);

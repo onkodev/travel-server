@@ -30,12 +30,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     const errorResponse = this.buildErrorResponse(exception, request.url);
 
-    // 500 에러만 로깅 (클라이언트 에러는 로깅 불필요)
+    // 500+ 에러만 로깅 (클라이언트 에러는 로깅 불필요)
     if (errorResponse.statusCode >= 500) {
-      this.logger.error(
-        `${request.method} ${request.url}`,
-        exception instanceof Error ? exception.stack : String(exception),
-      );
+      // DB 연결 에러는 간략하게 (스택 트레이스 생략)
+      if (this.isDbConnectionError(exception)) {
+        this.logger.warn(`${request.method} ${request.url} — DB 연결 실패 (일시적)`);
+      } else {
+        this.logger.error(
+          `${request.method} ${request.url}`,
+          exception instanceof Error ? exception.stack : String(exception),
+        );
+      }
     }
 
     response.status(errorResponse.statusCode).json(errorResponse);
@@ -68,6 +73,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         timestamp,
         path,
         ...extra,
+      };
+    }
+
+    // Prisma DB 연결 에러 (일시적 장애)
+    if (this.isDbConnectionError(exception)) {
+      return {
+        statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+        message: '일시적으로 서비스를 이용할 수 없습니다',
+        error: 'Service Unavailable',
+        timestamp,
+        path,
       };
     }
 
@@ -143,6 +159,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           path,
         };
     }
+  }
+
+  private isDbConnectionError(exception: unknown): boolean {
+    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      // P1001: Can't reach database server, P1002: timeout
+      return exception.code === 'P1001' || exception.code === 'P1002';
+    }
+    if (exception instanceof Error) {
+      return exception.message.includes("Can't reach database server");
+    }
+    return false;
   }
 
   private extractMessage(response: Record<string, unknown>): string {

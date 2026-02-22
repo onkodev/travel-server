@@ -42,6 +42,8 @@ export interface PlaceMatchOptions {
   fuzzyThreshold?: number;
   /** true면 full 필드 반환 (images, lat, lng 등) */
   fullSelect?: boolean;
+  /** fuzzy 매칭 시 지역 필터 (e.g. 'Seoul') */
+  region?: string;
 }
 
 // ── Prisma select 상수 ──
@@ -141,19 +143,28 @@ export class PlaceMatcherService {
         continue;
       }
 
-      // Partial: 양방향 contains
-      const partial = dbItems.find((db) => {
+      // Partial: 양방향 contains (가장 짧은 이름 차이 = best match 선택)
+      let bestPartial: (typeof dbItems)[0] | undefined;
+      let bestPartialDiff = Infinity;
+      for (const db of dbItems) {
         const eng = (db as MatchedItemBase).nameEng.toLowerCase();
-        if (eng.includes(keyEng) || keyEng.includes(eng)) return true;
-        if (keyKor) {
+        let matched = false;
+        if (eng.includes(keyEng) || keyEng.includes(eng)) matched = true;
+        if (!matched && keyKor) {
           const kor = (db as MatchedItemBase).nameKor.toLowerCase();
-          if (kor.includes(keyKor) || keyKor.includes(kor)) return true;
+          if (kor.includes(keyKor) || keyKor.includes(kor)) matched = true;
         }
-        return false;
-      });
+        if (matched) {
+          const diff = Math.abs(eng.length - keyEng.length);
+          if (diff < bestPartialDiff) {
+            bestPartialDiff = diff;
+            bestPartial = db;
+          }
+        }
+      }
 
-      if (partial) {
-        results.push({ input, tier: 'partial', item: this.toItem(partial, options?.fullSelect) });
+      if (bestPartial) {
+        results.push({ input, tier: 'partial', item: this.toItem(bestPartial, options?.fullSelect) });
       } else {
         results.push({ input, tier: 'unmatched' }); // placeholder
         unmatchedIndices.push(i);
@@ -163,7 +174,7 @@ export class PlaceMatcherService {
     // ── 3. Fuzzy 배치 매칭 (pg_trgm, 1회 SQL) ──
     if (unmatchedIndices.length > 0) {
       const fuzzyNames = unmatchedIndices.map((i) => inputs[i].name);
-      const fuzzyMap = await this.fuzzyMatchBatch(fuzzyNames, threshold);
+      const fuzzyMap = await this.fuzzyMatchBatch(fuzzyNames, threshold, options?.region);
 
       for (const idx of unmatchedIndices) {
         const fuzzy = fuzzyMap.get(inputs[idx].name);
@@ -223,34 +234,63 @@ export class PlaceMatcherService {
   private async fuzzyMatchBatch(
     names: string[],
     threshold: number,
+    region?: string,
   ): Promise<Map<string, MatchedItemFull & { sim: number }>> {
     if (names.length === 0) return new Map();
 
-    const results = await this.prisma.$queryRaw<
-      Array<{
-        query_name: string;
-        id: number;
-        name_kor: string;
-        name_eng: string;
-        description_eng: string | null;
-        images: unknown;
-        lat: number;
-        lng: number;
-        address_english: string | null;
-        price: number;
-        region: string | null;
-        sim: number;
-      }>
-    >`
-      SELECT DISTINCT ON (query_name)
-        query_name, id, name_kor, name_eng, description_eng, images, lat, lng, address_english, price, region,
-        GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
-      FROM items
-      CROSS JOIN unnest(${names}::text[]) AS query_name
-      WHERE type = 'place'
-        AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
-      ORDER BY query_name, sim DESC
-    `;
+    // 지역 필터가 있으면 해당 지역 우선, 없으면 전체 검색
+    const results = region
+      ? await this.prisma.$queryRaw<
+          Array<{
+            query_name: string;
+            id: number;
+            name_kor: string;
+            name_eng: string;
+            description_eng: string | null;
+            images: unknown;
+            lat: number;
+            lng: number;
+            address_english: string | null;
+            price: number;
+            region: string | null;
+            sim: number;
+          }>
+        >`
+          SELECT DISTINCT ON (query_name)
+            query_name, id, name_kor, name_eng, description_eng, images, lat, lng, address_english, price, region,
+            GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
+          FROM items
+          CROSS JOIN unnest(${names}::text[]) AS query_name
+          WHERE type = 'place'
+            AND (region ILIKE ${'%' + region + '%'} OR address_english ILIKE ${'%' + region + '%'})
+            AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
+          ORDER BY query_name, sim DESC
+        `
+      : await this.prisma.$queryRaw<
+          Array<{
+            query_name: string;
+            id: number;
+            name_kor: string;
+            name_eng: string;
+            description_eng: string | null;
+            images: unknown;
+            lat: number;
+            lng: number;
+            address_english: string | null;
+            price: number;
+            region: string | null;
+            sim: number;
+          }>
+        >`
+          SELECT DISTINCT ON (query_name)
+            query_name, id, name_kor, name_eng, description_eng, images, lat, lng, address_english, price, region,
+            GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
+          FROM items
+          CROSS JOIN unnest(${names}::text[]) AS query_name
+          WHERE type = 'place'
+            AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
+          ORDER BY query_name, sim DESC
+        `;
 
     const map = new Map<string, MatchedItemFull & { sim: number }>();
     for (const r of results) {

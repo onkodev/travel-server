@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsInt, IsArray, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SearchEmailRagDto {
@@ -46,6 +46,13 @@ export interface DraftResult {
     subject: string | null;
     similarity: number;
   }>;
+}
+
+export class EmbedEstimatesDto {
+  @IsArray()
+  @IsInt({ each: true })
+  @Type(() => Number)
+  ids: number[];
 }
 
 export class AnalyzePlacesDto {

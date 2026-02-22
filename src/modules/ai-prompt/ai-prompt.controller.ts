@@ -18,7 +18,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/types';
 import { AiPromptService } from './ai-prompt.service';
-import { UpdateAiPromptDto, AiPromptQueryDto, UpdateFaqChatConfigDto } from './dto';
+import { UpdateAiPromptDto, AiPromptQueryDto, UpdateFaqChatConfigDto, UpdateEstimateConfigDto } from './dto';
 
 @ApiTags('AI Prompts')
 @ApiBearerAuth('access-token')
@@ -45,6 +45,18 @@ export class AiPromptController {
   @ApiOperation({ summary: 'FAQ 챗봇 설정 수정' })
   async updateFaqChatConfig(@Body() dto: UpdateFaqChatConfigDto) {
     return this.aiPromptService.updateFaqChatConfig(dto);
+  }
+
+  @Get('estimate-config')
+  @ApiOperation({ summary: '견적 AI 설정 조회' })
+  async getEstimateConfig() {
+    return this.aiPromptService.getEstimateConfig();
+  }
+
+  @Patch('estimate-config')
+  @ApiOperation({ summary: '견적 AI 설정 수정' })
+  async updateEstimateConfig(@Body() dto: UpdateEstimateConfigDto) {
+    return this.aiPromptService.updateEstimateConfig(dto);
   }
 
   @Get(':key')

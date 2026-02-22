@@ -2,6 +2,7 @@ import {
   IsOptional,
   IsNumber,
   IsString,
+  IsBoolean,
   Min,
   Max,
 } from 'class-validator';
@@ -9,6 +10,11 @@ import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateGenerationConfigDto {
+  @ApiPropertyOptional({ description: 'AI 활성화 여부', example: true })
+  @IsOptional()
+  @IsBoolean()
+  aiEnabled?: boolean;
+
   @ApiPropertyOptional({ description: 'Gemini 모델명', example: 'gemini-2.5-flash' })
   @IsOptional()
   @IsString()
@@ -66,4 +72,49 @@ export class UpdateGenerationConfigDto {
   @IsOptional()
   @IsString()
   customPromptAddon?: string;
+
+  @ApiPropertyOptional({ description: 'Fuzzy 매칭 임계값', example: 0.3 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.1)
+  @Max(0.9)
+  fuzzyMatchThreshold?: number;
+
+  @ApiPropertyOptional({ description: 'Direct 매칭 임계값', example: 0.7 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.1)
+  @Max(0.9)
+  directThreshold?: number;
+
+  @ApiPropertyOptional({ description: 'RAG 매칭 임계값', example: 0.5 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.1)
+  @Max(0.9)
+  ragThreshold?: number;
+
+  @ApiPropertyOptional({ description: '매칭 실패 시 응답 메시지' })
+  @IsOptional()
+  @IsString()
+  noMatchResponse?: string;
+
+  @ApiPropertyOptional({ description: '수동 견적 유효기간 (일)', example: 10 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(30)
+  estimateValidityDays?: number;
+
+  @ApiPropertyOptional({ description: 'AI 견적 유효기간 (일)', example: 2 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(30)
+  aiEstimateValidityDays?: number;
 }
