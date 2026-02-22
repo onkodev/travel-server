@@ -167,6 +167,7 @@ export class ItineraryAiService {
     const text = await this.geminiCore.callGemini(built.text, {
       temperature: built.temperature,
       maxOutputTokens: built.maxOutputTokens,
+      disableThinking: true,
     });
 
     if (text.trim()) {

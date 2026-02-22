@@ -458,30 +458,26 @@ Return ONLY a JSON array:
     category: 'itinerary',
     variables: ['dayNumber', 'itemList'],
     defaultTemperature: 0.7,
-    defaultMaxOutputTokens: 500,
-    defaultText: `Create a timeline description for Day {{dayNumber}} of a Korea trip.
+    defaultMaxOutputTokens: 0,
+    defaultText: `Write a brief timeline for Day {{dayNumber}} of a Korea trip.
 
-Items for this day (in order):
+Items:
 {{itemList}}
 
-Format rules:
-- Write in English.
-- Use exactly this format for each item:
-  - [Place Name] – [1-2 sentence description of what to do/see]
-- Start with "- Pick up at [location]" if there's accommodation/transportation.
-- End with "- Drop off at [location]" if there's accommodation.
-- Describe the experience, atmosphere, or highlights for each place.
-- Keep descriptions engaging but concise.
-- Use en-dash (–) not hyphen (-) between place name and description.
+Rules:
+- English only. Include ALL items.
+- Format: "- [Place Name] – [short phrase, max 8 words]"
+- Pick up/Drop off lines have NO description.
+- Use en-dash (–) between name and description.
 
 Example:
 - Pick up at Lotte Hotel Seoul
-- Gyeongbokgung Palace – Explore Korea's grandest palace and watch the royal guard ceremony
-- Bukchon Hanok Village – Stroll through charming traditional alleyways with 600-year-old houses
-- Insadong – Browse antique shops and enjoy traditional Korean tea
+- Gyeongbokgung Palace – Royal palace and guard ceremony
+- Bukchon Hanok Village – Traditional alleyways with hanok houses
+- Insadong – Antique shops and Korean tea street
 - Drop off at Lotte Hotel Seoul
 
-Generate the timeline:`,
+Timeline:`,
   },
 
   [PromptKey.FAQ_CLASSIFY_INTENT]: {

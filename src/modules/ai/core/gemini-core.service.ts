@@ -44,8 +44,10 @@ export class GeminiCoreService {
 
     const generationConfig: Record<string, unknown> = {
       temperature: options?.temperature ?? 0.7,
-      maxOutputTokens: options?.maxOutputTokens ?? 1024,
     };
+    if (options?.maxOutputTokens) {
+      generationConfig.maxOutputTokens = options.maxOutputTokens;
+    }
 
     // 2.5 모델의 thinking 비활성화 (구조화 출력 시 불필요한 추론 오버헤드 제거)
     if (options?.disableThinking) {
