@@ -47,6 +47,9 @@ export interface DashboardData {
     manualEstimates: number;
     aiEstimates: number;
     recentEstimates: number;
+    monthlyEstimates: number;
+    pendingReviewEstimates: number;
+    monthlySentEstimates: number;
     totalBookings: number;
     pendingBookings: number;
     confirmedBookings: number;
@@ -74,7 +77,18 @@ export interface DashboardData {
     statusAi: string | null;
     updatedAt: Date | null;
     startDate: Date | null;
+    endDate: Date | null;
     totalAmount: unknown;
+  }>;
+  calendarEstimates: Array<{
+    id: number;
+    title: string | null;
+    customerName: string | null;
+    source: string | null;
+    statusManual: string | null;
+    statusAi: string | null;
+    startDate: Date | null;
+    endDate: Date | null;
   }>;
   chatStats: {
     total: number;
@@ -140,6 +154,9 @@ export class DashboardService {
         manual_estimates: bigint;
         ai_estimates: bigint;
         recent_estimates: bigint;
+        monthly_estimates: bigint;
+        pending_review_estimates: bigint;
+        monthly_sent_estimates: bigint;
         // 예약 통계
         total_bookings: bigint;
         pending_bookings: bigint;
@@ -167,6 +184,9 @@ export class DashboardService {
         (SELECT COUNT(*) FROM estimates WHERE source = 'manual') as manual_estimates,
         (SELECT COUNT(*) FROM estimates WHERE source = 'ai') as ai_estimates,
         (SELECT COUNT(*) FROM estimates WHERE created_at >= ${sevenDaysAgo}) as recent_estimates,
+        (SELECT COUNT(*) FROM estimates WHERE created_at >= date_trunc('month', CURRENT_DATE)) as monthly_estimates,
+        (SELECT COUNT(*) FROM estimates WHERE source = 'ai' AND status_ai = 'pending') as pending_review_estimates,
+        (SELECT COUNT(*) FROM estimates WHERE sent_at >= date_trunc('month', CURRENT_DATE)) as monthly_sent_estimates,
         -- 예약 통계
         (SELECT COUNT(*) FROM bookings) as total_bookings,
         (SELECT COUNT(*) FROM bookings WHERE status = 'pending') as pending_bookings,
@@ -210,6 +230,7 @@ export class DashboardService {
             statusAi: true,
             updatedAt: true,
             startDate: true,
+            endDate: true,
             totalAmount: true,
           },
           orderBy: { updatedAt: 'desc' },
@@ -219,10 +240,32 @@ export class DashboardService {
       ]);
     this.logger.debug(`리스트 데이터: ${Date.now() - startTime}ms`);
 
-    const [dailyTrends, popularTours] =
+    // 캘린더용 견적 (앞뒤 3개월 범위에서 startDate가 있는 견적)
+    const calendarStart = new Date(today);
+    calendarStart.setMonth(calendarStart.getMonth() - 3);
+    const calendarEnd = new Date(today);
+    calendarEnd.setMonth(calendarEnd.getMonth() + 6);
+
+    const [dailyTrends, popularTours, calendarEstimates] =
       await Promise.all([
         this.getDailyTrends(),
         this.getPopularTours(),
+        this.prisma.estimate.findMany({
+          select: {
+            id: true,
+            title: true,
+            customerName: true,
+            source: true,
+            statusManual: true,
+            statusAi: true,
+            startDate: true,
+            endDate: true,
+          },
+          where: {
+            startDate: { gte: calendarStart, lte: calendarEnd },
+          },
+          orderBy: { startDate: 'asc' },
+        }),
       ]);
     this.logger.debug(`차트 데이터: ${Date.now() - startTime}ms`);
 
@@ -231,6 +274,9 @@ export class DashboardService {
     const manualEstimates = Number(statsResult.manual_estimates);
     const aiEstimates = Number(statsResult.ai_estimates);
     const recentEstimatesCount = Number(statsResult.recent_estimates);
+    const monthlyEstimates = Number(statsResult.monthly_estimates);
+    const pendingReviewEstimates = Number(statsResult.pending_review_estimates);
+    const monthlySentEstimates = Number(statsResult.monthly_sent_estimates);
     const totalBookings = Number(statsResult.total_bookings);
     const pendingBookings = Number(statsResult.pending_bookings);
     const confirmedBookings = Number(statsResult.confirmed_bookings);
@@ -292,6 +338,9 @@ export class DashboardService {
         manualEstimates,
         aiEstimates,
         recentEstimates: recentEstimatesCount,
+        monthlyEstimates,
+        pendingReviewEstimates,
+        monthlySentEstimates,
         totalBookings,
         pendingBookings,
         confirmedBookings,
@@ -306,6 +355,7 @@ export class DashboardService {
       },
       upcomingBookings: upcomingBookingsData,
       recentEstimates,
+      calendarEstimates,
       chatStats,
       dailyTrends,
       monthlyRevenue,
