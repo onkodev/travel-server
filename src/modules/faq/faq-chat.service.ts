@@ -113,8 +113,15 @@ export class FaqChatService {
         answer = await this.generateGeneralTravelAnswer(message, history);
       }
     } else if (intent === 'company' && topSimilarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD) {
-      responseTier = 'direct';
-      answer = similar[0].answer;
+      // 커스텀 지시사항이 있으면 RAG를 거쳐 적용, 없으면 직접 반환
+      if (chatConfig.faqCustomInstructions) {
+        responseTier = 'rag';
+        const ragResult = await this.generateRagAnswer(message, similar, history);
+        answer = ragResult.matched ? ragResult.answer : similar[0].answer;
+      } else {
+        responseTier = 'direct';
+        answer = similar[0].answer;
+      }
     } else if (intent === 'company') {
       const ragResult = await this.generateRagAnswer(message, similar, history);
       if (!ragResult.matched) {
