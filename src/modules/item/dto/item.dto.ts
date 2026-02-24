@@ -26,7 +26,7 @@ export class ItemDto {
 
   @ApiProperty({
     description: '아이템 타입',
-    enum: ['place', 'accommodation', 'transportation', 'contents'],
+    enum: ['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'],
   })
   type: string;
 
@@ -75,10 +75,10 @@ export class ItemQueryDto extends PaginationQueryDto {
 
   @ApiPropertyOptional({
     description: '아이템 타입 필터',
-    enum: ['place', 'accommodation', 'transportation', 'contents', 'service'],
+    enum: ['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'],
   })
   @IsOptional()
-  @IsIn(['place', 'accommodation', 'transportation', 'contents', 'service'])
+  @IsIn(['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'])
   type?: string;
 
   @ApiPropertyOptional({ description: '지역 필터' })
@@ -96,9 +96,9 @@ export class ItemQueryDto extends PaginationQueryDto {
 export class CreateItemDto {
   @ApiProperty({
     description: '아이템 타입',
-    enum: ['place', 'accommodation', 'transportation', 'contents', 'service'],
+    enum: ['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'],
   })
-  @IsIn(['place', 'accommodation', 'transportation', 'contents', 'service'])
+  @IsIn(['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'])
   type: string;
 
   @ApiProperty({ description: '한글 이름', example: '서울 남산타워' })
@@ -200,10 +200,10 @@ export class CreateItemDto {
 export class UpdateItemDto {
   @ApiPropertyOptional({
     description: '아이템 타입',
-    enum: ['place', 'accommodation', 'transportation', 'contents', 'service'],
+    enum: ['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'],
   })
   @IsOptional()
-  @IsIn(['place', 'accommodation', 'transportation', 'contents', 'service'])
+  @IsIn(['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'])
   type?: string;
 
   @ApiPropertyOptional({ description: '한글 이름' })

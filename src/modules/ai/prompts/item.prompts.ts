@@ -7,4 +7,5 @@ export const ITEM_TYPE_LABELS: Record<string, string> = {
   accommodation: '숙소/호텔',
   transportation: '교통수단',
   contents: '체험/액티비티',
+  restaurant: '음식점/레스토랑',
 };

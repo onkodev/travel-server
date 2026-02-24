@@ -104,7 +104,8 @@ export type EstimateItemType =
   | 'place'
   | 'accommodation'
   | 'transportation'
-  | 'contents';
+  | 'contents'
+  | 'restaurant';
 
 /**
  * 아이템 정보 (견적 아이템에 포함되는 상세 정보)
@@ -133,6 +134,7 @@ export interface EstimateItemInfo {
 export interface EstimateItem {
   id: string;
   type: EstimateItemType | string;
+  category?: EstimateItemType | string;
   dayNumber: number;
   orderIndex: number;
   quantity?: number;

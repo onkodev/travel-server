@@ -412,6 +412,7 @@ export class ConversationalEstimateService {
         return {
           id: `ai-day${dayNumber}-${idx + 1}`,
           type: dbItem.type || 'place',
+          category: dbItem.type || 'place',
           itemId: dbItem.id,
           itemName: dbItem.nameEng,
           name: dbItem.nameEng,
@@ -737,6 +738,7 @@ export class ConversationalEstimateService {
     const newItem: EstimateItem = {
       id: `ai-added-${Date.now()}`,
       type: dbItem.type || 'place',
+      category: dbItem.type || 'place',
       itemId: dbItem.id,
       itemName: dbItem.nameEng,
       name: dbItem.nameEng,
@@ -792,6 +794,7 @@ export class ConversationalEstimateService {
     const newItem: EstimateItem = {
       id: `tbd-${Date.now()}`,
       type: 'place',
+      category: 'place',
       itemId: undefined, // DB 아이템 없음
       itemName: placeName,
       name: placeName,
@@ -1028,6 +1031,7 @@ export class ConversationalEstimateService {
     updatedItems[itemIndex] = {
       ...itemToReplace,
       id: `ai-replaced-${Date.now()}`,
+      category: itemToReplace.type || 'place',
       itemId: selectedDbItem.id,
       itemName: selectedDbItem.nameEng,
       name: selectedDbItem.nameEng,

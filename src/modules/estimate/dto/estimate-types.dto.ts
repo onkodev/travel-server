@@ -84,6 +84,11 @@ export class EstimateItemExtendedDto {
   @IsString()
   type?: string;
 
+  @ApiPropertyOptional({ description: '아이템 카테고리 (type과 동일, 마이그레이션 용도)' })
+  @IsOptional()
+  @IsString()
+  category?: string;
+
   @ApiPropertyOptional({ description: '아이템 이름' })
   @IsOptional()
   @IsString()
@@ -156,6 +161,11 @@ export class DisplayOptionsDto {
   @IsOptional()
   @IsBoolean()
   service?: boolean;
+
+  @ApiPropertyOptional({ description: '음식점 표시' })
+  @IsOptional()
+  @IsBoolean()
+  restaurant?: boolean;
 
   // 금액
   @ApiPropertyOptional({ description: '금액 마스터 토글' })

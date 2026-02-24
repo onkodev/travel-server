@@ -307,6 +307,11 @@ export class EstimateService {
 
     // 아이템 정보 보강 + 이미지 포맷 정규화
     const enrichedItems = items.map((item) => {
+      // category 정규화: 기존 데이터에 category가 없으면 type으로 채움
+      if (!item.category && item.type) {
+        item.category = item.type;
+      }
+
       // 이미지 포맷 정규화 (항상 수행 - 객체 형식 → 문자열 배열 변환)
       const normalizedImages = extractImageUrls(item.itemInfo?.images);
 

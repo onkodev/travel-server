@@ -38,7 +38,7 @@ model Estimate {
   adjustmentReason  String?                @map("adjustment_reason")
   totalAmount       Decimal?               @default(0) @map("total_amount") @db.Decimal(12, 2)
   currency          String?                @default("USD") @db.VarChar(3)
-  displayOptions    Json?                  @default("{\"place\": true, \"price\": true, \"contents\": true, \"accommodation\": true, \"transportation\": true}") @map("display_options")
+  displayOptions    Json?                  @default("{\"place\": true, \"price\": true, \"contents\": true, \"accommodation\": true, \"transportation\": true, \"restaurant\": true}") @map("display_options")
   comment           String?
   timeline          Json?
   dayNotes          Json?                  @map("day_notes")
@@ -89,6 +89,7 @@ model Estimate {
 model Item {
   id               Int       @id @default(autoincrement())
   type             String    @db.VarChar(50)
+  category         String?   @db.VarChar(50)
   nameKor          String    @map("name_kor") @db.VarChar(255)
   nameEng          String    @map("name_eng") @db.VarChar(255)
   description      String    @default("")
@@ -118,6 +119,7 @@ model Item {
   @@index([tourApiContentId], map: "idx_items_tour_api_content_id")
   @@index([type], map: "idx_items_type")
   @@index([type, createdAt(sort: Desc)], map: "idx_items_type_created")
+  @@index([category], map: "idx_items_category")
   @@index([area], map: "idx_items_area")
   @@index([categories], map: "idx_items_categories", type: Gin)
   @@index([region], map: "idx_items_region")

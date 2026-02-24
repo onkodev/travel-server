@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
@@ -152,6 +157,10 @@ export class ItemService {
 
   // 아이템 생성
   async createItem(data: Prisma.ItemCreateInput) {
+    // type → category 동기화
+    if (data.type) {
+      data.category = data.type;
+    }
     const item = await this.prisma.item.create({ data });
     this.invalidateItemCache(item.type);
     return convertDecimalFields(item);
@@ -159,6 +168,10 @@ export class ItemService {
 
   // 아이템 업데이트
   async updateItem(id: number, data: Prisma.ItemUpdateInput) {
+    // type 변경 시 category 동기화
+    if (data.type) {
+      data.category = data.type;
+    }
     try {
       const item = await this.prisma.item.update({
         where: { id },
@@ -190,6 +203,7 @@ export class ItemService {
     const newItem = await this.prisma.item.create({
       data: {
         type: original.type,
+        category: original.type, // type → category 동기화
         nameKor: `${original.nameKor} (복사본)`,
         nameEng: `${original.nameEng} (Copy)`,
         description: original.description,
@@ -218,6 +232,22 @@ export class ItemService {
 
   // 아이템 삭제
   async deleteItem(id: number) {
+    // 견적에서 사용 중인지 확인
+    const estimates = await this.prisma.$queryRaw<
+      Array<{ id: number; title: string }>
+    >`
+      SELECT id, title FROM estimates
+      WHERE items::jsonb @> ${JSON.stringify([{ itemId: id }])}::jsonb
+      LIMIT 5
+    `;
+
+    if (estimates.length > 0) {
+      const names = estimates.map((e) => `#${e.id} ${e.title}`).join(', ');
+      throw new ConflictException(
+        `이 아이템은 견적에서 사용 중이라 삭제할 수 없습니다: ${names}${estimates.length >= 5 ? ' 외' : ''}`,
+      );
+    }
+
     try {
       const item = await this.prisma.item.delete({
         where: { id },
