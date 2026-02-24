@@ -465,7 +465,10 @@ export class EstimateService {
       validDate = isNaN(parsed.getTime()) ? undefined : parsed;
     }
     if (!validDate) {
-      const config = await this.prisma.aiGenerationConfig.findFirst({ where: { id: 1 }, select: { estimateValidityDays: true } });
+      const config = await this.prisma.aiGenerationConfig.findFirst({
+        where: { id: 1 },
+        select: { estimateValidityDays: true },
+      });
       const days = config?.estimateValidityDays ?? 10;
       validDate = new Date();
       validDate.setDate(validDate.getDate() + days);
@@ -509,6 +512,7 @@ export class EstimateService {
       'items',
       'displayOptions',
       'timeline',
+      'dayNotes',
       'revisionHistory', // JSON 필드 (별도 처리)
       'validDate',
       'startDate',
@@ -526,7 +530,11 @@ export class EstimateService {
     ]);
 
     // Decimal 필드 NaN/Infinity 방어 (PrismaClientValidationError 방지)
-    const DECIMAL_FIELDS = ['subtotal', 'manualAdjustment', 'totalAmount'] as const;
+    const DECIMAL_FIELDS = [
+      'subtotal',
+      'manualAdjustment',
+      'totalAmount',
+    ] as const;
     for (const field of DECIMAL_FIELDS) {
       if (field in cleanData) {
         const v = Number(cleanData[field]);
@@ -575,6 +583,9 @@ export class EstimateService {
         ...(data.timeline !== undefined && {
           timeline: data.timeline as unknown as Prisma.InputJsonValue,
         }),
+        ...(data.dayNotes !== undefined && {
+          dayNotes: data.dayNotes as unknown as Prisma.InputJsonValue,
+        }),
         ...(data.revisionHistory !== undefined && {
           revisionHistory:
             data.revisionHistory as unknown as Prisma.InputJsonValue,
@@ -599,7 +610,10 @@ export class EstimateService {
   async updateManualStatus(id: number, status: string) {
     const updates: Prisma.EstimateUpdateInput = { statusManual: status };
     if (status === 'completed') updates.completedAt = new Date();
-    const result = await this.prisma.estimate.update({ where: { id }, data: updates });
+    const result = await this.prisma.estimate.update({
+      where: { id },
+      data: updates,
+    });
     this.invalidateCaches();
     return result;
   }
@@ -629,7 +643,8 @@ export class EstimateService {
   // 아이템 업데이트
   async updateItems(id: number, items: EstimateItemDto[]) {
     const rawSubtotal = items.reduce(
-      (sum, item) => sum + ((item as any).subtotal ?? (item.price * item.quantity || 0)),
+      (sum, item) =>
+        sum + ((item as any).subtotal ?? (item.price * item.quantity || 0)),
       0,
     );
     const subtotal = Number.isFinite(rawSubtotal) ? rawSubtotal : 0;
@@ -681,6 +696,7 @@ export class EstimateService {
       items,
       displayOptions,
       timeline,
+      dayNotes,
       revisionHistory: _rh,
       aiMetadata,
       ...copyData
@@ -695,6 +711,7 @@ export class EstimateService {
       items: toJsonInput(items),
       displayOptions: toJsonInput(displayOptions),
       timeline: toJsonInput(timeline),
+      dayNotes: toJsonInput(dayNotes),
       aiMetadata: toJsonInput(aiMetadata),
       title: `${original.title}_copy`,
       shareHash: randomBytes(16).toString('hex'),
@@ -722,7 +739,11 @@ export class EstimateService {
 
     // 이전 (더 최신) — 같은 핀 상태에서 더 최신이거나, 핀 고정된 항목(현재가 비핀일 때)
     const prevConditions = [
-      { isPinned: pinned, createdAt: { gt: current.createdAt }, id: { not: id } },
+      {
+        isPinned: pinned,
+        createdAt: { gt: current.createdAt },
+        id: { not: id },
+      },
     ];
     if (!pinned) {
       prevConditions.push({ isPinned: true } as never);
@@ -736,7 +757,11 @@ export class EstimateService {
 
     // 다음 (더 오래됨) — 같은 핀 상태에서 더 오래되었거나, 비핀 항목(현재가 핀일 때)
     const nextConditions = [
-      { isPinned: pinned, createdAt: { lt: current.createdAt }, id: { not: id } },
+      {
+        isPinned: pinned,
+        createdAt: { lt: current.createdAt },
+        id: { not: id },
+      },
     ];
     if (pinned) {
       nextConditions.push({ isPinned: false } as never);
@@ -802,8 +827,15 @@ export class EstimateService {
     const place = await this.prisma.item.findUnique({
       where: { id: itemId },
       select: {
-        id: true, nameKor: true, nameEng: true, descriptionEng: true,
-        images: true, lat: true, lng: true, addressEnglish: true, price: true,
+        id: true,
+        nameKor: true,
+        nameEng: true,
+        descriptionEng: true,
+        images: true,
+        lat: true,
+        lng: true,
+        addressEnglish: true,
+        price: true,
       },
     });
     if (!place) throw new NotFoundException('장소를 찾을 수 없습니다');
@@ -829,9 +861,11 @@ export class EstimateService {
 
     // aiMetadata 업데이트
     const aiMetadata = (estimate.aiMetadata as Record<string, unknown>) || {};
-    const itemMatching = (aiMetadata.itemMatching as Record<string, unknown>) || {};
+    const itemMatching =
+      (aiMetadata.itemMatching as Record<string, unknown>) || {};
     if (typeof itemMatching.tbdCount === 'number') itemMatching.tbdCount--;
-    if (typeof itemMatching.matchedCount === 'number') itemMatching.matchedCount++;
+    if (typeof itemMatching.matchedCount === 'number')
+      itemMatching.matchedCount++;
     aiMetadata.itemMatching = itemMatching;
 
     // confidenceScore 재계산 (간이)
@@ -840,11 +874,23 @@ export class EstimateService {
     const tbdCount = (itemMatching.tbdCount as number) || 0;
     const matchRate = matchedCount / (totalDraft || 1);
     const tbdRate = tbdCount / (totalDraft || 1);
-    const ragSources = ((aiMetadata.ragSearch as Record<string, unknown>)?.sources as Array<{ similarity: number }>) || [];
-    const avgSim = ragSources.slice(0, 3).reduce((s, r) => s + (r.similarity || 0), 0) / (Math.min(ragSources.length, 3) || 1);
-    aiMetadata.confidenceScore = Math.round(Math.min(100, Math.max(0,
-      ((0.35 * matchRate) + (0.25 * avgSim) + (0.20 * 0.5) + (0.20 * (1 - tbdRate))) * 100
-    )));
+    const ragSources =
+      ((aiMetadata.ragSearch as Record<string, unknown>)?.sources as Array<{
+        similarity: number;
+      }>) || [];
+    const avgSim =
+      ragSources.slice(0, 3).reduce((s, r) => s + (r.similarity || 0), 0) /
+      (Math.min(ragSources.length, 3) || 1);
+    aiMetadata.confidenceScore = Math.round(
+      Math.min(
+        100,
+        Math.max(
+          0,
+          (0.35 * matchRate + 0.25 * avgSim + 0.2 * 0.5 + 0.2 * (1 - tbdRate)) *
+            100,
+        ),
+      ),
+    );
 
     await this.prisma.estimate.update({
       where: { id: estimateId },
@@ -860,7 +906,9 @@ export class EstimateService {
   // RAG 품질 통계
   // 일괄 삭제
   async bulkDelete(ids: number[]) {
-    const result = await this.prisma.estimate.deleteMany({ where: { id: { in: ids } } });
+    const result = await this.prisma.estimate.deleteMany({
+      where: { id: { in: ids } },
+    });
     this.invalidateCaches();
     return result;
   }

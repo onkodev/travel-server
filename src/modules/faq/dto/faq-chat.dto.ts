@@ -10,6 +10,7 @@ import {
   MinLength,
   ArrayMaxSize,
   ValidateNested,
+  IsBoolean,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -52,7 +53,10 @@ export class FaqFeedbackDto {
   @IsNumber()
   chatLogId: number;
 
-  @ApiProperty({ description: '도움이 되었는지 여부 (true=thumbs up, false=thumbs down)' })
+  @ApiProperty({
+    description: '도움이 되었는지 여부 (true=thumbs up, false=thumbs down)',
+  })
+  @IsBoolean()
   helpful: boolean;
 }
 

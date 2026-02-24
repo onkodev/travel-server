@@ -102,9 +102,7 @@ export class GeminiCoreService {
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!text) {
-          this.logger.error(
-            `Empty Gemini response: ${JSON.stringify(data)}`,
-          );
+          this.logger.error(`Empty Gemini response: ${JSON.stringify(data)}`);
           throw new BadRequestException('Gemini returned empty response');
         }
 

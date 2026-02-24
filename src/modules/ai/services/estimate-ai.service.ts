@@ -74,7 +74,10 @@ export class EstimateAiService {
 
     if (result) {
       // budgetLevel → priceRange 매핑 (luxury → premium)
-      const priceRange = result.budgetLevel === 'luxury' ? 'premium' : (result.budgetLevel || null);
+      const priceRange =
+        result.budgetLevel === 'luxury'
+          ? 'premium'
+          : result.budgetLevel || null;
 
       return {
         regions: result.regions || [],

@@ -197,6 +197,8 @@ export class FaqController {
       answerKo: body.answerKo,
       tags: body.tags,
       category: body.category,
+      guideline: body.guideline,
+      reference: body.reference,
       source: 'manual',
     });
   }
@@ -215,6 +217,8 @@ export class FaqController {
     if (body.answerKo !== undefined) data.answerKo = body.answerKo;
     if (body.tags !== undefined) data.tags = body.tags;
     if (body.category !== undefined) data.category = body.category;
+    if (body.guideline !== undefined) data.guideline = body.guideline;
+    if (body.reference !== undefined) data.reference = body.reference;
     return this.faqService.updateFaq(id, data);
   }
 
@@ -269,7 +273,8 @@ export class FaqController {
   @Post('auto-review')
   @ApiOperation({
     summary: 'AI 자동 리뷰 (pending FAQ 일괄 승인/거절)',
-    description: 'Gemini AI가 pending FAQ를 배치로 평가하여 자동 승인/거절/보류 처리합니다. dryRun=true로 미리보기 가능.',
+    description:
+      'Gemini AI가 pending FAQ를 배치로 평가하여 자동 승인/거절/보류 처리합니다. dryRun=true로 미리보기 가능.',
   })
   async autoReview(
     @CurrentUser('id') userId: string,

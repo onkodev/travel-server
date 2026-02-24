@@ -15,7 +15,10 @@ export class UpdateGenerationConfigDto {
   @IsBoolean()
   aiEnabled?: boolean;
 
-  @ApiPropertyOptional({ description: 'Gemini 모델명', example: 'gemini-2.5-flash' })
+  @ApiPropertyOptional({
+    description: 'Gemini 모델명',
+    example: 'gemini-2.5-flash',
+  })
   @IsOptional()
   @IsString()
   geminiModel?: string;
@@ -117,4 +120,9 @@ export class UpdateGenerationConfigDto {
   @Min(1)
   @Max(30)
   aiEstimateValidityDays?: number;
+
+  @ApiPropertyOptional({ description: 'TBD 항목 포함 여부', example: true })
+  @IsOptional()
+  @IsBoolean()
+  includeTbdItems?: boolean;
 }

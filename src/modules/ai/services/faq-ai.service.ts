@@ -25,9 +25,10 @@ export class FaqAiService {
     private aiPromptService: AiPromptService,
   ) {}
 
-  async extractFaqFromEmail(
-    params: { subject: string; emailBody: string },
-  ): Promise<ExtractedFaqItem[]> {
+  async extractFaqFromEmail(params: {
+    subject: string;
+    emailBody: string;
+  }): Promise<ExtractedFaqItem[]> {
     const built = await this.aiPromptService.buildPrompt(
       PromptKey.FAQ_EXTRACTION,
       {

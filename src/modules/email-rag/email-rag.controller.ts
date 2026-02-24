@@ -4,7 +4,12 @@ import { Public } from '../../common/decorators/public.decorator';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { EmailEmbeddingService } from './email-embedding.service';
 import { EmailRagService } from './email-rag.service';
-import { SearchEmailRagDto, SyncEmailRagDto, AnalyzePlacesDto, EmbedEstimatesDto } from './dto';
+import {
+  SearchEmailRagDto,
+  SyncEmailRagDto,
+  AnalyzePlacesDto,
+  EmbedEstimatesDto,
+} from './dto';
 
 @SkipThrottle({ default: true, strict: true })
 @Controller('email-rag/admin')
@@ -23,7 +28,9 @@ export class EmailRagController {
   @Public()
   @Post('sync')
   async sync(@Body() dto: SyncEmailRagDto) {
-    this.logger.log(`Starting email embedding sync (batchSize: ${dto.batchSize || 50})`);
+    this.logger.log(
+      `Starting email embedding sync (batchSize: ${dto.batchSize || 50})`,
+    );
     const result = await this.embeddingService.syncAll(dto.batchSize);
     return result;
   }
@@ -95,7 +102,9 @@ export class EmailRagController {
   @Public()
   @Post('sync-estimate-embeddings')
   async syncEstimateEmbeddings(@Body() dto: SyncEmailRagDto) {
-    this.logger.log(`Starting estimate embedding sync (batchSize: ${dto.batchSize || 100})`);
+    this.logger.log(
+      `Starting estimate embedding sync (batchSize: ${dto.batchSize || 100})`,
+    );
     return this.embeddingService.syncEstimateEmbeddings(dto.batchSize);
   }
 

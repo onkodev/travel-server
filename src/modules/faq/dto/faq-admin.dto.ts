@@ -79,7 +79,10 @@ export class AutoReviewFaqsDto {
 // ============================================================================
 
 export class ScanDuplicatesDto {
-  @ApiPropertyOptional({ description: '유사도 임계값 (기본 0.96)', default: 0.96 })
+  @ApiPropertyOptional({
+    description: '유사도 임계값 (기본 0.96)',
+    default: 0.96,
+  })
   @IsOptional()
   @Type(() => Number)
   @Min(0.7)
@@ -101,14 +104,19 @@ export class CheckDuplicateDto {
   @MaxLength(500)
   question: string;
 
-  @ApiPropertyOptional({ description: '유사도 임계값 (기본 0.8)', default: 0.8 })
+  @ApiPropertyOptional({
+    description: '유사도 임계값 (기본 0.8)',
+    default: 0.8,
+  })
   @IsOptional()
   @Type(() => Number)
   @Min(0.5)
   @Max(1.0)
   threshold?: number;
 
-  @ApiPropertyOptional({ description: '제외할 FAQ ID (편집 시 자기 자신 제외)' })
+  @ApiPropertyOptional({
+    description: '제외할 FAQ ID (편집 시 자기 자신 제외)',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()

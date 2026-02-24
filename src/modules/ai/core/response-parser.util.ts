@@ -11,10 +11,7 @@ function sanitizeJsonString(str: string): string {
   let result = str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
 
   // 2) 잘못된 이스케이프 시퀀스 수정: 유효한 이스케이프(\", \\, \/, \b, \f, \n, \r, \t, \uXXXX)가 아닌 것 → 백슬래시 제거
-  result = result.replace(
-    /\\(?!["\\/bfnrtu])/g,
-    '',
-  );
+  result = result.replace(/\\(?!["\\/bfnrtu])/g, '');
 
   return result;
 }
@@ -30,9 +27,18 @@ function tryRepairTruncatedJson(str: string): string | null {
   let escape = false;
 
   for (const ch of str) {
-    if (escape) { escape = false; continue; }
-    if (ch === '\\' && inString) { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
     if (inString) continue;
     if (ch === '{') braces++;
     if (ch === '}') braces--;
@@ -54,8 +60,14 @@ function tryRepairTruncatedJson(str: string): string | null {
   }
 
   // 닫는 괄호 추가
-  while (braces > 0) { repaired += '}'; braces--; }
-  while (brackets > 0) { repaired += ']'; brackets--; }
+  while (braces > 0) {
+    repaired += '}';
+    braces--;
+  }
+  while (brackets > 0) {
+    repaired += ']';
+    brackets--;
+  }
 
   return repaired;
 }
@@ -65,16 +77,28 @@ function tryRepairTruncatedJson(str: string): string | null {
  */
 function safeParse(str: string): unknown {
   // 1차: 원본 그대로
-  try { return JSON.parse(str); } catch { /* continue */ }
+  try {
+    return JSON.parse(str);
+  } catch {
+    /* continue */
+  }
 
   // 2차: sanitize 후 재시도
   const sanitized = sanitizeJsonString(str);
-  try { return JSON.parse(sanitized); } catch { /* continue */ }
+  try {
+    return JSON.parse(sanitized);
+  } catch {
+    /* continue */
+  }
 
   // 3차: 잘린 JSON 복구 시도
   const repaired = tryRepairTruncatedJson(sanitized);
   if (repaired) {
-    try { return JSON.parse(repaired); } catch { /* continue */ }
+    try {
+      return JSON.parse(repaired);
+    } catch {
+      /* continue */
+    }
   }
 
   throw new Error('All JSON parse attempts failed');

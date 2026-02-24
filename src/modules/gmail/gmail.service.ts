@@ -69,7 +69,10 @@ export class GmailService {
     if (this.accountEmail) return this.accountEmail;
 
     const gmail = this.ensureInitialized();
-    const profile = await gmail.users.getProfile({ userId: 'me' }, TIMEOUT_OPTS);
+    const profile = await gmail.users.getProfile(
+      { userId: 'me' },
+      TIMEOUT_OPTS,
+    );
     this.accountEmail = profile.data.emailAddress || 'unknown';
     return this.accountEmail;
   }

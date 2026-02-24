@@ -75,4 +75,3 @@ export class UserStatsDto {
   @ApiProperty({ description: '일반 사용자 수', example: 85 })
   users: number;
 }
-

@@ -10,7 +10,12 @@ import { NotificationModule } from '../notification/notification.module';
 @Module({
   imports: [EmailModule, NotificationModule],
   controllers: [EstimateController],
-  providers: [EstimateService, EstimateStatsService, EstimateDispatchService, EstimateSchedulerService],
+  providers: [
+    EstimateService,
+    EstimateStatsService,
+    EstimateDispatchService,
+    EstimateSchedulerService,
+  ],
   exports: [EstimateService, EstimateStatsService],
 })
 export class EstimateModule {}

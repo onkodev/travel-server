@@ -81,7 +81,50 @@ export class AiController {
   })
   @ApiResponse({ status: 200, description: '생성 성공' })
   async generateItemContentV2(@Body() body: GenerateItemContentV2Dto) {
-    const { itemId, nameKor, nameEng, itemType } = body;
+    const { itemId, nameKor, nameEng, itemType, existingDescription } = body;
+
+    // 기존 한글 설명이 있으면 번역 + 빈 필드 채우기
+    if (existingDescription) {
+      const item = await this.prisma.item.findUnique({
+        where: { id: itemId },
+        select: { keyword: true },
+      });
+      const missingKeyword = !item?.keyword;
+
+      const result = await this.itemAiService.translateAndFillMissing({
+        description: existingDescription,
+        nameKor,
+        nameEng,
+        missingKeyword,
+      });
+
+      if (result) {
+        const updateData: Record<string, string> = {};
+        if (result.descriptionEng)
+          updateData.descriptionEng = result.descriptionEng;
+        if (missingKeyword && result.keyword)
+          updateData.keyword = result.keyword;
+
+        await this.prisma.item.update({
+          where: { id: itemId },
+          data: updateData,
+        });
+
+        return {
+          success: true,
+          keyword: result.keyword || '',
+          description: '',
+          descriptionEng: result.descriptionEng || '',
+        };
+      }
+
+      return {
+        success: false,
+        keyword: '',
+        description: '',
+        descriptionEng: '',
+      };
+    }
 
     const result = await this.itemAiService.generateItemContent({
       nameKor,
@@ -90,7 +133,6 @@ export class AiController {
     });
 
     if (result) {
-      // DB 업데이트
       await this.prisma.item.update({
         where: { id: itemId },
         data: {

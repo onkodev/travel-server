@@ -48,6 +48,18 @@ export class CreateFaqDto {
   @IsOptional()
   @IsIn([...FAQ_CATEGORIES])
   category?: string;
+
+  @ApiPropertyOptional({ description: 'AI 응답 가이드라인' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  guideline?: string;
+
+  @ApiPropertyOptional({ description: '참고 내용 (자동 생성)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  reference?: string;
 }
 
 export class UpdateFaqDto {
@@ -85,6 +97,18 @@ export class UpdateFaqDto {
   @IsOptional()
   @IsIn([...FAQ_CATEGORIES])
   category?: string;
+
+  @ApiPropertyOptional({ description: 'AI 응답 가이드라인' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  guideline?: string;
+
+  @ApiPropertyOptional({ description: '참고 내용 (자동 생성)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  reference?: string;
 }
 
 export class ApproveFaqDto {

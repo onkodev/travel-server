@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmbeddingService } from '../ai/core/embedding.service';
-import { isNoiseEmail, buildEstimateEmbeddingText } from './email-rag.constants';
+import {
+  isNoiseEmail,
+  buildEstimateEmbeddingText,
+} from './email-rag.constants';
 
 const MAX_EMBEDDING_CHARS = 8000;
 const CONCURRENT_EMBEDDINGS = 5;
@@ -37,7 +40,9 @@ export class EmailEmbeddingService {
         where: { id: threadId },
         data: { excludeFromRag: true },
       });
-      this.logger.log(`Thread ${threadId}: noise detected → excludeFromRag=true`);
+      this.logger.log(
+        `Thread ${threadId}: noise detected → excludeFromRag=true`,
+      );
       return false;
     }
 
@@ -109,7 +114,9 @@ export class EmailEmbeddingService {
 
         if (threads.length === 0) break;
 
-        this.logger.log(`임베딩 배치: ${threads.length}건 처리 시작 (누적: ${totalEmbedded}건)`);
+        this.logger.log(
+          `임베딩 배치: ${threads.length}건 처리 시작 (누적: ${totalEmbedded}건)`,
+        );
 
         let batchEmbedded = 0;
         for (let i = 0; i < threads.length; i += CONCURRENT_EMBEDDINGS) {
@@ -148,12 +155,18 @@ export class EmailEmbeddingService {
         if (threads.length < limit) break;
       }
 
-      this.logger.log(`임베딩 완료: ${totalProcessed}건 처리, ${totalEmbedded}건 성공, ${totalFailed}건 실패`);
+      this.logger.log(
+        `임베딩 완료: ${totalProcessed}건 처리, ${totalEmbedded}건 성공, ${totalFailed}건 실패`,
+      );
     } finally {
       this.isSyncing = false;
     }
 
-    return { processed: totalProcessed, embedded: totalEmbedded, failed: totalFailed };
+    return {
+      processed: totalProcessed,
+      embedded: totalEmbedded,
+      failed: totalFailed,
+    };
   }
 
   /**
@@ -300,7 +313,9 @@ export class EmailEmbeddingService {
 
       if (estimates.length === 0) break;
 
-      this.logger.log(`견적 임베딩 배치: ${estimates.length}건 처리 시작 (누적: ${totalEmbedded}건)`);
+      this.logger.log(
+        `견적 임베딩 배치: ${estimates.length}건 처리 시작 (누적: ${totalEmbedded}건)`,
+      );
 
       let batchEmbedded = 0;
       for (let i = 0; i < estimates.length; i += CONCURRENT_EMBEDDINGS) {
@@ -310,7 +325,9 @@ export class EmailEmbeddingService {
             try {
               return await this.embedEstimate(est.id);
             } catch (e) {
-              this.logger.warn(`Estimate ${est.id} embedding failed: ${(e as Error).message}`);
+              this.logger.warn(
+                `Estimate ${est.id} embedding failed: ${(e as Error).message}`,
+              );
               totalFailed++;
               return false;
             }
@@ -327,15 +344,23 @@ export class EmailEmbeddingService {
       totalProcessed += estimates.length;
 
       if (batchEmbedded === 0) {
-        this.logger.warn(`견적 배치 ${estimates.length}건 중 임베딩 0건 — 중단`);
+        this.logger.warn(
+          `견적 배치 ${estimates.length}건 중 임베딩 0건 — 중단`,
+        );
         break;
       }
 
       if (estimates.length < limit) break;
     }
 
-    this.logger.log(`견적 임베딩 완료: ${totalProcessed}건 처리, ${totalEmbedded}건 성공, ${totalFailed}건 실패`);
-    return { processed: totalProcessed, embedded: totalEmbedded, failed: totalFailed };
+    this.logger.log(
+      `견적 임베딩 완료: ${totalProcessed}건 처리, ${totalEmbedded}건 성공, ${totalFailed}건 실패`,
+    );
+    return {
+      processed: totalProcessed,
+      embedded: totalEmbedded,
+      failed: totalFailed,
+    };
   }
 
   /**
@@ -381,7 +406,9 @@ export class EmailEmbeddingService {
           try {
             return await this.embedEstimate(id);
           } catch (e) {
-            this.logger.warn(`Estimate ${id} embedding failed: ${(e as Error).message}`);
+            this.logger.warn(
+              `Estimate ${id} embedding failed: ${(e as Error).message}`,
+            );
             failed++;
             return false;
           }
@@ -394,7 +421,9 @@ export class EmailEmbeddingService {
       }
     }
 
-    this.logger.log(`선택 견적 임베딩: ${ids.length}건 처리, ${embedded}건 성공, ${failed}건 실패`);
+    this.logger.log(
+      `선택 견적 임베딩: ${ids.length}건 처리, ${embedded}건 성공, ${failed}건 실패`,
+    );
     return { processed: ids.length, embedded, failed };
   }
 
@@ -403,7 +432,8 @@ export class EmailEmbeddingService {
   private extractMessageText(msg: Record<string, unknown>): string {
     const parts: string[] = [];
     if (typeof msg.subject === 'string' && msg.subject) parts.push(msg.subject);
-    if (typeof msg.from === 'string' && msg.from) parts.push(`From: ${msg.from}`);
+    if (typeof msg.from === 'string' && msg.from)
+      parts.push(`From: ${msg.from}`);
     if (typeof msg.snippet === 'string' && msg.snippet) parts.push(msg.snippet);
     if (typeof msg.body === 'string' && msg.body) parts.push(msg.body);
     return parts.join('\n');

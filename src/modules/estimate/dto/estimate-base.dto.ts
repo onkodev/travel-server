@@ -1,10 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsString,
-  IsOptional,
-  IsArray,
-  IsBoolean,
-} from 'class-validator';
+import { IsString, IsOptional, IsArray, IsBoolean } from 'class-validator';
 
 /**
  * 견적 공통 필드 Base DTO
@@ -143,6 +138,12 @@ export class BaseEstimateDto {
   @IsOptional()
   timeline?: Record<number, string>;
 
+  @ApiPropertyOptional({
+    description: '일차별 메모 (Record<number, string> 형태)',
+  })
+  @IsOptional()
+  dayNotes?: Record<number, string>;
+
   @ApiPropertyOptional({ description: '요청 내용' })
   @IsOptional()
   @IsString()
@@ -157,7 +158,6 @@ export class BaseEstimateDto {
   @IsOptional()
   @IsArray()
   keywords?: string[];
-
 
   @ApiPropertyOptional({ description: '특별 요구사항' })
   @IsOptional()

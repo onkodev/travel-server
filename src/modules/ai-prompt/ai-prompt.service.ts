@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MemoryCache } from '../../common/utils';
 import {
@@ -31,6 +36,7 @@ const FAQ_ANSWER_PROMPT_KEYS = new Set([
   PromptKey.FAQ_RAG_ANSWER,
   PromptKey.FAQ_GENERAL_TRAVEL,
   PromptKey.FAQ_TOUR_RECOMMENDATION,
+  PromptKey.FAQ_GUIDELINE_ANSWER,
 ]);
 
 @Injectable()
@@ -94,7 +100,8 @@ export class AiPromptService implements OnModuleInit {
     if (cached) return cached;
 
     const def = PROMPT_REGISTRY[key];
-    if (!def) throw new NotFoundException(`프롬프트 키를 찾을 수 없습니다: ${key}`);
+    if (!def)
+      throw new NotFoundException(`프롬프트 키를 찾을 수 없습니다: ${key}`);
 
     const row = await this.prisma.aiPromptTemplate.findUnique({
       where: { key },
@@ -104,7 +111,10 @@ export class AiPromptService implements OnModuleInit {
       text: row?.promptText ?? def.defaultText,
       temperature: row?.temperature ?? def.defaultTemperature,
       maxOutputTokens: row?.maxOutputTokens ?? def.defaultMaxOutputTokens,
-      isCustomized: row?.promptText != null || row?.temperature != null || row?.maxOutputTokens != null,
+      isCustomized:
+        row?.promptText != null ||
+        row?.temperature != null ||
+        row?.maxOutputTokens != null,
     };
 
     this.cache.set(cacheKey, result);
@@ -138,7 +148,8 @@ export class AiPromptService implements OnModuleInit {
     if (FAQ_ANSWER_PROMPT_KEYS.has(key)) {
       const config = await this.getFaqConfigCached();
       temperature = FAQ_STYLE_MAP[config.faqAnswerStyle] ?? temperature;
-      maxOutputTokens = FAQ_LENGTH_MAP[config.faqAnswerLength] ?? maxOutputTokens;
+      maxOutputTokens =
+        FAQ_LENGTH_MAP[config.faqAnswerLength] ?? maxOutputTokens;
       if (config.faqCustomInstructions) {
         vars.faqCustomInstructions = config.faqCustomInstructions;
       }
@@ -200,8 +211,12 @@ export class AiPromptService implements OnModuleInit {
         description: row.description,
         category: row.category,
         temperature: row.temperature ?? def?.defaultTemperature ?? 0.7,
-        maxOutputTokens: row.maxOutputTokens ?? def?.defaultMaxOutputTokens ?? 1024,
-        isCustomized: row.promptText != null || row.temperature != null || row.maxOutputTokens != null,
+        maxOutputTokens:
+          row.maxOutputTokens ?? def?.defaultMaxOutputTokens ?? 1024,
+        isCustomized:
+          row.promptText != null ||
+          row.temperature != null ||
+          row.maxOutputTokens != null,
         isActive: row.isActive,
         updatedAt: row.updatedAt,
       };
@@ -213,13 +228,15 @@ export class AiPromptService implements OnModuleInit {
    */
   async getPromptDetail(key: string) {
     const def = PROMPT_REGISTRY[key as PromptKey];
-    if (!def) throw new NotFoundException(`프롬프트 키를 찾을 수 없습니다: ${key}`);
+    if (!def)
+      throw new NotFoundException(`프롬프트 키를 찾을 수 없습니다: ${key}`);
 
     const row = await this.prisma.aiPromptTemplate.findUnique({
       where: { key },
     });
 
-    if (!row) throw new NotFoundException(`DB에서 프롬프트를 찾을 수 없습니다: ${key}`);
+    if (!row)
+      throw new NotFoundException(`DB에서 프롬프트를 찾을 수 없습니다: ${key}`);
 
     return {
       key: row.key,
@@ -233,7 +250,10 @@ export class AiPromptService implements OnModuleInit {
       maxOutputTokens: row.maxOutputTokens ?? def.defaultMaxOutputTokens,
       defaultTemperature: def.defaultTemperature,
       defaultMaxOutputTokens: def.defaultMaxOutputTokens,
-      isCustomized: row.promptText != null || row.temperature != null || row.maxOutputTokens != null,
+      isCustomized:
+        row.promptText != null ||
+        row.temperature != null ||
+        row.maxOutputTokens != null,
       isActive: row.isActive,
       updatedAt: row.updatedAt,
     };
@@ -242,13 +262,17 @@ export class AiPromptService implements OnModuleInit {
   /**
    * 프롬프트 수정
    */
-  async updatePrompt(key: string, data: {
-    promptText?: string | null;
-    temperature?: number | null;
-    maxOutputTokens?: number | null;
-  }) {
+  async updatePrompt(
+    key: string,
+    data: {
+      promptText?: string | null;
+      temperature?: number | null;
+      maxOutputTokens?: number | null;
+    },
+  ) {
     const def = PROMPT_REGISTRY[key as PromptKey];
-    if (!def) throw new NotFoundException(`프롬프트 키를 찾을 수 없습니다: ${key}`);
+    if (!def)
+      throw new NotFoundException(`프롬프트 키를 찾을 수 없습니다: ${key}`);
 
     const updated = await this.prisma.aiPromptTemplate.update({
       where: { key },
@@ -268,7 +292,8 @@ export class AiPromptService implements OnModuleInit {
    */
   async resetPrompt(key: string) {
     const def = PROMPT_REGISTRY[key as PromptKey];
-    if (!def) throw new NotFoundException(`프롬프트 키를 찾을 수 없습니다: ${key}`);
+    if (!def)
+      throw new NotFoundException(`프롬프트 키를 찾을 수 없습니다: ${key}`);
 
     const updated = await this.prisma.aiPromptTemplate.update({
       where: { key },
@@ -300,15 +325,17 @@ export class AiPromptService implements OnModuleInit {
         updatedAt: true,
       },
     });
-    return config ?? {
-      id: 1,
-      topFaqCount: 4,
-      noMatchResponse: null,
-      faqAnswerStyle: 'balanced',
-      faqAnswerLength: 'standard',
-      faqCustomInstructions: null,
-      updatedAt: new Date(),
-    };
+    return (
+      config ?? {
+        id: 1,
+        topFaqCount: 4,
+        noMatchResponse: null,
+        faqAnswerStyle: 'balanced',
+        faqAnswerLength: 'standard',
+        faqCustomInstructions: null,
+        updatedAt: new Date(),
+      }
+    );
   }
 
   // ============================================================================
@@ -324,29 +351,35 @@ export class AiPromptService implements OnModuleInit {
         geminiTemperature: true,
         geminiMaxTokens: true,
         ragSearchLimit: true,
+        ragEstimateLimit: true,
         ragSimilarityMin: true,
         ragTimeout: true,
         placesPerDay: true,
         fuzzyMatchThreshold: true,
         customPromptAddon: true,
         aiEstimateValidityDays: true,
+        includeTbdItems: true,
         updatedAt: true,
       },
     });
-    return config ?? {
-      id: 1,
-      geminiModel: 'gemini-2.5-flash',
-      geminiTemperature: 0.7,
-      geminiMaxTokens: 8192,
-      ragSearchLimit: 5,
-      ragSimilarityMin: 0.3,
-      ragTimeout: 30000,
-      placesPerDay: 4,
-      fuzzyMatchThreshold: 0.6,
-      customPromptAddon: null,
-      aiEstimateValidityDays: 7,
-      updatedAt: new Date(),
-    };
+    return (
+      config ?? {
+        id: 1,
+        geminiModel: 'gemini-2.5-flash',
+        geminiTemperature: 0.7,
+        geminiMaxTokens: 8192,
+        ragSearchLimit: 5,
+        ragEstimateLimit: 3,
+        ragSimilarityMin: 0.3,
+        ragTimeout: 30000,
+        placesPerDay: 4,
+        fuzzyMatchThreshold: 0.6,
+        customPromptAddon: null,
+        aiEstimateValidityDays: 7,
+        includeTbdItems: true,
+        updatedAt: new Date(),
+      }
+    );
   }
 
   async updateEstimateConfig(data: {
@@ -354,12 +387,14 @@ export class AiPromptService implements OnModuleInit {
     geminiTemperature?: number;
     geminiMaxTokens?: number;
     ragSearchLimit?: number;
+    ragEstimateLimit?: number;
     ragSimilarityMin?: number;
     ragTimeout?: number;
     placesPerDay?: number;
     fuzzyMatchThreshold?: number;
     customPromptAddon?: string | null;
     aiEstimateValidityDays?: number;
+    includeTbdItems?: boolean;
   }) {
     const updated = await this.prisma.aiGenerationConfig.upsert({
       where: { id: 1 },
@@ -376,18 +411,19 @@ export class AiPromptService implements OnModuleInit {
       geminiTemperature: updated.geminiTemperature,
       geminiMaxTokens: updated.geminiMaxTokens,
       ragSearchLimit: updated.ragSearchLimit,
+      ragEstimateLimit: updated.ragEstimateLimit,
       ragSimilarityMin: updated.ragSimilarityMin,
       ragTimeout: updated.ragTimeout,
       placesPerDay: updated.placesPerDay,
       fuzzyMatchThreshold: updated.fuzzyMatchThreshold,
       customPromptAddon: updated.customPromptAddon,
       aiEstimateValidityDays: updated.aiEstimateValidityDays,
+      includeTbdItems: updated.includeTbdItems,
       updatedAt: updated.updatedAt,
     };
   }
 
   async updateFaqChatConfig(data: {
-    topFaqCount?: number;
     noMatchResponse?: string | null;
     faqAnswerStyle?: string;
     faqAnswerLength?: string;
@@ -397,7 +433,6 @@ export class AiPromptService implements OnModuleInit {
       where: { id: 1 },
       create: {
         id: 1,
-        topFaqCount: data.topFaqCount ?? 4,
         noMatchResponse: data.noMatchResponse ?? null,
         faqAnswerStyle: data.faqAnswerStyle ?? 'balanced',
         faqAnswerLength: data.faqAnswerLength ?? 'standard',
@@ -411,7 +446,6 @@ export class AiPromptService implements OnModuleInit {
 
     return {
       id: updated.id,
-      topFaqCount: updated.topFaqCount,
       noMatchResponse: updated.noMatchResponse,
       faqAnswerStyle: updated.faqAnswerStyle,
       faqAnswerLength: updated.faqAnswerLength,

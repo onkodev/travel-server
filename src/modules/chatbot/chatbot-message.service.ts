@@ -29,8 +29,17 @@ export class ChatbotMessageService {
    */
   private async processAfterMessageSave(
     sessionId: string,
-    savedMessages: Array<{ id: number; role: string; content: string; createdAt: Date }>,
-    flow: { estimateId: number | null; customerName: string | null; title: string | null },
+    savedMessages: Array<{
+      id: number;
+      role: string;
+      content: string;
+      createdAt: Date;
+    }>,
+    flow: {
+      estimateId: number | null;
+      customerName: string | null;
+      title: string | null;
+    },
   ) {
     const firstUserMsg = savedMessages.find((m) => m.role === 'user');
 
@@ -39,7 +48,9 @@ export class ChatbotMessageService {
       const existingUserMsgCount = await this.prisma.chatbotMessage.count({
         where: { sessionId, role: 'user' },
       });
-      const userMsgsInBatch = savedMessages.filter((m) => m.role === 'user').length;
+      const userMsgsInBatch = savedMessages.filter(
+        (m) => m.role === 'user',
+      ).length;
 
       if (existingUserMsgCount === userMsgsInBatch) {
         const title =
@@ -208,8 +219,9 @@ export class ChatbotMessageService {
         ? estimateMap.get(flow.estimateId)
         : null;
       // 견적 없이 완료된 세션은 pending (전문가 검토 대기)
-      const estimateStatus = estimateInfo?.statusAi
-        || (flow.isCompleted && !flow.estimateId ? ESTIMATE_STATUS.PENDING : null);
+      const estimateStatus =
+        estimateInfo?.statusAi ||
+        (flow.isCompleted && !flow.estimateId ? ESTIMATE_STATUS.PENDING : null);
       return {
         sessionId: flow.sessionId,
         title: flow.title,
@@ -248,7 +260,9 @@ export class ChatbotMessageService {
       data: { userId },
     });
     if (atomicCheck.count === 0) {
-      this.logger.warn(`Session ${sessionId} was linked to another user between read and write`);
+      this.logger.warn(
+        `Session ${sessionId} was linked to another user between read and write`,
+      );
       return { success: true, linked: false };
     }
 

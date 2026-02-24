@@ -20,17 +20,10 @@ export class FaqEmbeddingService {
   async generateAndSaveEmbedding(
     faqId: number,
     question: string,
-    answer: string,
     questionKo?: string | null,
-    answerKo?: string | null,
   ): Promise<void> {
     try {
-      const text = this.embeddingService.buildFaqText(
-        question,
-        answer,
-        questionKo,
-        answerKo,
-      );
+      const text = this.embeddingService.buildFaqText(question, questionKo);
       const embedding = await this.embeddingService.generateEmbedding(text);
 
       if (!embedding) {
@@ -114,9 +107,7 @@ export class FaqEmbeddingService {
     faqs: Array<{
       id: number;
       question: string;
-      answer: string;
       questionKo: string | null;
-      answerKo: string | null;
     }>,
   ): Promise<{ success: number; failed: number }> {
     const CONCURRENCY = FAQ_BATCH.EMBEDDING_CONCURRENCY;
@@ -127,13 +118,7 @@ export class FaqEmbeddingService {
       const batch = faqs.slice(i, i + CONCURRENCY);
       const results = await Promise.allSettled(
         batch.map((faq) =>
-          this.generateAndSaveEmbedding(
-            faq.id,
-            faq.question,
-            faq.answer,
-            faq.questionKo,
-            faq.answerKo,
-          ),
+          this.generateAndSaveEmbedding(faq.id, faq.question, faq.questionKo),
         ),
       );
       for (const r of results) {
@@ -149,7 +134,11 @@ export class FaqEmbeddingService {
   // Similarity Search
   // ============================================================================
 
-  async searchSimilar(query: string, limit = 5, minSimilarity = FAQ_SIMILARITY.MIN_SEARCH) {
+  async searchSimilar(
+    query: string,
+    limit = 5,
+    minSimilarity: number = FAQ_SIMILARITY.MIN_SEARCH,
+  ) {
     const embedding = await this.embeddingService.generateEmbedding(query);
 
     if (!embedding) {
@@ -162,12 +151,13 @@ export class FaqEmbeddingService {
       Array<{
         id: number;
         question: string;
-        answer: string;
         tags: string[];
+        guideline: string | null;
+        reference: string | null;
         similarity: number;
       }>
     >(
-      `SELECT id, question, answer, tags,
+      `SELECT id, question, tags, guideline, reference,
               1 - (embedding <=> $1::vector) as similarity
        FROM faqs
        WHERE status = 'approved' AND embedding IS NOT NULL
@@ -182,8 +172,9 @@ export class FaqEmbeddingService {
     return results.map((r) => ({
       id: r.id,
       question: r.question,
-      answer: r.answer,
       tags: r.tags,
+      guideline: r.guideline,
+      reference: r.reference,
       similarity: Number(r.similarity),
     }));
   }
@@ -278,5 +269,4 @@ export class FaqEmbeddingService {
       await this.cleanupEmailRawData(emailId);
     }
   }
-
 }

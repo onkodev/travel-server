@@ -171,7 +171,9 @@ export class UserService {
   }
 
   private mapUserToCamelCase(user: Record<string, unknown>): UserListItem {
-    const converted = supabaseProfileToCamelCase(user as import('../../common/utils').SupabaseProfileRaw);
+    const converted = supabaseProfileToCamelCase(
+      user as import('../../common/utils').SupabaseProfileRaw,
+    );
     return converted as UserListItem;
   }
 
@@ -250,7 +252,9 @@ export class UserService {
 
     return payments.map((p) => ({
       ...convertDecimalFields(p),
-      estimateTitle: p.estimateId ? estimateMap.get(p.estimateId) || null : null,
+      estimateTitle: p.estimateId
+        ? estimateMap.get(p.estimateId) || null
+        : null,
     }));
   }
 
@@ -393,5 +397,4 @@ export class UserService {
 
     return results;
   }
-
 }

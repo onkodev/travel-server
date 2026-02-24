@@ -246,27 +246,26 @@ export class DashboardService {
     const calendarEnd = new Date(today);
     calendarEnd.setMonth(calendarEnd.getMonth() + 6);
 
-    const [dailyTrends, popularTours, calendarEstimates] =
-      await Promise.all([
-        this.getDailyTrends(),
-        this.getPopularTours(),
-        this.prisma.estimate.findMany({
-          select: {
-            id: true,
-            title: true,
-            customerName: true,
-            source: true,
-            statusManual: true,
-            statusAi: true,
-            startDate: true,
-            endDate: true,
-          },
-          where: {
-            startDate: { gte: calendarStart, lte: calendarEnd },
-          },
-          orderBy: { startDate: 'asc' },
-        }),
-      ]);
+    const [dailyTrends, popularTours, calendarEstimates] = await Promise.all([
+      this.getDailyTrends(),
+      this.getPopularTours(),
+      this.prisma.estimate.findMany({
+        select: {
+          id: true,
+          title: true,
+          customerName: true,
+          source: true,
+          statusManual: true,
+          statusAi: true,
+          startDate: true,
+          endDate: true,
+        },
+        where: {
+          startDate: { gte: calendarStart, lte: calendarEnd },
+        },
+        orderBy: { startDate: 'asc' },
+      }),
+    ]);
     this.logger.debug(`차트 데이터: ${Date.now() - startTime}ms`);
 
     // 통계 매핑
@@ -518,5 +517,4 @@ export class DashboardService {
       revenue: Number(r.revenue) || 0,
     }));
   }
-
 }

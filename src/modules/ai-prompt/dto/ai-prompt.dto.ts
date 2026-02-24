@@ -1,4 +1,13 @@
-import { IsOptional, IsString, IsNumber, IsInt, IsIn, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsInt,
+  IsIn,
+  IsBoolean,
+  Min,
+  Max,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpdateAiPromptDto {
@@ -55,6 +64,13 @@ export class UpdateEstimateConfigDto {
   ragSearchLimit?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  @Type(() => Number)
+  ragEstimateLimit?: number;
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
   @Max(1)
@@ -92,6 +108,10 @@ export class UpdateEstimateConfigDto {
   @Max(30)
   @Type(() => Number)
   aiEstimateValidityDays?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  includeTbdItems?: boolean;
 }
 
 export class UpdateFaqChatConfigDto {

@@ -139,7 +139,10 @@ export class PaymentController {
     description: '결제 없음',
     type: ErrorResponseDto,
   })
-  async updatePayment(@Param('id', ParseIntPipe) id: number, @Body() body: CreatePaymentDto) {
+  async updatePayment(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: CreatePaymentDto,
+  ) {
     return this.paymentService.updatePayment(id, body);
   }
 
@@ -161,7 +164,10 @@ export class PaymentController {
   ) {
     return this.paymentService.updatePaymentStatus(id, body.status, {
       paypalCaptureId: body.paypalCaptureId,
-      paidAt: body.paidAt && !isNaN(new Date(body.paidAt).getTime()) ? new Date(body.paidAt) : undefined,
+      paidAt:
+        body.paidAt && !isNaN(new Date(body.paidAt).getTime())
+          ? new Date(body.paidAt)
+          : undefined,
       failureReason: body.failureReason,
     });
   }
@@ -178,7 +184,10 @@ export class PaymentController {
     description: '결제 없음',
     type: ErrorResponseDto,
   })
-  async processRefund(@Param('id', ParseIntPipe) id: number, @Body() body: ProcessRefundDto) {
+  async processRefund(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: ProcessRefundDto,
+  ) {
     return this.paymentService.processRefund(id, body);
   }
 

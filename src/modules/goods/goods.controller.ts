@@ -199,7 +199,10 @@ export class GoodsAdminController {
     description: '굿즈 없음',
     type: ErrorResponseDto,
   })
-  async updateGoods(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateGoodsDto) {
+  async updateGoods(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateGoodsDto,
+  ) {
     return this.goodsService.updateGoods(id, body);
   }
 

@@ -80,9 +80,8 @@ export class ChatbotCompletionService {
 
     try {
       // AI 견적 생성
-      const aiResult = await this.aiEstimateService.generateFirstEstimate(
-        sessionId,
-      );
+      const aiResult =
+        await this.aiEstimateService.generateFirstEstimate(sessionId);
 
       // 챗봇 플로우 완료 처리
       await this.prisma.chatbotFlow.update({
@@ -105,7 +104,9 @@ export class ChatbotCompletionService {
             data: { hasChatbot: true, hasEstimate: true },
           })
           .catch((err) => {
-            this.logger.warn(`Failed to update visitor conversion: ${err.message}`);
+            this.logger.warn(
+              `Failed to update visitor conversion: ${err.message}`,
+            );
           });
       }
 
@@ -204,72 +205,78 @@ export class ChatbotCompletionService {
 
     // 관리자 이메일
     emailPromises.push(
-      this.emailService.sendEmail({
-        to: adminEmail,
-        subject: `[New Inquiry] ${flow.customerName || 'Customer'} - ${flow.tourType || 'Tour'} Request`,
-        html: chatbotInquiryAdminTemplate({
-          customerName: flow.customerName ?? '-',
-          customerEmail: flow.customerEmail ?? '-',
-          customerPhone: flow.customerPhone ?? '-',
-          nationality: flow.nationality ?? '-',
-          ipAddress: flow.ipAddress ?? '-',
-          countryName: flow.countryName ?? '',
-          country: flow.country ?? '',
-          tourType: flow.tourType ?? '',
-          needsPickup: flow.needsPickup ?? false,
-          isFirstVisit: flow.isFirstVisit ?? false,
-          travelDate: travelDateStr,
-          duration: flow.duration ?? 0,
-          budgetRange: flow.budgetRange ?? '',
-          adultsCount: flow.adultsCount ?? 0,
-          childrenCount: flow.childrenCount ?? 0,
-          infantsCount: flow.infantsCount ?? 0,
-          seniorsCount: flow.seniorsCount ?? 0,
-          ageRange: flow.ageRange ?? '',
-          interestLabels: labels.interestLabels,
-          attractionLabels: labels.attractionLabels,
-          region: flow.region ?? '',
-          regionLabel: labels.regionLabel,
-          tourTypeLabel: labels.tourTypeLabel,
-          budgetLabel: labels.budgetLabel,
-          additionalNotes: flow.additionalNotes ?? '',
-          needsGuide: flow.needsGuide ?? false,
-          hasPlan: flow.hasPlan ?? null,
-          planDetails: flow.planDetails ?? '',
-          visitedProducts,
-          sessionId,
-          adminUrl,
+      this.emailService
+        .sendEmail({
+          to: adminEmail,
+          subject: `[New Inquiry] ${flow.customerName || 'Customer'} - ${flow.tourType || 'Tour'} Request`,
+          html: chatbotInquiryAdminTemplate({
+            customerName: flow.customerName ?? '-',
+            customerEmail: flow.customerEmail ?? '-',
+            customerPhone: flow.customerPhone ?? '-',
+            nationality: flow.nationality ?? '-',
+            ipAddress: flow.ipAddress ?? '-',
+            countryName: flow.countryName ?? '',
+            country: flow.country ?? '',
+            tourType: flow.tourType ?? '',
+            needsPickup: flow.needsPickup ?? false,
+            isFirstVisit: flow.isFirstVisit ?? false,
+            travelDate: travelDateStr,
+            duration: flow.duration ?? 0,
+            budgetRange: flow.budgetRange ?? '',
+            adultsCount: flow.adultsCount ?? 0,
+            childrenCount: flow.childrenCount ?? 0,
+            infantsCount: flow.infantsCount ?? 0,
+            seniorsCount: flow.seniorsCount ?? 0,
+            ageRange: flow.ageRange ?? '',
+            interestLabels: labels.interestLabels,
+            attractionLabels: labels.attractionLabels,
+            region: flow.region ?? '',
+            regionLabel: labels.regionLabel,
+            tourTypeLabel: labels.tourTypeLabel,
+            budgetLabel: labels.budgetLabel,
+            additionalNotes: flow.additionalNotes ?? '',
+            needsGuide: flow.needsGuide ?? false,
+            hasPlan: flow.hasPlan ?? null,
+            planDetails: flow.planDetails ?? '',
+            visitedProducts,
+            sessionId,
+            adminUrl,
+          }),
+        })
+        .then(() => {
+          notificationResults.adminEmail.sent = true;
+          this.logger.log(`Admin email sent for session: ${sessionId}`);
+        })
+        .catch((error) => {
+          notificationResults.adminEmail.error = error.message;
+          this.logger.error(`Failed to send admin email: ${error.message}`);
         }),
-      }).then(() => {
-        notificationResults.adminEmail.sent = true;
-        this.logger.log(`Admin email sent for session: ${sessionId}`);
-      }).catch((error) => {
-        notificationResults.adminEmail.error = error.message;
-        this.logger.error(`Failed to send admin email: ${error.message}`);
-      }),
     );
 
     // 고객 확인 이메일
     if (flow.customerEmail) {
       const surveySummary = this.stepResponseService.buildSurveySummary(
-        flow as Parameters<
-          ChatbotStepResponseService['buildSurveySummary']
-        >[0],
+        flow as Parameters<ChatbotStepResponseService['buildSurveySummary']>[0],
       );
       emailPromises.push(
-        this.emailService.sendContactConfirmation({
-          to: flow.customerEmail,
-          customerName: flow.customerName || 'Customer',
-          message: surveySummary,
-        }).then(() => {
-          notificationResults.customerEmail.sent = true;
-          this.logger.log(
-            `Confirmation email sent to customer: ${flow.customerEmail}`,
-          );
-        }).catch((error) => {
-          notificationResults.customerEmail.error = error.message;
-          this.logger.error(`Failed to send customer email: ${error.message}`);
-        }),
+        this.emailService
+          .sendContactConfirmation({
+            to: flow.customerEmail,
+            customerName: flow.customerName || 'Customer',
+            message: surveySummary,
+          })
+          .then(() => {
+            notificationResults.customerEmail.sent = true;
+            this.logger.log(
+              `Confirmation email sent to customer: ${flow.customerEmail}`,
+            );
+          })
+          .catch((error) => {
+            notificationResults.customerEmail.error = error.message;
+            this.logger.error(
+              `Failed to send customer email: ${error.message}`,
+            );
+          }),
       );
     } else {
       notificationResults.customerEmail.skipped = true;
@@ -324,7 +331,10 @@ export class ChatbotCompletionService {
     }
 
     // 알림/이메일 발송
-    const notificationResults = await this.notifyExpertSubmission(sessionId, flow);
+    const notificationResults = await this.notifyExpertSubmission(
+      sessionId,
+      flow,
+    );
 
     // 견적이 있으면 상태 업데이트
     let estimateStatus: string | null = ESTIMATE_STATUS.PENDING;
@@ -375,7 +385,11 @@ export class ChatbotCompletionService {
     response: 'approved' | 'declined',
     modificationRequest?: string,
     revisionDetails?: {
-      items?: Array<{ itemIndex: number; action: 'keep' | 'remove' | 'replace'; preference?: string }>;
+      items?: Array<{
+        itemIndex: number;
+        action: 'keep' | 'remove' | 'replace';
+        preference?: string;
+      }>;
       dateChange?: string;
       durationChange?: number;
       groupChange?: { adults?: number; children?: number; infants?: number };
@@ -400,9 +414,17 @@ export class ChatbotCompletionService {
     // 상태 전이 검증 — sent 또는 pending 상태에서만 응답 가능
     const currentEstimate = await this.prisma.estimate.findUnique({
       where: { id: flow.estimateId },
-      select: { statusAi: true, requestContent: true, customerName: true, revisionHistory: true },
+      select: {
+        statusAi: true,
+        requestContent: true,
+        customerName: true,
+        revisionHistory: true,
+      },
     });
-    const respondableStates: string[] = [ESTIMATE_STATUS.SENT, ESTIMATE_STATUS.PENDING];
+    const respondableStates: string[] = [
+      ESTIMATE_STATUS.SENT,
+      ESTIMATE_STATUS.PENDING,
+    ];
     if (!respondableStates.includes(currentEstimate?.statusAi || '')) {
       throw new BadRequestException(
         `Cannot respond in current state: ${currentEstimate?.statusAi}`,
@@ -436,7 +458,10 @@ export class ChatbotCompletionService {
           revisionRequested: true,
           revisionNote: freeText,
           revisedAt: new Date(),
-          revisionHistory: [...existingHistory, newEntry] as unknown as Prisma.InputJsonValue,
+          revisionHistory: [
+            ...existingHistory,
+            newEntry,
+          ] as unknown as Prisma.InputJsonValue,
           statusAi: ESTIMATE_STATUS.PENDING,
         },
       });

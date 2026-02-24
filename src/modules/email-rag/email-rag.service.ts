@@ -48,8 +48,16 @@ export interface PipelineLog {
       matchedKeywords: string[];
     }>;
   };
-  selectedEmails: Array<{ emailThreadId: number; subject: string | null; similarity: number }>;
-  estimateSearchResults?: Array<{ estimateId: number; title: string; similarity: number }>;
+  selectedEmails: Array<{
+    emailThreadId: number;
+    subject: string | null;
+    similarity: number;
+  }>;
+  estimateSearchResults?: Array<{
+    estimateId: number;
+    title: string;
+    similarity: number;
+  }>;
   availablePlacesCount: number;
   geminiPromptLength: number;
   geminiResponseLength: number;
@@ -111,7 +119,9 @@ export class EmailRagService {
     similarityMin = 0.3,
     precomputedEmbedding?: number[],
   ): Promise<EmailSearchResult[]> {
-    const embedding = precomputedEmbedding ?? await this.embeddingService.generateEmbedding(query);
+    const embedding =
+      precomputedEmbedding ??
+      (await this.embeddingService.generateEmbedding(query));
     if (!embedding) {
       this.logger.warn('Failed to generate embedding for query');
       return [];
@@ -231,6 +241,7 @@ export class EmailRagService {
     flow: ChatbotFlowForRag,
     config?: {
       ragSearchLimit?: number;
+      ragEstimateLimit?: number;
       ragSimilarityMin?: number;
       geminiTemperature?: number;
       geminiMaxTokens?: number;
@@ -239,26 +250,35 @@ export class EmailRagService {
       geminiModel?: string;
       signal?: AbortSignal;
     },
-  ): Promise<(DraftResult & { searchQuery: string; pipelineLog: PipelineLog }) | null> {
+  ): Promise<
+    (DraftResult & { searchQuery: string; pipelineLog: PipelineLog }) | null
+  > {
     const startTime = Date.now();
 
     // ── 0. 입력 요약 로그 ──
     this.logger.log(
       `[pipeline:start] session=${flow.sessionId}\n` +
-      `  region=${flow.region}, duration=${flow.duration}days, tourType=${flow.tourType}\n` +
-      `  interestMain=[${flow.interestMain.join(', ')}], interestSub=[${flow.interestSub.join(', ')}]\n` +
-      `  attractions=[${flow.attractions?.join(', ') || 'none'}]\n` +
-      `  budget=${flow.budgetRange}, firstVisit=${flow.isFirstVisit}, nationality=${flow.nationality}\n` +
-      `  adults=${flow.adultsCount}, children=${flow.childrenCount}, pickup=${flow.needsPickup}`,
+        `  region=${flow.region}, duration=${flow.duration}days, tourType=${flow.tourType}\n` +
+        `  interestMain=[${flow.interestMain.join(', ')}], interestSub=[${flow.interestSub.join(', ')}]\n` +
+        `  attractions=[${flow.attractions?.join(', ') || 'none'}]\n` +
+        `  budget=${flow.budgetRange}, firstVisit=${flow.isFirstVisit}, nationality=${flow.nationality}\n` +
+        `  adults=${flow.adultsCount}, children=${flow.childrenCount}, pickup=${flow.needsPickup}`,
     );
 
     // ── 타이밍 계측 ──
     const timings: Record<string, number> = {};
-    const lap = (label: string) => { timings[label] = Date.now() - startTime; };
+    const lap = (label: string) => {
+      timings[label] = Date.now() - startTime;
+    };
 
     // ── 1. 관심사 확장 ──
-    const expandedInterestsText = expandInterests(flow.interestMain, flow.interestSub);
-    this.logger.log(`[pipeline:interests] 확장된 관심사: "${expandedInterestsText}"`);
+    const expandedInterestsText = expandInterests(
+      flow.interestMain,
+      flow.interestSub,
+    );
+    this.logger.log(
+      `[pipeline:interests] 확장된 관심사: "${expandedInterestsText}"`,
+    );
 
     // ── 2. 검색 쿼리 생성 ──
     const searchQuery = this.buildSearchQuery(flow);
@@ -269,15 +289,25 @@ export class EmailRagService {
     const similarityMin = config?.ragSimilarityMin ?? 0.3;
     const fetchLimit = searchLimit * 3;
 
-    const queryEmbedding = await this.embeddingService.generateEmbedding(searchQuery);
+    const queryEmbedding =
+      await this.embeddingService.generateEmbedding(searchQuery);
     if (!queryEmbedding) {
       this.logger.warn('[pipeline:embedding] 쿼리 임베딩 생성 실패 → 종료');
       return null;
     }
 
     const [rawEmails, estimateResults] = await Promise.all([
-      this.searchSimilarEmails(searchQuery, fetchLimit, similarityMin, queryEmbedding),
-      this.searchSimilarEstimates(queryEmbedding, 3, similarityMin),
+      this.searchSimilarEmails(
+        searchQuery,
+        fetchLimit,
+        similarityMin,
+        queryEmbedding,
+      ),
+      this.searchSimilarEstimates(
+        queryEmbedding,
+        config?.ragEstimateLimit ?? 3,
+        similarityMin,
+      ),
     ]);
     lap('vectorSearch');
 
@@ -285,7 +315,10 @@ export class EmailRagService {
       this.logger.log(
         `[pipeline:estimateSearch] 유사 견적 ${estimateResults.length}개 발견:\n` +
           estimateResults
-            .map((e, i) => `  ${i + 1}. [ID:${e.estimateId}] "${e.title}" (sim=${e.similarity.toFixed(3)})`)
+            .map(
+              (e, i) =>
+                `  ${i + 1}. [ID:${e.estimateId}] "${e.title}" (sim=${e.similarity.toFixed(3)})`,
+            )
             .join('\n'),
       );
     }
@@ -306,7 +339,9 @@ export class EmailRagService {
     );
 
     // ── 4. 관심사 기반 리랭킹 + DB 장소 조회 병렬 실행 ──
-    this.logger.log(`[pipeline:rerank] 리랭킹 시작 (관심사 키워드로 이메일 본문 스캔)...`);
+    this.logger.log(
+      `[pipeline:rerank] 리랭킹 시작 (관심사 키워드로 이메일 본문 스캔)...`,
+    );
     const regionFilter = flow.region || 'Seoul';
 
     // 관심사 키 → DB 카테고리 값 변환
@@ -318,12 +353,14 @@ export class EmailRagService {
 
     // 리랭킹(CPU)과 DB 장소 조회(I/O)를 동시에 실행
     const [rerankResult, dbPlacesResult] = await Promise.all([
-      Promise.resolve(this.rerankByRelevance(
-        rawEmails,
-        flow.interestMain,
-        flow.interestSub,
-        searchLimit,
-      )),
+      Promise.resolve(
+        this.rerankByRelevance(
+          rawEmails,
+          flow.interestMain,
+          flow.interestSub,
+          searchLimit,
+        ),
+      ),
       this.loadDbPlaces(regionFilter, dbCategories),
     ]);
 
@@ -358,8 +395,12 @@ export class EmailRagService {
     if (dbPlacesResult.length > 0) {
       availablePlaces = dbPlacesResult
         .map((p) => {
-          const cats = p.categories?.length ? ` [${p.categories.join(', ')}]` : '';
-          const desc = p.descriptionEng ? ` - ${p.descriptionEng.slice(0, 80)}` : '';
+          const cats = p.categories?.length
+            ? ` [${p.categories.join(', ')}]`
+            : '';
+          const desc = p.descriptionEng
+            ? ` - ${p.descriptionEng.slice(0, 80)}`
+            : '';
           return `[ID:${p.id}] ${p.nameEng} (${p.nameKor})${cats}${desc}`;
         })
         .join('\n');
@@ -367,7 +408,9 @@ export class EmailRagService {
         `[pipeline:dbPlaces] "${regionFilter}" 지역 DB 장소 ${dbPlacesResult.length}개 로드 (프롬프트에 포함)`,
       );
     } else {
-      this.logger.warn(`[pipeline:dbPlaces] "${regionFilter}" 지역 DB 장소 0개`);
+      this.logger.warn(
+        `[pipeline:dbPlaces] "${regionFilter}" 지역 DB 장소 0개`,
+      );
     }
 
     // ── 7. Gemini 프롬프트 생성 + 호출 ──
@@ -383,7 +426,8 @@ export class EmailRagService {
     // ── 견적 컨텍스트 구성 ──
     let estimateContext = '';
     if (estimateResults.length > 0) {
-      estimateContext = '\n## 4. REFERENCE ESTIMATES (similar past itineraries — use as structural examples)\n' +
+      estimateContext =
+        '\n## 4. REFERENCE ESTIMATES (similar past itineraries — use as structural examples)\n' +
         estimateResults
           .map(
             (e, i) =>
@@ -409,18 +453,32 @@ export class EmailRagService {
         tourType: flow.tourType || 'private',
         budgetRange,
         isFirstVisit: isFirstVisit ? 'Yes' : 'No',
-        nationalityLine: flow.nationality ? `- Nationality: ${flow.nationality}` : '',
-        additionalNotesLine: flow.additionalNotes ? `- Special requests: ${flow.additionalNotes}` : '',
-        attractionsLine: flow.attractions.length > 0 ? `- MUST include these attractions: ${flow.attractions.join(', ')}` : '',
-        pickupLine: (flow.needsPickup ?? false) ? '- Needs airport pickup (add pickup point as Day 1 first item)' : '',
+        nationalityLine: flow.nationality
+          ? `- Nationality: ${flow.nationality}`
+          : '',
+        additionalNotesLine: flow.additionalNotes
+          ? `- Special requests: ${flow.additionalNotes}`
+          : '',
+        attractionsLine:
+          flow.attractions.length > 0
+            ? `- MUST include these attractions: ${flow.attractions.join(', ')}`
+            : '',
+        pickupLine:
+          (flow.needsPickup ?? false)
+            ? '- Needs airport pickup (add pickup point as Day 1 first item)'
+            : '',
         availablePlacesSection: availablePlaces
           ? `\n2. AVAILABLE PLACES IN OUR DATABASE (STRONGLY prefer these):\n${availablePlaces}\n\n- When a place from this list fits, include its ID in the response as "itemId"\n- Use category tags to match places with the customer's interests\n- IMPORTANT: Only suggest places NOT in this list as a last resort when no database place fits at all\n- At least 80% of places MUST come from this database list\n`
           : '',
         emailContext,
         estimateContext,
         placesPerDayRange: `${minPlaces}-${maxPlaces}`,
-        visitorTip: isFirstVisit ? 'Prioritize must-see landmarks for first-time visitors' : 'Include hidden gems and local favorites for returning visitors',
-        customPromptAddon: config?.customPromptAddon ? `\nADDITIONAL INSTRUCTIONS:\n${config.customPromptAddon}` : '',
+        visitorTip: isFirstVisit
+          ? 'Prioritize must-see landmarks for first-time visitors'
+          : 'Include hidden gems and local favorites for returning visitors',
+        customPromptAddon: config?.customPromptAddon
+          ? `\nADDITIONAL INSTRUCTIONS:\n${config.customPromptAddon}`
+          : '',
       },
     );
 
@@ -514,20 +572,28 @@ export class EmailRagService {
 
     this.logger.log(
       `[pipeline:timings] 단계별 소요시간:\n` +
-      `  임베딩+벡터검색: ${stepTimings.vectorSearchMs}ms\n` +
-      `  리랭킹+DB장소: ${stepTimings.rerankAndDbPlacesMs}ms\n` +
-      `  프롬프트빌드: ${stepTimings.promptBuildMs}ms\n` +
-      `  Gemini 호출: ${stepTimings.geminiCallMs}ms\n` +
-      `  후처리매칭: ${stepTimings.postMatchMs}ms\n` +
-      `  총: ${elapsed}ms`,
+        `  임베딩+벡터검색: ${stepTimings.vectorSearchMs}ms\n` +
+        `  리랭킹+DB장소: ${stepTimings.rerankAndDbPlacesMs}ms\n` +
+        `  프롬프트빌드: ${stepTimings.promptBuildMs}ms\n` +
+        `  Gemini 호출: ${stepTimings.geminiCallMs}ms\n` +
+        `  후처리매칭: ${stepTimings.postMatchMs}ms\n` +
+        `  총: ${elapsed}ms`,
     );
 
     this.logger.log(
       `[pipeline:done] 완료 (${elapsed}ms)\n` +
         `  총 ${items.length}개 장소: ${finalMatched}개 DB매칭, ${finalTbd}개 TBD\n` +
         `  Gemini 매칭: ${geminiMatched} → 후처리 후: ${finalMatched} (+${finalMatched - geminiMatched}개 추가매칭)\n` +
-        `  참조 이메일: ${emails.slice(0, 3).map((e) => `[${e.emailThreadId}]"${e.subject}"`).join(', ')}\n` +
-        `  TBD 장소: ${items.filter((i) => !i.itemId).map((i) => `"${i.placeName}"`).join(', ') || '없음'}`,
+        `  참조 이메일: ${emails
+          .slice(0, 3)
+          .map((e) => `[${e.emailThreadId}]"${e.subject}"`)
+          .join(', ')}\n` +
+        `  TBD 장소: ${
+          items
+            .filter((i) => !i.itemId)
+            .map((i) => `"${i.placeName}"`)
+            .join(', ') || '없음'
+        }`,
     );
 
     const pipelineLog: PipelineLog = {
@@ -581,11 +647,19 @@ export class EmailRagService {
     limit?: number,
     similarityMin?: number,
   ): Promise<{
-    threads: Array<{ emailThreadId: number; subject: string | null; similarity: number }>;
+    threads: Array<{
+      emailThreadId: number;
+      subject: string | null;
+      similarity: number;
+    }>;
     places: ExtractedPlace[];
   }> {
     // 1. 유사 이메일 검색
-    const emails = await this.searchSimilarEmails(query, limit || 5, similarityMin || 0.3);
+    const emails = await this.searchSimilarEmails(
+      query,
+      limit || 5,
+      similarityMin || 0.3,
+    );
     if (emails.length === 0) {
       return { threads: [], places: [] };
     }
@@ -618,7 +692,10 @@ export class EmailRagService {
       region?: string | null;
     }
 
-    const parsed = parseJsonResponse<{ places: ParsedPlace[] } | null>(text, null);
+    const parsed = parseJsonResponse<{ places: ParsedPlace[] } | null>(
+      text,
+      null,
+    );
     if (!parsed?.places || parsed.places.length === 0) {
       return { threads, places: [] };
     }
@@ -626,7 +703,10 @@ export class EmailRagService {
     // 4. PlaceMatcherService로 DB 대조 (exact → partial → fuzzy)
     const validPlaces = parsed.places.filter((p) => p.name);
     const matchResults = await this.placeMatcher.matchPlaces(
-      validPlaces.map((p) => ({ name: p.name!, nameKor: p.nameKor || undefined })),
+      validPlaces.map((p) => ({
+        name: p.name!,
+        nameKor: p.nameKor || undefined,
+      })),
     );
 
     // 5. 결과 조합
@@ -663,9 +743,9 @@ export class EmailRagService {
 
     this.logger.log(
       `[analyzePlaces] ${places.length} places extracted: ` +
-      `${places.filter((p) => p.status === 'matched').length} matched, ` +
-      `${places.filter((p) => p.status === 'fuzzy').length} fuzzy, ` +
-      `${places.filter((p) => p.status === 'unmatched').length} unmatched`,
+        `${places.filter((p) => p.status === 'matched').length} matched, ` +
+        `${places.filter((p) => p.status === 'fuzzy').length} fuzzy, ` +
+        `${places.filter((p) => p.status === 'unmatched').length} unmatched`,
     );
 
     return { threads, places };
@@ -770,15 +850,35 @@ export class EmailRagService {
   private async loadDbPlaces(
     region: string,
     dbCategories: string[],
-  ): Promise<Array<{ id: number; nameEng: string; nameKor: string; categories: string[]; descriptionEng: string | null }>> {
-    type PlaceRow = { id: number; nameEng: string; nameKor: string; categories: string[]; descriptionEng: string | null };
+  ): Promise<
+    Array<{
+      id: number;
+      nameEng: string;
+      nameKor: string;
+      categories: string[];
+      descriptionEng: string | null;
+    }>
+  > {
+    type PlaceRow = {
+      id: number;
+      nameEng: string;
+      nameKor: string;
+      categories: string[];
+      descriptionEng: string | null;
+    };
     const regionFilter = {
       OR: [
         { region: { contains: region, mode: 'insensitive' as const } },
         { addressEnglish: { contains: region, mode: 'insensitive' as const } },
       ],
     };
-    const select = { id: true, nameEng: true, nameKor: true, categories: true, descriptionEng: true } as const;
+    const select = {
+      id: true,
+      nameEng: true,
+      nameKor: true,
+      categories: true,
+      descriptionEng: true,
+    } as const;
 
     try {
       // 1차: 관심사 카테고리 + 지역 필터
@@ -787,6 +887,7 @@ export class EmailRagService {
         results = await this.prisma.item.findMany({
           where: {
             type: 'place',
+            aiEnabled: true,
             AND: [
               regionFilter,
               { OR: dbCategories.map((cat) => ({ categories: { has: cat } })) },
@@ -804,7 +905,7 @@ export class EmailRagService {
       if (results.length < 15) {
         const existIds = new Set(results.map((r) => r.id));
         const fallback = await this.prisma.item.findMany({
-          where: { type: 'place', ...regionFilter },
+          where: { type: 'place', aiEnabled: true, ...regionFilter },
           select,
           take: 50,
         });
@@ -820,7 +921,9 @@ export class EmailRagService {
 
       return results;
     } catch (e) {
-      this.logger.warn(`[pipeline:dbPlaces] 장소 조회 실패: ${(e as Error).message}`);
+      this.logger.warn(
+        `[pipeline:dbPlaces] 장소 조회 실패: ${(e as Error).message}`,
+      );
       return [];
     }
   }
@@ -860,7 +963,10 @@ export class EmailRagService {
 
     // PlaceMatcherService로 3-tier 매칭
     const matchResults = await this.placeMatcher.matchPlaces(
-      unmatchedItems.map((u) => ({ name: u.item.placeName, nameKor: u.item.placeNameKor })),
+      unmatchedItems.map((u) => ({
+        name: u.item.placeName,
+        nameKor: u.item.placeNameKor,
+      })),
     );
 
     const result = [...items];
@@ -926,23 +1032,33 @@ export class EmailRagService {
       return (subject ? `[${subject}] ` : '').concat(data.body).slice(0, 800);
     }
     if (typeof data.snippet === 'string' && data.snippet.trim()) {
-      return (subject ? `[${subject}] ` : '').concat(data.snippet).slice(0, 800);
+      return (subject ? `[${subject}] ` : '')
+        .concat(data.snippet)
+        .slice(0, 800);
     }
 
-    const extractFromMessages = (msgs: Array<Record<string, unknown>>): string => {
+    const extractFromMessages = (
+      msgs: Array<Record<string, unknown>>,
+    ): string => {
       const parts = msgs
         .map((msg) => {
-          if (typeof msg.snippet === 'string' && msg.snippet.trim()) return msg.snippet;
-          if (typeof msg.body === 'string' && msg.body.trim()) return msg.body.slice(0, 500);
+          if (typeof msg.snippet === 'string' && msg.snippet.trim())
+            return msg.snippet;
+          if (typeof msg.body === 'string' && msg.body.trim())
+            return msg.body.slice(0, 500);
           return '';
         })
         .filter(Boolean);
       if (parts.length === 0) return '';
-      return (subject ? `[${subject}] ` : '').concat(parts.join('\n---\n')).slice(0, 800);
+      return (subject ? `[${subject}] ` : '')
+        .concat(parts.join('\n---\n'))
+        .slice(0, 800);
     };
 
     if (Array.isArray(data.messages)) {
-      return extractFromMessages(data.messages as Array<Record<string, unknown>>);
+      return extractFromMessages(
+        data.messages as Array<Record<string, unknown>>,
+      );
     }
 
     if (Array.isArray(rawData)) {
@@ -953,7 +1069,9 @@ export class EmailRagService {
     try {
       const str = JSON.stringify(rawData).slice(0, 800);
       if (str.length > 10) return str;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     return '';
   }

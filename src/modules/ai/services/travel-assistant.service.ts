@@ -51,7 +51,11 @@ export class TravelAssistantService {
     const contextInfo = buildContextInfo(context);
     const built = await this.aiPromptService.buildPrompt(
       PromptKey.TRAVEL_ASSISTANT,
-      { contextInfo: contextInfo ? `\nUser's trip context:\n${contextInfo}` : '' },
+      {
+        contextInfo: contextInfo
+          ? `\nUser's trip context:\n${contextInfo}`
+          : '',
+      },
     );
 
     const history = conversationHistory?.map((msg) => ({

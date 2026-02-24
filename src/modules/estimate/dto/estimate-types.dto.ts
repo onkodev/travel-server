@@ -128,33 +128,92 @@ export class EstimateItemExtendedDto {
 }
 
 /**
- * 표시 옵션
+ * 표시 옵션 (클라이언트 EstimateDisplayOptions와 동일 필드명)
  */
 export class DisplayOptionsDto {
-  @ApiPropertyOptional({ description: '가격 표시 여부' })
+  // 아이템 유형
+  @ApiPropertyOptional({ description: '여행지 표시' })
   @IsOptional()
   @IsBoolean()
-  showPrice?: boolean;
+  place?: boolean;
 
-  @ApiPropertyOptional({ description: '상세 가격 표시 여부' })
+  @ApiPropertyOptional({ description: '숙소 표시' })
   @IsOptional()
   @IsBoolean()
-  showDetailedPrice?: boolean;
+  accommodation?: boolean;
 
-  @ApiPropertyOptional({ description: '일자별 합계 표시 여부' })
+  @ApiPropertyOptional({ description: '교통 표시' })
   @IsOptional()
   @IsBoolean()
-  showDayTotal?: boolean;
+  transportation?: boolean;
 
-  @ApiPropertyOptional({ description: '지도 표시 여부' })
+  @ApiPropertyOptional({ description: '콘텐츠 표시' })
   @IsOptional()
   @IsBoolean()
-  showMap?: boolean;
+  contents?: boolean;
 
-  @ApiPropertyOptional({ description: '이미지 표시 여부' })
+  @ApiPropertyOptional({ description: '서비스 표시' })
   @IsOptional()
   @IsBoolean()
-  showImages?: boolean;
+  service?: boolean;
+
+  // 금액
+  @ApiPropertyOptional({ description: '금액 마스터 토글' })
+  @IsOptional()
+  @IsBoolean()
+  price?: boolean;
+
+  @ApiPropertyOptional({ description: '소계 표시' })
+  @IsOptional()
+  @IsBoolean()
+  subtotal?: boolean;
+
+  @ApiPropertyOptional({ description: '일자별 합계 표시' })
+  @IsOptional()
+  @IsBoolean()
+  dayTotal?: boolean;
+
+  @ApiPropertyOptional({ description: '상세 금액 (수량×단가) 표시' })
+  @IsOptional()
+  @IsBoolean()
+  detailedPrice?: boolean;
+
+  @ApiPropertyOptional({ description: '1인당 금액 표시' })
+  @IsOptional()
+  @IsBoolean()
+  perPerson?: boolean;
+
+  // 섹션
+  @ApiPropertyOptional({ description: '아이템 카드 표시' })
+  @IsOptional()
+  @IsBoolean()
+  itemCards?: boolean;
+
+  @ApiPropertyOptional({ description: '포함 서비스 표시' })
+  @IsOptional()
+  @IsBoolean()
+  includedServices?: boolean;
+
+  @ApiPropertyOptional({ description: '타임라인 표시' })
+  @IsOptional()
+  @IsBoolean()
+  timeline?: boolean;
+
+  @ApiPropertyOptional({ description: '지도 표시' })
+  @IsOptional()
+  @IsBoolean()
+  map?: boolean;
+
+  // 상세
+  @ApiPropertyOptional({ description: '이미지 표시' })
+  @IsOptional()
+  @IsBoolean()
+  images?: boolean;
+
+  @ApiPropertyOptional({ description: '설명 표시' })
+  @IsOptional()
+  @IsBoolean()
+  description?: boolean;
 }
 
 /**

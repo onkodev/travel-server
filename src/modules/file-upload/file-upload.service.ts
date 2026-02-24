@@ -19,7 +19,9 @@ export class FileUploadService {
     const accessKey = this.configService.get<string>('AWS_ACCESS_KEY');
     const secretKey = this.configService.get<string>('AWS_SECRET_KEY');
     if (!accessKey || !secretKey) {
-      throw new Error('Missing required AWS configuration: AWS_ACCESS_KEY and AWS_SECRET_KEY must be set');
+      throw new Error(
+        'Missing required AWS configuration: AWS_ACCESS_KEY and AWS_SECRET_KEY must be set',
+      );
     }
     this.accessKey = accessKey;
     this.secretKey = secretKey;

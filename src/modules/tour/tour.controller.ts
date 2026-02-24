@@ -127,7 +127,10 @@ export class TourController {
     description: '투어 없음',
     type: ErrorResponseDto,
   })
-  async getTour(@Param('id', ParseIntPipe) id: number, @Query('source') source?: string) {
+  async getTour(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('source') source?: string,
+  ) {
     return this.tourService.getTour(id, source);
   }
 
@@ -160,7 +163,10 @@ export class TourController {
     description: '투어 없음',
     type: ErrorResponseDto,
   })
-  async updateTour(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateTourDto) {
+  async updateTour(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateTourDto,
+  ) {
     return this.tourService.updateTour(id, body);
   }
 

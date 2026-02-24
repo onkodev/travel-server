@@ -19,7 +19,9 @@ export class EstimateSchedulerService {
 
     // KST 기준 날짜를 UTC로 변환하여 비교
     const now = new Date();
-    const kstDateStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
+    const kstDateStr = now.toLocaleDateString('en-CA', {
+      timeZone: 'Asia/Seoul',
+    });
     const today = new Date(kstDateStr + 'T00:00:00Z');
 
     try {

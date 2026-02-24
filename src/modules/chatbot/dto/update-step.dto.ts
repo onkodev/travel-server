@@ -272,12 +272,18 @@ export class RevisionItemChangeDto {
   @Min(0)
   itemIndex: number;
 
-  @ApiProperty({ description: 'Action for this item', enum: ['keep', 'remove', 'replace'] })
+  @ApiProperty({
+    description: 'Action for this item',
+    enum: ['keep', 'remove', 'replace'],
+  })
   @IsString()
   @IsIn(['keep', 'remove', 'replace'])
   action: 'keep' | 'remove' | 'replace';
 
-  @ApiPropertyOptional({ description: 'Preference for replacement', maxLength: 500 })
+  @ApiPropertyOptional({
+    description: 'Preference for replacement',
+    maxLength: 500,
+  })
   @IsOptional()
   @IsString()
   @MaxLength(500)
@@ -310,7 +316,10 @@ export class RevisionGroupChangeDto {
 
 // Revision Details DTO (structured modification request)
 export class RevisionDetailsDto {
-  @ApiPropertyOptional({ description: 'Item-level changes', type: [RevisionItemChangeDto] })
+  @ApiPropertyOptional({
+    description: 'Item-level changes',
+    type: [RevisionItemChangeDto],
+  })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
@@ -360,7 +369,10 @@ export class RespondToEstimateDto {
   @IsIn(['approved', 'declined'], { message: 'Invalid response.' })
   response: 'approved' | 'declined';
 
-  @ApiPropertyOptional({ description: 'Modification request (free text)', maxLength: 2000 })
+  @ApiPropertyOptional({
+    description: 'Modification request (free text)',
+    maxLength: 2000,
+  })
   @IsOptional()
   @IsString()
   @MaxLength(2000, {

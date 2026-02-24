@@ -48,5 +48,4 @@ export class ChatbotAnalyticsService {
       approvalRate: `${approvalRate}%`, // 승인율
     };
   }
-
 }

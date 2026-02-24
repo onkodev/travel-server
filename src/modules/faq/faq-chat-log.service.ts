@@ -80,7 +80,12 @@ export class FaqChatLogService {
         take: limit,
         include: {
           visitor: {
-            select: { ipAddress: true, country: true, countryName: true, city: true },
+            select: {
+              ipAddress: true,
+              country: true,
+              countryName: true,
+              city: true,
+            },
           },
         },
       }),
@@ -93,10 +98,15 @@ export class FaqChatLogService {
       allFaqIds.length > 0
         ? await this.prisma.faq.findMany({
             where: { id: { in: allFaqIds } },
-            select: { id: true, question: true },
+            select: {
+              id: true,
+              question: true,
+              helpfulCount: true,
+              notHelpfulCount: true,
+            },
           })
         : [];
-    const faqMap = new Map(faqs.map((f) => [f.id, f.question]));
+    const faqMap = new Map(faqs.map((f) => [f.id, f]));
 
     const enriched = logs.map(({ visitor, ...log }) => ({
       ...convertDecimalFields(log),
@@ -105,11 +115,16 @@ export class FaqChatLogService {
       countryName: visitor?.countryName ?? null,
       city: visitor?.city ?? null,
       responseTier: log.responseTier ?? null,
-      matchedFaqs: log.matchedFaqIds.map((id, idx) => ({
-        id,
-        question: faqMap.get(id) || null,
-        similarity: log.matchedSimilarities[idx] ?? null,
-      })),
+      matchedFaqs: log.matchedFaqIds.map((id, idx) => {
+        const faqData = faqMap.get(id);
+        return {
+          id,
+          question: faqData?.question || null,
+          similarity: log.matchedSimilarities[idx] ?? null,
+          helpfulCount: faqData?.helpfulCount ?? 0,
+          notHelpfulCount: faqData?.notHelpfulCount ?? 0,
+        };
+      }),
     }));
 
     return createPaginatedResponse(enriched, total, page, limit);
@@ -135,7 +150,7 @@ export class FaqChatLogService {
             total: bigint;
             today: bigint;
             no_match: bigint;
-            direct: bigint;
+            tour_recommend: bigint;
             rag: bigint;
             general: bigint;
           }>
@@ -144,7 +159,7 @@ export class FaqChatLogService {
           COUNT(*)::bigint as total,
           COUNT(*) FILTER (WHERE created_at >= ${todayStart})::bigint as today,
           COUNT(*) FILTER (WHERE no_match = true)::bigint as no_match,
-          COUNT(*) FILTER (WHERE response_tier = 'direct')::bigint as direct,
+          COUNT(*) FILTER (WHERE response_tier = 'tour_recommend')::bigint as tour_recommend,
           COUNT(*) FILTER (WHERE response_tier = 'rag')::bigint as rag,
           COUNT(*) FILTER (WHERE response_tier = 'general')::bigint as general
         FROM faq_chat_logs
@@ -183,7 +198,7 @@ export class FaqChatLogService {
       total: 0n,
       today: 0n,
       no_match: 0n,
-      direct: 0n,
+      tour_recommend: 0n,
       rag: 0n,
       general: 0n,
     };
@@ -197,7 +212,7 @@ export class FaqChatLogService {
       noMatchRate:
         totalChats > 0 ? ((noMatchCount / totalChats) * 100).toFixed(1) : '0.0',
       responseTierBreakdown: {
-        direct: Number(stats.direct),
+        tourRecommend: Number(stats.tour_recommend),
         rag: Number(stats.rag),
         general: Number(stats.general),
         noMatch: noMatchCount,

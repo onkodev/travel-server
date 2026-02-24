@@ -141,7 +141,10 @@ export class ItemController {
     description: '아이템 없음',
     type: ErrorResponseDto,
   })
-  async updateItem(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateItemDto) {
+  async updateItem(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateItemDto,
+  ) {
     return this.itemService.updateItem(id, body);
   }
 
@@ -159,6 +162,23 @@ export class ItemController {
   })
   async duplicateItem(@Param('id', ParseIntPipe) id: number) {
     return this.itemService.duplicateItem(id);
+  }
+
+  @Patch(':id/ai-toggle')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'AI 추천 토글',
+    description: '아이템의 AI 추천 포함 여부를 토글합니다.',
+  })
+  @ApiParam({ name: 'id', description: '아이템 ID' })
+  @ApiResponse({ status: 200, description: '토글 성공', type: ItemDto })
+  @ApiResponse({
+    status: 404,
+    description: '아이템 없음',
+    type: ErrorResponseDto,
+  })
+  async toggleAiEnabled(@Param('id', ParseIntPipe) id: number) {
+    return this.itemService.toggleAiEnabled(id);
   }
 
   @Delete(':id')

@@ -7,6 +7,7 @@ import {
   IsInt,
   IsArray,
   IsIn,
+  IsBoolean,
   Min,
   Max,
   MaxLength,
@@ -189,6 +190,11 @@ export class CreateItemDto {
   @ApiPropertyOptional({ description: '추가 메타데이터', type: Object })
   @IsOptional()
   metadata?: object;
+
+  @ApiPropertyOptional({ description: 'AI 추천 포함 여부', default: true })
+  @IsOptional()
+  @IsBoolean()
+  aiEnabled?: boolean;
 }
 
 export class UpdateItemDto {
@@ -287,4 +293,9 @@ export class UpdateItemDto {
   @ApiPropertyOptional({ description: '추가 메타데이터', type: Object })
   @IsOptional()
   metadata?: object;
+
+  @ApiPropertyOptional({ description: 'AI 추천 포함 여부' })
+  @IsOptional()
+  @IsBoolean()
+  aiEnabled?: boolean;
 }

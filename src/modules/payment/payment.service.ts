@@ -214,7 +214,12 @@ export class PaymentService {
     return this.prisma.$transaction(async (tx) => {
       // FOR UPDATE로 행 잠금 — 동시 환불 요청 직렬화
       const [payment] = await tx.$queryRaw<
-        Array<{ id: number; status: string; amount: number; refunded_amount: number | null }>
+        Array<{
+          id: number;
+          status: string;
+          amount: number;
+          refunded_amount: number | null;
+        }>
       >`SELECT id, status, amount, refunded_amount FROM payments WHERE id = ${id} FOR UPDATE`;
 
       if (!payment) {
@@ -228,7 +233,9 @@ export class PaymentService {
       }
       const alreadyRefunded = Number(payment.refunded_amount || 0);
       if (alreadyRefunded + data.refundedAmount > Number(payment.amount)) {
-        throw new BadRequestException('누적 환불 금액이 결제 금액을 초과할 수 없습니다');
+        throw new BadRequestException(
+          '누적 환불 금액이 결제 금액을 초과할 수 없습니다',
+        );
       }
 
       return tx.payment.update({

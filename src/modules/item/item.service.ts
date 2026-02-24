@@ -92,6 +92,7 @@ export class ItemService {
           images: true,
           createdAt: true,
           updatedAt: true,
+          aiEnabled: true,
         },
       }),
       this.prisma.item.count({ where }),
@@ -143,6 +144,7 @@ export class ItemService {
         images: true,
         createdAt: true,
         updatedAt: true,
+        aiEnabled: true,
       },
     });
     return items.map(convertDecimalFields);
@@ -165,7 +167,10 @@ export class ItemService {
       this.invalidateItemCache(item.type);
       return convertDecimalFields(item);
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
         throw new NotFoundException('아이템을 찾을 수 없습니다');
       }
       throw error;
@@ -220,11 +225,31 @@ export class ItemService {
       this.invalidateItemCache(item.type);
       return { success: true, message: '삭제되었습니다' };
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
         throw new NotFoundException('아이템을 찾을 수 없습니다');
       }
       throw error;
     }
+  }
+
+  // AI 추천 토글
+  async toggleAiEnabled(id: number) {
+    const item = await this.prisma.item.findUnique({
+      where: { id },
+      select: { aiEnabled: true, type: true },
+    });
+    if (!item) {
+      throw new NotFoundException('아이템을 찾을 수 없습니다');
+    }
+    const updated = await this.prisma.item.update({
+      where: { id },
+      data: { aiEnabled: !item.aiEnabled },
+    });
+    this.invalidateItemCache(updated.type);
+    return convertDecimalFields(updated);
   }
 
   // 타입별 아이템 조회 (캐싱 적용)
@@ -391,6 +416,7 @@ export class ItemService {
     // baseWhere에서 OR을 분리하여 AND로 조합할 수 있도록 함
     const baseWhere: Prisma.ItemWhereInput = {
       type,
+      aiEnabled: true,
       ...(excludeIds.length > 0 && { id: { notIn: excludeIds } }),
     };
     // 지역 조건은 별도로 관리 (나중에 AND로 조합)
@@ -578,6 +604,7 @@ export class ItemService {
           region, area, images
         FROM items
         WHERE type = ${type}
+          AND ai_enabled = true
           ${excludeClause}
           AND (
             similarity(name_eng, ${query}) > 0.2
@@ -630,6 +657,7 @@ export class ItemService {
 
     const where: Prisma.ItemWhereInput = {
       type: 'place',
+      aiEnabled: true,
       ...(excludeIds.length > 0 && { id: { notIn: excludeIds } }),
       ...(region && { region: { contains: region, mode: 'insensitive' } }),
     };

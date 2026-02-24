@@ -86,7 +86,12 @@ export class ItineraryTemplateService {
   // 템플릿 업데이트
   async updateTemplate(
     id: number,
-    data: { name?: string; region?: string; category?: string; items?: Prisma.JsonValue },
+    data: {
+      name?: string;
+      region?: string;
+      category?: string;
+      items?: Prisma.JsonValue;
+    },
   ) {
     const template = await this.prisma.itineraryTemplate.findUnique({
       where: { id },

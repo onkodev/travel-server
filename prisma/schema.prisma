@@ -11,57 +11,58 @@ datasource db {
 }
 
 model Estimate {
-  id                Int       @id @default(autoincrement())
-  createdAt         DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  shareHash         String?   @unique @map("share_hash") @db.VarChar(32)
-  source            String    @default("manual") @db.VarChar(20)
-  title             String    @db.VarChar(255)
-  customerName      String?   @map("customer_name") @db.VarChar(100)
-  customerEmail     String?   @map("customer_email") @db.VarChar(255)
-  nationality       String?   @db.VarChar(50)
-  startDate         DateTime? @map("start_date") @db.Date
-  endDate           DateTime? @map("end_date") @db.Date
-  travelDays        Int       @default(1) @map("travel_days")
-  adultsCount       Int?      @default(1) @map("adults_count")
-  childrenCount     Int?      @default(0) @map("children_count")
-  infantsCount      Int?      @default(0) @map("infants_count")
-  totalTravelers    Int?      @default(dbgenerated("((adults_count + children_count) + infants_count)")) @map("total_travelers")
-  tourType          String?   @map("tour_type") @db.VarChar(30)
-  travelerType      String?   @map("traveler_type") @db.VarChar(20)
-  priceRange        String?   @map("price_range") @db.VarChar(20)
+  id                Int                    @id @default(autoincrement())
+  createdAt         DateTime?              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime?              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  shareHash         String?                @unique @map("share_hash") @db.VarChar(32)
+  source            String                 @default("manual") @db.VarChar(20)
+  title             String                 @db.VarChar(255)
+  customerName      String?                @map("customer_name") @db.VarChar(100)
+  customerEmail     String?                @map("customer_email") @db.VarChar(255)
+  nationality       String?                @db.VarChar(50)
+  startDate         DateTime?              @map("start_date") @db.Date
+  endDate           DateTime?              @map("end_date") @db.Date
+  travelDays        Int                    @default(1) @map("travel_days")
+  adultsCount       Int?                   @default(1) @map("adults_count")
+  childrenCount     Int?                   @default(0) @map("children_count")
+  infantsCount      Int?                   @default(0) @map("infants_count")
+  totalTravelers    Int?                   @default(dbgenerated("((adults_count + children_count) + infants_count)")) @map("total_travelers")
+  tourType          String?                @map("tour_type") @db.VarChar(30)
+  travelerType      String?                @map("traveler_type") @db.VarChar(20)
+  priceRange        String?                @map("price_range") @db.VarChar(20)
   interests         String[]
   regions           String[]
-  items             Json      @default("[]")
-  subtotal          Decimal?  @default(0) @db.Decimal(12, 2)
-  manualAdjustment  Decimal?  @default(0) @map("manual_adjustment") @db.Decimal(12, 2)
-  adjustmentReason  String?   @map("adjustment_reason")
-  totalAmount       Decimal?  @default(0) @map("total_amount") @db.Decimal(12, 2)
-  currency          String?   @default("USD") @db.VarChar(3)
-  displayOptions    Json?     @default("{\"place\": true, \"price\": true, \"contents\": true, \"accommodation\": true, \"transportation\": true}") @map("display_options")
+  items             Json                   @default("[]")
+  subtotal          Decimal?               @default(0) @db.Decimal(12, 2)
+  manualAdjustment  Decimal?               @default(0) @map("manual_adjustment") @db.Decimal(12, 2)
+  adjustmentReason  String?                @map("adjustment_reason")
+  totalAmount       Decimal?               @default(0) @map("total_amount") @db.Decimal(12, 2)
+  currency          String?                @default("USD") @db.VarChar(3)
+  displayOptions    Json?                  @default("{\"place\": true, \"price\": true, \"contents\": true, \"accommodation\": true, \"transportation\": true}") @map("display_options")
   comment           String?
   timeline          Json?
-  requestContent    String?   @map("request_content")
-  revisionHistory   Json?     @default("[]") @map("revision_history")
-  isPinned          Boolean?  @default(false) @map("is_pinned")
-  viewedAt          DateTime? @map("viewed_at") @db.Timestamptz(6)
-  sentAt            DateTime? @map("sent_at") @db.Timestamptz(6)
-  respondedAt       DateTime? @map("responded_at") @db.Timestamptz(6)
-  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6)
-  userId            String?   @map("user_id") @db.Uuid
-  chatSessionId     String?   @map("chat_session_id") @db.Uuid
-  statusManual      String?   @map("status_manual")
-  statusAi          String?   @map("status_ai")
-  keywords          String[]  @default([])
-  specialNeeds      String[]  @default([]) @map("special_needs")
-  validDate         DateTime? @map("valid_date") @db.Date
-  revisedAt         DateTime? @map("revised_at") @db.Timestamptz(6)
-  customerResponse  String?   @map("customer_response")
-  internalMemo      String?   @map("internal_memo")
-  customerPhone     String?   @map("customer_phone") @db.VarChar(50)
-  revisionNote      String?   @map("revision_note")
-  revisionRequested Boolean   @default(false) @map("revision_requested")
-  aiMetadata        Json?     @map("ai_metadata")
+  dayNotes          Json?                  @map("day_notes")
+  requestContent    String?                @map("request_content")
+  revisionHistory   Json?                  @default("[]") @map("revision_history")
+  isPinned          Boolean?               @default(false) @map("is_pinned")
+  viewedAt          DateTime?              @map("viewed_at") @db.Timestamptz(6)
+  sentAt            DateTime?              @map("sent_at") @db.Timestamptz(6)
+  respondedAt       DateTime?              @map("responded_at") @db.Timestamptz(6)
+  completedAt       DateTime?              @map("completed_at") @db.Timestamptz(6)
+  userId            String?                @map("user_id") @db.Uuid
+  chatSessionId     String?                @map("chat_session_id") @db.Uuid
+  statusManual      String?                @map("status_manual")
+  statusAi          String?                @map("status_ai")
+  keywords          String[]               @default([])
+  specialNeeds      String[]               @default([]) @map("special_needs")
+  validDate         DateTime?              @map("valid_date") @db.Date
+  revisedAt         DateTime?              @map("revised_at") @db.Timestamptz(6)
+  customerResponse  String?                @map("customer_response")
+  internalMemo      String?                @map("internal_memo")
+  customerPhone     String?                @map("customer_phone") @db.VarChar(50)
+  revisionNote      String?                @map("revision_note")
+  revisionRequested Boolean                @default(false) @map("revision_requested")
+  aiMetadata        Json?                  @map("ai_metadata")
   embedding         Unsupported("vector")? @map("embedding")
 
   @@index([chatSessionId], map: "idx_estimates_chat_session")
@@ -109,6 +110,7 @@ model Item {
   updatedAt        DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   descriptionEng   String?   @map("description_eng")
   metadata         Json?
+  aiEnabled        Boolean   @default(true) @map("ai_enabled")
 
   @@index([createdAt(sort: Desc)], map: "idx_items_created_at")
   @@index([nameEng(ops: raw("gin_trgm_ops"))], map: "idx_items_name_eng_trgm", type: Gin)
@@ -489,6 +491,8 @@ model Faq {
   answerKo           String?                @map("answer_ko")
   questionKo         String?                @map("question_ko")
   category           String?                @db.VarChar(30)
+  guideline          String?
+  reference          String?
 
   @@index([status], map: "idx_faqs_status")
   @@index([source], map: "idx_faqs_source")
@@ -551,8 +555,8 @@ model EmailThread {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  embedding         Unsupported("vector")? @map("embedding")
-  excludeFromRag    Boolean   @default(false) @map("exclude_from_rag")
+  embedding      Unsupported("vector")? @map("embedding")
+  excludeFromRag Boolean                @default(false) @map("exclude_from_rag")
 
   @@index([isProcessed], map: "idx_email_threads_is_processed")
   @@index([createdAt(sort: Desc)], map: "idx_email_threads_created_at")
@@ -560,52 +564,54 @@ model EmailThread {
 }
 
 model AiGenerationConfig {
-  id                Int       @id @default(1)
-  aiEnabled         Boolean   @default(true) @map("ai_enabled")
-  geminiModel       String    @default("gemini-2.5-flash") @map("gemini_model") @db.VarChar(50)
-  ragSearchLimit    Int       @default(5) @map("rag_search_limit")
-  ragSimilarityMin  Float     @default(0.3) @map("rag_similarity_min")
-  ragTimeout        Int       @default(25000) @map("rag_timeout")
-  geminiTemperature Float     @default(0.7) @map("gemini_temperature")
-  geminiMaxTokens   Int       @default(4096) @map("gemini_max_tokens")
-  placesPerDay      Int       @default(4) @map("places_per_day")
-  customPromptAddon     String?   @map("custom_prompt_addon")
-  fuzzyMatchThreshold   Float     @default(0.3) @map("fuzzy_match_threshold")
-  directThreshold       Float     @default(0.7) @map("direct_threshold")
-  ragThreshold          Float     @default(0.5) @map("rag_threshold")
-  noMatchResponse           String?   @map("no_match_response")
-  topFaqCount               Int       @default(4) @map("top_faq_count")
-  estimateValidityDays      Int       @default(10) @map("estimate_validity_days")
-  aiEstimateValidityDays    Int       @default(2)  @map("ai_estimate_validity_days")
-  faqAnswerStyle            String    @default("balanced") @map("faq_answer_style") @db.VarChar(20)
-  faqAnswerLength           String    @default("standard") @map("faq_answer_length") @db.VarChar(20)
-  faqCustomInstructions     String?   @map("faq_custom_instructions")
-  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                     Int      @id @default(1)
+  aiEnabled              Boolean  @default(true) @map("ai_enabled")
+  geminiModel            String   @default("gemini-2.5-flash") @map("gemini_model") @db.VarChar(50)
+  ragSearchLimit         Int      @default(5) @map("rag_search_limit")
+  ragEstimateLimit       Int      @default(3) @map("rag_estimate_limit")
+  ragSimilarityMin       Float    @default(0.3) @map("rag_similarity_min")
+  ragTimeout             Int      @default(25000) @map("rag_timeout")
+  geminiTemperature      Float    @default(0.7) @map("gemini_temperature")
+  geminiMaxTokens        Int      @default(4096) @map("gemini_max_tokens")
+  placesPerDay           Int      @default(4) @map("places_per_day")
+  customPromptAddon      String?  @map("custom_prompt_addon")
+  fuzzyMatchThreshold    Float    @default(0.3) @map("fuzzy_match_threshold")
+  directThreshold        Float    @default(0.7) @map("direct_threshold")
+  ragThreshold           Float    @default(0.5) @map("rag_threshold")
+  noMatchResponse        String?  @map("no_match_response")
+  topFaqCount            Int      @default(4) @map("top_faq_count")
+  estimateValidityDays   Int      @default(10) @map("estimate_validity_days")
+  aiEstimateValidityDays Int      @default(2) @map("ai_estimate_validity_days")
+  faqAnswerStyle         String   @default("balanced") @map("faq_answer_style") @db.VarChar(20)
+  faqAnswerLength        String   @default("standard") @map("faq_answer_length") @db.VarChar(20)
+  faqCustomInstructions  String?  @map("faq_custom_instructions")
+  includeTbdItems        Boolean  @default(true) @map("include_tbd_items")
+  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("ai_generation_configs")
 }
 
 model OdkTourList {
-  id            Int                    @id @default(autoincrement())
-  name          String                 @db.VarChar(255)
-  nameKor       String?                @map("name_kor") @db.VarChar(255)
-  slug          String                 @unique @db.VarChar(255)
-  description   String?
-  thumbnailUrl  String?                @map("thumbnail_url")
-  websiteUrl    String                 @map("website_url")
-  price         Decimal?               @db.Decimal(12, 2)
-  region        String?                @db.VarChar(100)
-  duration      String?                @db.VarChar(50)
-  tags          String[]               @default([])
-  sortOrder     Int                    @default(0) @map("sort_order")
-  embedding     Unsupported("vector")? @map("embedding")
-  rating        Float?
-  reviewCount   Int?                   @default(0) @map("review_count")
-  category      String?                @db.VarChar(100)
-  lastSyncedAt  DateTime?              @map("last_synced_at") @db.Timestamptz(6)
-  isActive      Boolean                @default(true) @map("is_active")
-  createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id           Int                    @id @default(autoincrement())
+  name         String                 @db.VarChar(255)
+  nameKor      String?                @map("name_kor") @db.VarChar(255)
+  slug         String                 @unique @db.VarChar(255)
+  description  String?
+  thumbnailUrl String?                @map("thumbnail_url")
+  websiteUrl   String                 @map("website_url")
+  price        Decimal?               @db.Decimal(12, 2)
+  region       String?                @db.VarChar(100)
+  duration     String?                @db.VarChar(50)
+  tags         String[]               @default([])
+  sortOrder    Int                    @default(0) @map("sort_order")
+  embedding    Unsupported("vector")? @map("embedding")
+  rating       Float?
+  reviewCount  Int?                   @default(0) @map("review_count")
+  category     String?                @db.VarChar(100)
+  lastSyncedAt DateTime?              @map("last_synced_at") @db.Timestamptz(6)
+  isActive     Boolean                @default(true) @map("is_active")
+  createdAt    DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([isActive], map: "idx_odk_tours_active")
   @@index([region], map: "idx_odk_tours_region")
@@ -614,19 +620,18 @@ model OdkTourList {
 }
 
 model AiPromptTemplate {
-  id              Int       @id @default(autoincrement())
-  key             String    @unique @db.VarChar(50)
-  name            String    @db.VarChar(100)
+  id              Int      @id @default(autoincrement())
+  key             String   @unique @db.VarChar(50)
+  name            String   @db.VarChar(100)
   description     String?
-  category        String    @db.VarChar(30)
-  promptText      String?   @map("prompt_text")
+  category        String   @db.VarChar(30)
+  promptText      String?  @map("prompt_text")
   temperature     Float?
-  maxOutputTokens Int?      @map("max_output_tokens")
-  isActive        Boolean   @default(true) @map("is_active")
-  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  maxOutputTokens Int?     @map("max_output_tokens")
+  isActive        Boolean  @default(true) @map("is_active")
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([category], map: "idx_ai_prompt_templates_category")
   @@map("ai_prompt_templates")
 }
-

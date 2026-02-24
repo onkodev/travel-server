@@ -17,7 +17,12 @@ export class EstimateStatsService {
 
   // 견적 통계
   async getStats() {
-    const cached = this.statsCache.get<{ total: number; pending: number; sent: number; completed: number }>('stats_overall');
+    const cached = this.statsCache.get<{
+      total: number;
+      pending: number;
+      sent: number;
+      completed: number;
+    }>('stats_overall');
     if (cached) return cached;
 
     const [total, pending, sent, completed] = await Promise.all([

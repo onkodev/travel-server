@@ -90,7 +90,10 @@ export class OdkTourListController {
   @ApiParam({ name: 'id', description: '투어 ID' })
   @ApiResponse({ status: 200, type: OdkTourListDto })
   @ApiResponse({ status: 404, type: ErrorResponseDto })
-  async update(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateOdkTourListDto) {
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateOdkTourListDto,
+  ) {
     return this.odkTourListService.update(id, body);
   }
 

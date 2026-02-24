@@ -201,9 +201,7 @@ export class ChatbotController {
     description: '여러 챗봇 플로우를 일괄 삭제합니다.',
   })
   @ApiResponse({ status: 200, description: '삭제 성공' })
-  async bulkDeleteFlows(
-    @Body() body: { sessionIds: string[] },
-  ) {
+  async bulkDeleteFlows(@Body() body: { sessionIds: string[] }) {
     return this.chatbotService.bulkDelete(body.sessionIds);
   }
 
@@ -292,7 +290,10 @@ export class ChatbotController {
     @Body() body: { title?: string },
     @RequireUserId() _userId: string, // 인증 확인용
   ) {
-    return this.chatbotCompletionService.createEstimateFromFlow(sessionId, body.title);
+    return this.chatbotCompletionService.createEstimateFromFlow(
+      sessionId,
+      body.title,
+    );
   }
 
   @Get('by-estimate/:estimateId')
@@ -674,7 +675,10 @@ export class ChatbotController {
     @Param('sessionId') sessionId: string,
     @Body() dto: SaveMessageBatchDto,
   ) {
-    return this.chatbotMessageService.saveMessagesBatch(sessionId, dto.messages);
+    return this.chatbotMessageService.saveMessagesBatch(
+      sessionId,
+      dto.messages,
+    );
   }
 
   @Get(':sessionId/messages')
@@ -721,7 +725,12 @@ export class ChatbotController {
     @CurrentUser('id') userId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.chatbotMessageService.updateSessionTitle(sessionId, dto.title, userId, userRole);
+    return this.chatbotMessageService.updateSessionTitle(
+      sessionId,
+      dto.title,
+      userId,
+      userRole,
+    );
   }
 
   @Patch(':sessionId/link-user')
@@ -880,7 +889,11 @@ export class ChatbotController {
     @Body() dto: TravelChatDto,
     @CurrentUser('id') userId?: string,
   ): Promise<TravelChatResponseDto> {
-    return this.conversationalEstimateService.chat(sessionId, dto.message, userId);
+    return this.conversationalEstimateService.chat(
+      sessionId,
+      dto.message,
+      userId,
+    );
   }
 
   @Post(':sessionId/itinerary/regenerate-day/:dayNumber')
@@ -946,7 +959,10 @@ export class ChatbotController {
     @Param('sessionId') sessionId: string,
     @CurrentUser('id') userId?: string,
   ) {
-    const result = await this.conversationalEstimateService.finalizeItinerary(sessionId, userId);
+    const result = await this.conversationalEstimateService.finalizeItinerary(
+      sessionId,
+      userId,
+    );
 
     // 알림/이메일 체이닝 (최초 finalize 시에만, 멱등성 반환 시 스킵)
     if (result.success && !result.alreadyFinalized) {

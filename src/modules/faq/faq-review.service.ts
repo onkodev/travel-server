@@ -40,7 +40,9 @@ export class FaqReviewService {
     const batchSize = options?.batchSize ?? 100;
     const dryRun = options?.dryRun ?? false;
 
-    this.logger.log(`자동 리뷰 시작 (batchSize=${batchSize}, dryRun=${dryRun})`);
+    this.logger.log(
+      `자동 리뷰 시작 (batchSize=${batchSize}, dryRun=${dryRun})`,
+    );
 
     // Step 1: pending FAQ 조회 (단일 배치만 처리)
     const pendingFaqs = await this.prisma.faq.findMany({
@@ -60,17 +62,30 @@ export class FaqReviewService {
     });
 
     if (pendingFaqs.length === 0) {
-      return { total: 0, approved: 0, rejected: 0, needsReview: 0, failed: 0, remaining: 0, dryRun };
+      return {
+        total: 0,
+        approved: 0,
+        rejected: 0,
+        needsReview: 0,
+        failed: 0,
+        remaining: 0,
+        dryRun,
+      };
     }
 
     // Step 2: 룰 기반 사전 필터
-    const { autoReject, autoReview, geminiCandidates } = this.preFilterFaqs(pendingFaqs);
+    const { autoReject, autoReview, geminiCandidates } =
+      this.preFilterFaqs(pendingFaqs);
 
     let approved = 0;
     let rejected = 0;
     let needsReview = 0;
     let failed = 0;
-    const dryRunDetails: Array<{ id: number; decision: string; reason: string }> = [];
+    const dryRunDetails: Array<{
+      id: number;
+      decision: string;
+      reason: string;
+    }> = [];
 
     // Step 3: 룰 기반 자동 reject 처리
     if (autoReject.length > 0) {
@@ -86,12 +101,15 @@ export class FaqReviewService {
         });
         for (const { id, reason } of autoReject) {
           this.prisma.faq
-            .update({ where: { id }, data: { rejectionReason: `[Rule] ${reason}` } })
+            .update({
+              where: { id },
+              data: { rejectionReason: `[Rule] ${reason}` },
+            })
             .catch(() => {});
         }
-        this.faqEmbeddingService.cleanupBulkEmailRawData(rejectIds).catch((err) =>
-          this.logger.error('룰 거절 rawData 정리 실패:', err),
-        );
+        this.faqEmbeddingService
+          .cleanupBulkEmailRawData(rejectIds)
+          .catch((err) => this.logger.error('룰 거절 rawData 정리 실패:', err));
       }
     }
 
@@ -108,7 +126,10 @@ export class FaqReviewService {
         });
         for (const { id, reason } of autoReview) {
           this.prisma.faq
-            .update({ where: { id }, data: { rejectionReason: `[Rule] ${reason}` } })
+            .update({
+              where: { id },
+              data: { rejectionReason: `[Rule] ${reason}` },
+            })
             .catch(() => {});
         }
       }
@@ -159,9 +180,11 @@ export class FaqReviewService {
                 rejectionReason: null,
               },
             });
-            this.faqEmbeddingService.generateBulkEmbeddings(approveIds).catch((err) =>
-              this.logger.error('자동 승인 임베딩 생성 실패:', err),
-            );
+            this.faqEmbeddingService
+              .generateBulkEmbeddings(approveIds)
+              .catch((err) =>
+                this.logger.error('자동 승인 임베딩 생성 실패:', err),
+              );
           }
 
           if (rejectIds.length > 0) {
@@ -171,12 +194,17 @@ export class FaqReviewService {
             });
             for (const [faqId, reason] of rejectReasons) {
               this.prisma.faq
-                .update({ where: { id: faqId }, data: { rejectionReason: reason } })
+                .update({
+                  where: { id: faqId },
+                  data: { rejectionReason: reason },
+                })
                 .catch(() => {});
             }
-            this.faqEmbeddingService.cleanupBulkEmailRawData(rejectIds).catch((err) =>
-              this.logger.error('자동 거절 rawData 정리 실패:', err),
-            );
+            this.faqEmbeddingService
+              .cleanupBulkEmailRawData(rejectIds)
+              .catch((err) =>
+                this.logger.error('자동 거절 rawData 정리 실패:', err),
+              );
           }
 
           if (reviewIds.length > 0) {
@@ -186,7 +214,10 @@ export class FaqReviewService {
             });
             for (const [faqId, reason] of reviewReasons) {
               this.prisma.faq
-                .update({ where: { id: faqId }, data: { rejectionReason: `[AI] ${reason}` } })
+                .update({
+                  where: { id: faqId },
+                  data: { rejectionReason: `[AI] ${reason}` },
+                })
                 .catch(() => {});
             }
           }
@@ -198,7 +229,9 @@ export class FaqReviewService {
     }
 
     // Step 6: 남은 pending 수 조회
-    const remaining = await this.prisma.faq.count({ where: { status: 'pending' } });
+    const remaining = await this.prisma.faq.count({
+      where: { status: 'pending' },
+    });
 
     const totalProcessed = pendingFaqs.length;
     this.logger.log(
@@ -236,16 +269,22 @@ export class FaqReviewService {
     autoReview: Array<{ id: number; decision: string; reason: string }>;
     geminiCandidates: typeof faqs;
   } {
-    const GREETING_PATTERN = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|bye|good|sure|great|nice|wow|cool|haha|lol|hmm)\b/i;
-    const INCOMPLETE_ANSWER_PATTERN = /\b(I'll check|Let me get back|I will confirm|I'll get back|I will check|I'll confirm|let me check|let me confirm|I need to check|I will get back)\b/i;
-    const PERSONAL_QUESTION_PATTERN = /\b(my tour|my guide|my booking|my pickup|my reservation|my itinerary|my schedule|my hotel|my flight|my driver|my transfer)\b/i;
-    const SPECIFIC_DATE_PATTERN = /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b/i;
+    const GREETING_PATTERN =
+      /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|bye|good|sure|great|nice|wow|cool|haha|lol|hmm)\b/i;
+    const INCOMPLETE_ANSWER_PATTERN =
+      /\b(I'll check|Let me get back|I will confirm|I'll get back|I will check|I'll confirm|let me check|let me confirm|I need to check|I will get back)\b/i;
+    const PERSONAL_QUESTION_PATTERN =
+      /\b(my tour|my guide|my booking|my pickup|my reservation|my itinerary|my schedule|my hotel|my flight|my driver|my transfer)\b/i;
+    const SPECIFIC_DATE_PATTERN =
+      /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b/i;
     const YEAR_PATTERN = /\b202[4-9]\b/;
     const PHONE_PATTERN = /(\+82|010[-.\s]?\d{4})/;
     const CUSTOMER_NAME_PATTERN = /\b(Mr\.|Mrs\.|Ms\.|Miss)\s+[A-Z]/;
 
-    const autoReject: Array<{ id: number; decision: string; reason: string }> = [];
-    const autoReview: Array<{ id: number; decision: string; reason: string }> = [];
+    const autoReject: Array<{ id: number; decision: string; reason: string }> =
+      [];
+    const autoReview: Array<{ id: number; decision: string; reason: string }> =
+      [];
     const geminiCandidates: typeof faqs = [];
 
     for (const faq of faqs) {
@@ -254,38 +293,66 @@ export class FaqReviewService {
 
       // 자동 REJECT 룰
       if (a.length < 20) {
-        autoReject.push({ id: faq.id, decision: 'reject', reason: 'Answer too short (< 20 chars)' });
+        autoReject.push({
+          id: faq.id,
+          decision: 'reject',
+          reason: 'Answer too short (< 20 chars)',
+        });
         continue;
       }
 
       if (GREETING_PATTERN.test(q)) {
-        autoReject.push({ id: faq.id, decision: 'reject', reason: 'Question is greeting/acknowledgment' });
+        autoReject.push({
+          id: faq.id,
+          decision: 'reject',
+          reason: 'Question is greeting/acknowledgment',
+        });
         continue;
       }
 
       if (INCOMPLETE_ANSWER_PATTERN.test(a)) {
-        autoReject.push({ id: faq.id, decision: 'reject', reason: 'Answer is incomplete/deferred response' });
+        autoReject.push({
+          id: faq.id,
+          decision: 'reject',
+          reason: 'Answer is incomplete/deferred response',
+        });
         continue;
       }
 
       if (PERSONAL_QUESTION_PATTERN.test(q)) {
-        autoReject.push({ id: faq.id, decision: 'reject', reason: 'Personal/customer-specific question' });
+        autoReject.push({
+          id: faq.id,
+          decision: 'reject',
+          reason: 'Personal/customer-specific question',
+        });
         continue;
       }
 
       // 자동 REVIEW 룰
       if (SPECIFIC_DATE_PATTERN.test(a) || YEAR_PATTERN.test(a)) {
-        autoReview.push({ id: faq.id, decision: 'review', reason: 'Contains specific dates — may be outdated' });
+        autoReview.push({
+          id: faq.id,
+          decision: 'review',
+          reason: 'Contains specific dates — may be outdated',
+        });
         continue;
       }
 
       if (PHONE_PATTERN.test(a)) {
-        autoReview.push({ id: faq.id, decision: 'review', reason: 'Contains phone number — needs verification' });
+        autoReview.push({
+          id: faq.id,
+          decision: 'review',
+          reason: 'Contains phone number — needs verification',
+        });
         continue;
       }
 
       if (CUSTOMER_NAME_PATTERN.test(a)) {
-        autoReview.push({ id: faq.id, decision: 'review', reason: 'Contains customer name — needs anonymization' });
+        autoReview.push({
+          id: faq.id,
+          decision: 'review',
+          reason: 'Contains customer name — needs anonymization',
+        });
         continue;
       }
 
@@ -307,9 +374,19 @@ export class FaqReviewService {
       category: string | null;
       source: string;
     }>,
-  ): Promise<Array<{ id: number; decision: 'approve' | 'reject' | 'review'; reason: string }>> {
+  ): Promise<
+    Array<{
+      id: number;
+      decision: 'approve' | 'reject' | 'review';
+      reason: string;
+    }>
+  > {
     const chunkSize = FAQ_BATCH.GEMINI_REVIEW_CHUNK;
-    const allResults: Array<{ id: number; decision: 'approve' | 'reject' | 'review'; reason: string }> = [];
+    const allResults: Array<{
+      id: number;
+      decision: 'approve' | 'reject' | 'review';
+      reason: string;
+    }> = [];
 
     for (let i = 0; i < faqs.length; i += chunkSize) {
       const chunk = faqs.slice(i, i + chunkSize);
@@ -331,11 +408,18 @@ export class FaqReviewService {
       category: string | null;
       source: string;
     }>,
-  ): Promise<Array<{ id: number; decision: 'approve' | 'reject' | 'review'; reason: string }>> {
+  ): Promise<
+    Array<{
+      id: number;
+      decision: 'approve' | 'reject' | 'review';
+      reason: string;
+    }>
+  > {
     const faqListText = faqs
       .map((f) => {
         const q = f.question;
-        const a = f.answer.length > 300 ? f.answer.substring(0, 300) + '...' : f.answer;
+        const a =
+          f.answer.length > 300 ? f.answer.substring(0, 300) + '...' : f.answer;
         return `id=${f.id}\nQ: ${q}\nA: ${a}`;
       })
       .join('\n---\n');
@@ -350,9 +434,14 @@ export class FaqReviewService {
       maxOutputTokens: built.maxOutputTokens,
     });
 
-    let jsonStr = result.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+    let jsonStr = result
+      .replace(/```json?\n?/g, '')
+      .replace(/```/g, '')
+      .trim();
 
-    this.logger.log(`Gemini raw (${faqs.length}건, first 300): ${jsonStr.substring(0, 300)}`);
+    this.logger.log(
+      `Gemini raw (${faqs.length}건, first 300): ${jsonStr.substring(0, 300)}`,
+    );
 
     // 잘린 JSON 배열 복구 시도
     if (jsonStr.startsWith('[') && !jsonStr.endsWith(']')) {
@@ -363,7 +452,12 @@ export class FaqReviewService {
       }
     }
 
-    let parsed: Array<{ id: number | string; decision: string; confidence?: number; reason: string }>;
+    let parsed: Array<{
+      id: number | string;
+      decision: string;
+      confidence?: number;
+      reason: string;
+    }>;
     try {
       parsed = JSON.parse(jsonStr);
     } catch (parseErr) {
@@ -372,7 +466,9 @@ export class FaqReviewService {
       return [];
     }
 
-    this.logger.log(`Parsed ${parsed.length}건, 첫 항목: ${JSON.stringify(parsed[0])}`);
+    this.logger.log(
+      `Parsed ${parsed.length}건, 첫 항목: ${JSON.stringify(parsed[0])}`,
+    );
 
     const validDecisions = new Set(['approve', 'reject', 'review']);
     const validIds = new Set(faqs.map((f) => f.id));
@@ -380,15 +476,24 @@ export class FaqReviewService {
     const filtered = parsed
       .filter((r) => {
         const numId = Number(r.id);
-        return !isNaN(numId) && validIds.has(numId) && validDecisions.has(r.decision.toLowerCase());
+        return (
+          !isNaN(numId) &&
+          validIds.has(numId) &&
+          validDecisions.has(r.decision.toLowerCase())
+        );
       })
       .map((r) => {
-        let decision = r.decision.toLowerCase() as 'approve' | 'reject' | 'review';
+        let decision = r.decision.toLowerCase() as
+          | 'approve'
+          | 'reject'
+          | 'review';
         const confidence = typeof r.confidence === 'number' ? r.confidence : 50;
 
         // confidence < 90인 approve → review로 격하
         if (decision === 'approve' && confidence < 90) {
-          this.logger.debug(`FAQ #${r.id}: approve → review (confidence ${confidence} < 90)`);
+          this.logger.debug(
+            `FAQ #${r.id}: approve → review (confidence ${confidence} < 90)`,
+          );
           decision = 'review';
         }
 

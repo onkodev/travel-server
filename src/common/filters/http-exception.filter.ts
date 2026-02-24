@@ -34,7 +34,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (errorResponse.statusCode >= 500) {
       // DB 연결 에러는 간략하게 (스택 트레이스 생략)
       if (this.isDbConnectionError(exception)) {
-        this.logger.warn(`${request.method} ${request.url} — DB 연결 실패 (일시적)`);
+        this.logger.warn(
+          `${request.method} ${request.url} — DB 연결 실패 (일시적)`,
+        );
       } else {
         this.logger.error(
           `${request.method} ${request.url}`,

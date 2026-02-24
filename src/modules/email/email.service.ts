@@ -19,7 +19,9 @@ export class EmailService {
     const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY');
     const secretAccessKey = this.configService.get<string>('AWS_SECRET_KEY');
     if (!accessKeyId || !secretAccessKey) {
-      this.logger.warn('AWS credentials not configured — email sending will fail.');
+      this.logger.warn(
+        'AWS credentials not configured — email sending will fail.',
+      );
     }
     this.sesClient = new SESClient({
       region:

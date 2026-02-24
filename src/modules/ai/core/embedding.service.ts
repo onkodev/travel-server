@@ -130,15 +130,9 @@ export class EmbeddingService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  buildFaqText(
-    question: string,
-    answer: string,
-    questionKo?: string | null,
-    answerKo?: string | null,
-  ): string {
-    let text = `Q: ${question}\nA: ${answer}`;
-    if (questionKo) text += `\nQ(KO): ${questionKo}`;
-    if (answerKo) text += `\nA(KO): ${answerKo}`;
+  buildFaqText(question: string, questionKo?: string | null): string {
+    let text = question;
+    if (questionKo) text += `\n${questionKo}`;
     return text;
   }
 }

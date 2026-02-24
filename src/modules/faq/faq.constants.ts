@@ -7,7 +7,7 @@
  */
 export const FAQ_SIMILARITY = {
   /** FAQ 직접 답변 임계값 */
-  DIRECT_THRESHOLD: 0.75,
+  DIRECT_THRESHOLD: 0.7,
   /** 제안 질문 최소 유사도 */
   SUGGESTION_THRESHOLD: 0.45,
   /** 소스 필터 최소 유사도 (chatWithFaq, regenerateAnswer) */

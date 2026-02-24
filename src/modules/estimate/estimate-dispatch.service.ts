@@ -1,18 +1,11 @@
-import {
-  Injectable,
-  NotFoundException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { NotificationService } from '../notification/notification.service';
 import { convertDecimalFields, jsonCast } from '../../common/utils';
 import { ESTIMATE_STATUS } from './dto/estimate.dto';
-import {
-  ESTIMATE_EVENTS,
-  EstimateSentEvent,
-} from '../../common/events';
+import { ESTIMATE_EVENTS, EstimateSentEvent } from '../../common/events';
 
 @Injectable()
 export class EstimateDispatchService {
@@ -48,13 +41,15 @@ export class EstimateDispatchService {
     // 고객 이메일이 있으면 이메일 발송
     if (estimate.customerEmail) {
       const items =
-        jsonCast<Array<{
-          name: string;
-          type?: string;
-          price: number;
-          quantity: number;
-          date?: string;
-        }>>(estimate.items) || [];
+        jsonCast<
+          Array<{
+            name: string;
+            type?: string;
+            price: number;
+            quantity: number;
+            date?: string;
+          }>
+        >(estimate.items) || [];
 
       this.emailService
         .sendEstimate({
@@ -84,7 +79,9 @@ export class EstimateDispatchService {
               },
             })
             .catch((dbErr) => {
-              this.logger.error(`Failed to update estimate memo: ${dbErr.message}`);
+              this.logger.error(
+                `Failed to update estimate memo: ${dbErr.message}`,
+              );
             });
         });
     }

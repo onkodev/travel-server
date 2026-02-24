@@ -80,8 +80,10 @@ export class OdkTourListService {
 
     if (data.name !== undefined) updateData.name = data.name;
     if (data.nameKor !== undefined) updateData.nameKor = data.nameKor;
-    if (data.description !== undefined) updateData.description = data.description;
-    if (data.thumbnailUrl !== undefined) updateData.thumbnailUrl = data.thumbnailUrl;
+    if (data.description !== undefined)
+      updateData.description = data.description;
+    if (data.thumbnailUrl !== undefined)
+      updateData.thumbnailUrl = data.thumbnailUrl;
     if (data.websiteUrl !== undefined) updateData.websiteUrl = data.websiteUrl;
     if (data.price !== undefined) updateData.price = data.price;
     if (data.region !== undefined) updateData.region = data.region;

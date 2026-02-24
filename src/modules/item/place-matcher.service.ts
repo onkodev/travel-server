@@ -106,7 +106,12 @@ export class PlaceMatcherService {
         conditions.push({
           OR: [
             { nameKor: { contains: input.nameKor } },
-            { nameEng: { contains: input.nameKor, mode: 'insensitive' as const } },
+            {
+              nameEng: {
+                contains: input.nameKor,
+                mode: 'insensitive' as const,
+              },
+            },
           ],
         });
       }
@@ -114,7 +119,7 @@ export class PlaceMatcherService {
     });
 
     const dbItems = await this.prisma.item.findMany({
-      where: { type: 'place', OR: orConditions },
+      where: { type: 'place', aiEnabled: true, OR: orConditions },
       select,
     });
 
@@ -137,9 +142,14 @@ export class PlaceMatcherService {
       const keyKor = input.nameKor?.toLowerCase();
 
       // Exact: 이름 맵 직접 조회
-      const exact = nameMap.get(keyEng) || (keyKor ? nameMap.get(keyKor) : undefined);
+      const exact =
+        nameMap.get(keyEng) || (keyKor ? nameMap.get(keyKor) : undefined);
       if (exact) {
-        results.push({ input, tier: 'exact', item: this.toItem(exact, options?.fullSelect) });
+        results.push({
+          input,
+          tier: 'exact',
+          item: this.toItem(exact, options?.fullSelect),
+        });
         continue;
       }
 
@@ -164,7 +174,11 @@ export class PlaceMatcherService {
       }
 
       if (bestPartial) {
-        results.push({ input, tier: 'partial', item: this.toItem(bestPartial, options?.fullSelect) });
+        results.push({
+          input,
+          tier: 'partial',
+          item: this.toItem(bestPartial, options?.fullSelect),
+        });
       } else {
         results.push({ input, tier: 'unmatched' }); // placeholder
         unmatchedIndices.push(i);
@@ -174,7 +188,11 @@ export class PlaceMatcherService {
     // ── 3. Fuzzy 배치 매칭 (pg_trgm, 1회 SQL) ──
     if (unmatchedIndices.length > 0) {
       const fuzzyNames = unmatchedIndices.map((i) => inputs[i].name);
-      const fuzzyMap = await this.fuzzyMatchBatch(fuzzyNames, threshold, options?.region);
+      const fuzzyMap = await this.fuzzyMatchBatch(
+        fuzzyNames,
+        threshold,
+        options?.region,
+      );
 
       for (const idx of unmatchedIndices) {
         const fuzzy = fuzzyMap.get(inputs[idx].name);
@@ -182,7 +200,13 @@ export class PlaceMatcherService {
           results[idx] = {
             input: inputs[idx],
             tier: 'fuzzy',
-            item: options?.fullSelect ? fuzzy : { id: fuzzy.id, nameKor: fuzzy.nameKor, nameEng: fuzzy.nameEng },
+            item: options?.fullSelect
+              ? fuzzy
+              : {
+                  id: fuzzy.id,
+                  nameKor: fuzzy.nameKor,
+                  nameEng: fuzzy.nameEng,
+                },
             score: fuzzy.sim,
           };
         }
@@ -205,7 +229,7 @@ export class PlaceMatcherService {
     if (ids.length === 0) return new Map();
 
     const items = await this.prisma.item.findMany({
-      where: { id: { in: ids }, type: 'place' },
+      where: { id: { in: ids }, type: 'place', aiEnabled: true },
       select: ITEM_SELECT_FULL,
     });
 
@@ -226,6 +250,82 @@ export class PlaceMatcherService {
         },
       ]),
     );
+  }
+
+  /**
+   * aiEnabled=false 아이템과 매칭되는 이름 찾기
+   * Gemini가 자체 지식으로 추천한 장소가 disabled 아이템인지 체크
+   * exact + partial + fuzzy(pg_trgm) 3단계 매칭 사용
+   */
+  async findDisabledMatches(names: string[]): Promise<Set<string>> {
+    if (names.length === 0) return new Set();
+
+    const disabledNames = new Set<string>();
+
+    // 1. Prisma exact/partial 매칭
+    const orConditions = names.flatMap((name) => [
+      { nameEng: { contains: name, mode: 'insensitive' as const } },
+      { nameKor: { contains: name } },
+    ]);
+
+    const dbItems = await this.prisma.item.findMany({
+      where: { type: 'place', aiEnabled: false, OR: orConditions },
+      select: { nameEng: true, nameKor: true },
+    });
+
+    if (dbItems.length > 0) {
+      for (const name of names) {
+        const lower = name.toLowerCase().trim();
+        for (const db of dbItems) {
+          const eng = db.nameEng.toLowerCase();
+          const kor = db.nameKor.toLowerCase();
+          if (
+            eng.includes(lower) ||
+            lower.includes(eng) ||
+            kor.includes(lower) ||
+            lower.includes(kor)
+          ) {
+            disabledNames.add(name);
+            break;
+          }
+        }
+      }
+    }
+
+    // 2. Fuzzy 매칭 (exact/partial로 안 잡힌 나머지)
+    const remaining = names.filter((n) => !disabledNames.has(n));
+    if (remaining.length > 0) {
+      try {
+        const fuzzyResults = await this.prisma.$queryRaw<
+          Array<{ query_name: string; sim: number }>
+        >`
+          SELECT DISTINCT ON (query_name)
+            query_name,
+            GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
+          FROM items
+          CROSS JOIN unnest(${remaining}::text[]) AS query_name
+          WHERE type = 'place'
+            AND ai_enabled = false
+            AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > 0.3
+          ORDER BY query_name, sim DESC
+        `;
+        for (const r of fuzzyResults) {
+          disabledNames.add(r.query_name);
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[findDisabledMatches] fuzzy 검색 실패: ${(e as Error).message}`,
+        );
+      }
+    }
+
+    if (disabledNames.size > 0) {
+      this.logger.log(
+        `[findDisabledMatches] ${names.length}개 중 ${disabledNames.size}개 disabled 매칭: ${[...disabledNames].join(', ')}`,
+      );
+    }
+
+    return disabledNames;
   }
 
   // ── Private helpers ──
@@ -262,6 +362,7 @@ export class PlaceMatcherService {
           FROM items
           CROSS JOIN unnest(${names}::text[]) AS query_name
           WHERE type = 'place'
+            AND ai_enabled = true
             AND (region ILIKE ${'%' + region + '%'} OR address_english ILIKE ${'%' + region + '%'})
             AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
           ORDER BY query_name, sim DESC
@@ -288,6 +389,7 @@ export class PlaceMatcherService {
           FROM items
           CROSS JOIN unnest(${names}::text[]) AS query_name
           WHERE type = 'place'
+            AND ai_enabled = true
             AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
           ORDER BY query_name, sim DESC
         `;
@@ -309,12 +411,17 @@ export class PlaceMatcherService {
       });
     }
 
-    this.logger.log(`[fuzzyMatchBatch] ${names.length} queries → ${map.size} matches`);
+    this.logger.log(
+      `[fuzzyMatchBatch] ${names.length} queries → ${map.size} matches`,
+    );
     return map;
   }
 
   /** DB row → MatchedItemBase | MatchedItemFull */
-  private toItem(row: Record<string, unknown>, full?: boolean): MatchedItemBase | MatchedItemFull {
+  private toItem(
+    row: Record<string, unknown>,
+    full?: boolean,
+  ): MatchedItemBase | MatchedItemFull {
     const base: MatchedItemBase = {
       id: row.id as number,
       nameKor: row.nameKor as string,

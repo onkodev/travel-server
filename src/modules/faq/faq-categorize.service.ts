@@ -11,8 +11,14 @@ export class FaqCategorizeService {
   private readonly logger = new Logger(FaqCategorizeService.name);
 
   static readonly VALID_CATEGORIES = [
-    'general', 'booking', 'tour', 'payment',
-    'transportation', 'accommodation', 'visa', 'other',
+    'general',
+    'booking',
+    'tour',
+    'payment',
+    'transportation',
+    'accommodation',
+    'visa',
+    'other',
   ];
 
   constructor(
@@ -88,7 +94,8 @@ export class FaqCategorizeService {
     const byCategory = new Map<string, number[]>();
 
     for (const { id, best_category, similarity } of results) {
-      const category = similarity < FAQ_SIMILARITY.LOW_CONFIDENCE ? 'other' : best_category;
+      const category =
+        similarity < FAQ_SIMILARITY.LOW_CONFIDENCE ? 'other' : best_category;
       const ids = byCategory.get(category) || [];
       ids.push(id);
       byCategory.set(category, ids);
@@ -129,7 +136,13 @@ export class FaqCategorizeService {
 
       const faqs = await this.prisma.faq.findMany({
         where: { id: { in: ids.map((r) => r.id) } },
-        select: { id: true, question: true, answer: true, questionKo: true, answerKo: true },
+        select: {
+          id: true,
+          question: true,
+          answer: true,
+          questionKo: true,
+          answerKo: true,
+        },
       });
 
       const result = await this.faqEmbeddingService.processEmbeddingBatch(faqs);
@@ -152,7 +165,13 @@ export class FaqCategorizeService {
   }> {
     const uncategorized = await this.prisma.faq.findMany({
       where: { category: null },
-      select: { id: true, question: true, answer: true, questionKo: true, answerKo: true },
+      select: {
+        id: true,
+        question: true,
+        answer: true,
+        questionKo: true,
+        answerKo: true,
+      },
       orderBy: { id: 'asc' },
     });
 
@@ -163,7 +182,11 @@ export class FaqCategorizeService {
     let categorized = 0;
     let failed = 0;
 
-    for (let i = 0; i < uncategorized.length; i += FAQ_BATCH.GEMINI_CATEGORIZE) {
+    for (
+      let i = 0;
+      i < uncategorized.length;
+      i += FAQ_BATCH.GEMINI_CATEGORIZE
+    ) {
       const batch = uncategorized.slice(i, i + FAQ_BATCH.GEMINI_CATEGORIZE);
       try {
         const results = await this.classifyBatchCategories(batch);
@@ -192,7 +215,13 @@ export class FaqCategorizeService {
   }
 
   private async classifyBatchCategories(
-    faqs: Array<{ id: number; question: string; answer: string; questionKo: string | null; answerKo: string | null }>,
+    faqs: Array<{
+      id: number;
+      question: string;
+      answer: string;
+      questionKo: string | null;
+      answerKo: string | null;
+    }>,
   ): Promise<Array<{ id: number; category: string }>> {
     const categories = [
       'general - 일반 문의, 회사/서비스 소개, 운영시간, 연락처',
@@ -222,7 +251,10 @@ export class FaqCategorizeService {
       maxOutputTokens: built.maxOutputTokens,
     });
 
-    const jsonStr = result.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+    const jsonStr = result
+      .replace(/```json?\n?/g, '')
+      .replace(/```/g, '')
+      .trim();
     const parsed: Array<{ id: number; category: string }> = JSON.parse(jsonStr);
 
     const validSet = new Set(FaqCategorizeService.VALID_CATEGORIES);

@@ -73,6 +73,13 @@ export class GenerateItemContentV2Dto {
   @ApiProperty({ description: '아이템 타입' })
   @IsString()
   itemType: string;
+
+  @ApiPropertyOptional({
+    description: '기존 한글 설명 (있으면 영어 번역만 수행)',
+  })
+  @IsOptional()
+  @IsString()
+  existingDescription?: string;
 }
 
 export class AnalyzeEstimateV2Dto {

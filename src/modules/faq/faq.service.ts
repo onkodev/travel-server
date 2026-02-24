@@ -10,6 +10,8 @@ import { MemoryCache } from '../../common/utils';
 import { CACHE_TTL } from '../../common/constants/cache';
 import { FAQ_BATCH } from './faq.constants';
 import { FaqEmbeddingService } from './faq-embedding.service';
+import { GeminiCoreService } from '../ai/core/gemini-core.service';
+import { FaqCategorizeService } from './faq-categorize.service';
 
 @Injectable()
 export class FaqService {
@@ -19,6 +21,7 @@ export class FaqService {
   constructor(
     private prisma: PrismaService,
     private faqEmbeddingService: FaqEmbeddingService,
+    private geminiCore: GeminiCoreService,
   ) {}
 
   // ============================================================================
@@ -47,12 +50,18 @@ export class FaqService {
     }
 
     if (search) {
-      where.OR = [
-        { question: { contains: search, mode: 'insensitive' } },
-        { questionKo: { contains: search, mode: 'insensitive' } },
-        { answer: { contains: search, mode: 'insensitive' } },
-        { answerKo: { contains: search, mode: 'insensitive' } },
-      ];
+      const idMatch = search.match(/^#?(\d+)$/);
+      if (idMatch) {
+        where.id = Number(idMatch[1]);
+      } else {
+        where.OR = [
+          { question: { contains: search, mode: 'insensitive' } },
+          { questionKo: { contains: search, mode: 'insensitive' } },
+          { answer: { contains: search, mode: 'insensitive' } },
+          { answerKo: { contains: search, mode: 'insensitive' } },
+          { tags: { has: search.toLowerCase() } },
+        ];
+      }
     }
 
     const [faqs, total] = await Promise.all([
@@ -83,6 +92,71 @@ export class FaqService {
     return convertDecimalFields(faq);
   }
 
+  /**
+   * AI 자동 보강: 한국어 번역 + 카테고리 + 태그 (단일 Gemini 호출)
+   */
+  private async autoEnrichFaq(
+    question: string,
+    answer: string,
+  ): Promise<{
+    questionKo: string;
+    answerKo: string;
+    category: string;
+    tags: string[];
+  } | null> {
+    try {
+      const prompt = `You are a bilingual (English/Korean) FAQ specialist for a Korea travel company.
+
+Given this FAQ entry, provide:
+1. Korean translation of the question and answer
+2. Category classification
+3. Relevant tags (English, 2-5 tags)
+
+## FAQ
+Question: ${question}
+Answer: ${answer}
+
+## Valid Categories
+general, booking, tour, payment, transportation, accommodation, visa, other
+
+## Rules
+- Translate naturally, not literally
+- Tags should be lowercase, relevant keywords
+- Pick exactly ONE category
+
+Respond ONLY with valid JSON (no markdown):
+{"questionKo": "한국어 질문", "answerKo": "한국어 답변", "category": "booking", "tags": ["tag1", "tag2"]}`;
+
+      const result = await this.geminiCore.callGemini(prompt, {
+        temperature: 0.3,
+        maxOutputTokens: 1024,
+        disableThinking: true,
+      });
+
+      const jsonStr = result
+        .replace(/```json?\n?/g, '')
+        .replace(/```/g, '')
+        .trim();
+      const parsed = JSON.parse(jsonStr);
+
+      const validCategories = new Set(FaqCategorizeService.VALID_CATEGORIES);
+
+      return {
+        questionKo: parsed.questionKo || '',
+        answerKo: parsed.answerKo || '',
+        category: validCategories.has(parsed.category)
+          ? parsed.category
+          : 'other',
+        tags: Array.isArray(parsed.tags)
+          ? parsed.tags.filter((t: unknown) => typeof t === 'string')
+          : [],
+      };
+    } catch (error) {
+      this.logger.error('FAQ 자동 보강 실패:', error);
+      return null;
+    }
+  }
+
   async createFaq(data: {
     question: string;
     answer: string;
@@ -90,12 +164,32 @@ export class FaqService {
     answerKo?: string;
     tags?: string[];
     category?: string;
+    guideline?: string;
+    reference?: string;
     source?: string;
     sourceEmailId?: string;
     sourceEmailSubject?: string;
     confidence?: number;
     sourceContext?: { questionSource?: string; answerSource?: string };
   }) {
+    // 수동 생성 시 누락된 필드 자동 보강 (한국어/카테고리/태그 중 하나라도 없으면)
+    const needsEnrich =
+      data.source !== 'gmail' &&
+      (!data.questionKo ||
+        !data.answerKo ||
+        !data.category ||
+        !data.tags?.length);
+
+    if (needsEnrich) {
+      const enriched = await this.autoEnrichFaq(data.question, data.answer);
+      if (enriched) {
+        data.questionKo = data.questionKo || enriched.questionKo;
+        data.answerKo = data.answerKo || enriched.answerKo;
+        data.category = data.category || enriched.category;
+        data.tags = data.tags?.length ? data.tags : enriched.tags;
+      }
+    }
+
     const faq = await this.prisma.faq.create({
       data: {
         question: data.question,
@@ -104,6 +198,8 @@ export class FaqService {
         answerKo: data.answerKo || null,
         tags: data.tags || [],
         category: data.category || null,
+        guideline: data.guideline || null,
+        reference: data.reference || null,
         source: data.source || 'manual',
         sourceEmailId: data.sourceEmailId,
         sourceEmailSubject: data.sourceEmailSubject,
@@ -120,9 +216,7 @@ export class FaqService {
         await this.faqEmbeddingService.generateAndSaveEmbedding(
           faq.id,
           faq.question,
-          faq.answer,
           faq.questionKo,
-          faq.answerKo,
         );
       } catch (error) {
         this.logger.error(`임베딩 생성 실패 (FAQ #${faq.id}):`, error);
@@ -139,18 +233,13 @@ export class FaqService {
       data,
     });
 
-    // approved 상태에서 question/answer/ko 변경 시 임베딩 재생성
-    if (
-      faq.status === 'approved' &&
-      (data.question || data.answer || data.questionKo || data.answerKo)
-    ) {
+    // approved 상태에서 question/questionKo 변경 시 임베딩 재생성
+    if (faq.status === 'approved' && (data.question || data.questionKo)) {
       try {
         await this.faqEmbeddingService.generateAndSaveEmbedding(
           faq.id,
           faq.question,
-          faq.answer,
           faq.questionKo,
-          faq.answerKo,
         );
       } catch (error) {
         this.logger.error(`임베딩 재생성 실패 (FAQ #${faq.id}):`, error);
@@ -199,9 +288,7 @@ export class FaqService {
       await this.faqEmbeddingService.generateAndSaveEmbedding(
         faq.id,
         faq.question,
-        faq.answer,
         faq.questionKo,
-        faq.answerKo,
       );
     } catch (error) {
       this.logger.error(`임베딩 생성 실패 (FAQ #${faq.id}):`, error);
@@ -261,9 +348,9 @@ export class FaqService {
         });
 
         // 일괄 승인된 FAQ들의 임베딩 생성 (fire-and-forget, 트랜잭션 외부)
-        this.faqEmbeddingService.generateBulkEmbeddings(ids).catch((err) =>
-          this.logger.error('일괄 임베딩 생성 오류:', err),
-        );
+        this.faqEmbeddingService
+          .generateBulkEmbeddings(ids)
+          .catch((err) => this.logger.error('일괄 임베딩 생성 오류:', err));
 
         return result;
       }
@@ -278,9 +365,9 @@ export class FaqService {
       });
 
       // 거절된 FAQ들의 이메일 rawData 정리 (트랜잭션 외부, fire-and-forget)
-      this.faqEmbeddingService.cleanupBulkEmailRawData(ids).catch((err) =>
-        this.logger.error('일괄 rawData 정리 오류:', err),
-      );
+      this.faqEmbeddingService
+        .cleanupBulkEmailRawData(ids)
+        .catch((err) => this.logger.error('일괄 rawData 정리 오류:', err));
 
       return result;
     });
@@ -294,19 +381,26 @@ export class FaqService {
     const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const [total, pending, needsReview, approved, rejected, fromGmail, categoryCounts] =
-      await Promise.all([
-        this.prisma.faq.count(),
-        this.prisma.faq.count({ where: { status: 'pending' } }),
-        this.prisma.faq.count({ where: { status: 'needs_review' } }),
-        this.prisma.faq.count({ where: { status: 'approved' } }),
-        this.prisma.faq.count({ where: { status: 'rejected' } }),
-        this.prisma.faq.count({ where: { source: 'gmail' } }),
-        this.prisma.faq.groupBy({
-          by: ['category'],
-          _count: true,
-        }),
-      ]);
+    const [
+      total,
+      pending,
+      needsReview,
+      approved,
+      rejected,
+      fromGmail,
+      categoryCounts,
+    ] = await Promise.all([
+      this.prisma.faq.count(),
+      this.prisma.faq.count({ where: { status: 'pending' } }),
+      this.prisma.faq.count({ where: { status: 'needs_review' } }),
+      this.prisma.faq.count({ where: { status: 'approved' } }),
+      this.prisma.faq.count({ where: { status: 'rejected' } }),
+      this.prisma.faq.count({ where: { source: 'gmail' } }),
+      this.prisma.faq.groupBy({
+        by: ['category'],
+        _count: true,
+      }),
+    ]);
 
     const byCategory: Record<string, number> = {};
     let uncategorized = 0;
@@ -318,7 +412,16 @@ export class FaqService {
       }
     }
 
-    const result = { total, pending, needsReview, approved, rejected, fromGmail, byCategory, uncategorized };
+    const result = {
+      total,
+      pending,
+      needsReview,
+      approved,
+      rejected,
+      fromGmail,
+      byCategory,
+      uncategorized,
+    };
     this.cache.set(cacheKey, result, CACHE_TTL.FAQ_STATS);
     return result;
   }
@@ -339,9 +442,7 @@ export class FaqService {
     const lowQuality = await this.prisma.faq.findMany({
       where: {
         status: 'pending',
-        OR: [
-          { question: { not: { contains: '          ' } } },
-        ],
+        OR: [{ question: { not: { contains: '          ' } } }],
       },
       select: { id: true, question: true, answer: true },
     });
@@ -439,7 +540,9 @@ export class FaqService {
     }>;
     totalGroups: number;
   }> {
-    const embeddedRows = await this.prisma.$queryRawUnsafe<Array<{ id: number }>>(
+    const embeddedRows = await this.prisma.$queryRawUnsafe<
+      Array<{ id: number }>
+    >(
       `SELECT id FROM faqs
        WHERE status IN ('pending', 'approved') AND embedding IS NOT NULL
        ORDER BY id
@@ -449,7 +552,9 @@ export class FaqService {
     const pairs: Array<{ id1: number; id2: number; similarity: number }> = [];
 
     for (let i = 0; i < embeddedRows.length; i += FAQ_BATCH.DUPLICATE_SCAN) {
-      const batchIds = embeddedRows.slice(i, i + FAQ_BATCH.DUPLICATE_SCAN).map((r) => r.id);
+      const batchIds = embeddedRows
+        .slice(i, i + FAQ_BATCH.DUPLICATE_SCAN)
+        .map((r) => r.id);
       const batchPairs = await this.prisma.$queryRawUnsafe<
         Array<{ id1: number; id2: number; similarity: number }>
       >(
@@ -485,7 +590,8 @@ export class FaqService {
       return parent.get(x)!;
     };
     const union = (a: number, b: number) => {
-      const ra = find(a), rb = find(b);
+      const ra = find(a),
+        rb = find(b);
       if (ra !== rb) parent.set(ra, rb);
     };
 
@@ -507,7 +613,15 @@ export class FaqService {
     const allIds = [...new Set([...groupMap.values()].flatMap((s) => [...s]))];
     const faqDetails = await this.prisma.faq.findMany({
       where: { id: { in: allIds } },
-      select: { id: true, question: true, questionKo: true, answer: true, answerKo: true, status: true, category: true },
+      select: {
+        id: true,
+        question: true,
+        questionKo: true,
+        answer: true,
+        answerKo: true,
+        status: true,
+        category: true,
+      },
     });
     const faqMap = new Map(faqDetails.map((f) => [f.id, f]));
 
@@ -518,14 +632,14 @@ export class FaqService {
           .sort((a, b) => a - b)
           .map((id) => faqMap.get(id))
           .filter(Boolean) as Array<{
-            id: number;
-            question: string;
-            questionKo: string | null;
-            answer: string;
-            answerKo: string | null;
-            status: string;
-            category: string | null;
-          }>,
+          id: number;
+          question: string;
+          questionKo: string | null;
+          answer: string;
+          answerKo: string | null;
+          status: string;
+          category: string | null;
+        }>,
         maxSimilarity: groupSim.get(root) || 0,
       }))
       .filter((g) => g.faqs.length >= 2)

@@ -20,6 +20,49 @@ export class ItemAiService {
     private aiPromptService: AiPromptService,
   ) {}
 
+  async translateAndFillMissing(params: {
+    description: string;
+    nameKor: string;
+    nameEng: string;
+    missingKeyword: boolean;
+  }): Promise<Partial<ItemContentResult> | null> {
+    const { description, nameKor, nameEng, missingKeyword } = params;
+
+    const keywordInstruction = missingKeyword
+      ? `\n  "keyword": "5-8 comma-separated keywords in English (e.g. Seoul, palace, history, culture, photo spot)",`
+      : '';
+
+    const prompt = `You are a Korea travel content translator. Translate the following Korean description to English.
+Keep the tone friendly and informative for foreign tourists. Preserve brand names and proper nouns as-is.
+
+Item name (Korean): ${nameKor}
+Item name (English): ${nameEng || 'N/A'}
+
+Korean description:
+${description}
+
+Respond ONLY with valid JSON:
+{${keywordInstruction}
+  "descriptionEng": "English translation of the Korean description above"
+}`;
+
+    const text = await this.geminiCore.callGemini(prompt, {
+      temperature: 0.3,
+      maxOutputTokens: 65536,
+    });
+
+    const result = parseJsonResponse<Partial<ItemContentResult>>(text, {
+      keyword: '',
+      descriptionEng: '',
+    });
+
+    if (result.descriptionEng) {
+      return result;
+    }
+
+    return null;
+  }
+
   async generateItemContent(params: {
     nameKor: string;
     nameEng: string;

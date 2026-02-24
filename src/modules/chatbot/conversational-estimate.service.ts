@@ -62,7 +62,7 @@ export class ConversationalEstimateService {
     }
 
     const estimate = await this.prisma.estimate.findUnique({
-      where: { id: flow.estimateId! },
+      where: { id: flow.estimateId },
       select: { id: true, items: true },
     });
 
@@ -103,7 +103,15 @@ export class ConversationalEstimateService {
       category?: string;
     },
     preloadedData?: {
-      flow: { sessionId: string; estimateId: number | null; region: string | null; duration: number | null; interestMain: string[]; interestSub: string[]; attractions: string[] };
+      flow: {
+        sessionId: string;
+        estimateId: number | null;
+        region: string | null;
+        duration: number | null;
+        interestMain: string[];
+        interestSub: string[];
+        attractions: string[];
+      };
       estimate: { id: number; items: unknown };
     },
   ): Promise<{
@@ -153,7 +161,7 @@ export class ConversationalEstimateService {
     const estimate =
       preloadedData?.estimate ??
       (await this.prisma.estimate.findUnique({
-        where: { id: flow.estimateId! },
+        where: { id: flow.estimateId },
       }));
 
     if (!estimate) {
@@ -180,7 +188,7 @@ export class ConversationalEstimateService {
       default:
         return {
           success: true,
-          updatedItems: (estimate.items as unknown as EstimateItem[]) || [],
+          updatedItems: (estimate.items as EstimateItem[]) || [],
           botMessage: this.getPositiveFeedbackResponse(),
           intent,
         };
@@ -207,7 +215,7 @@ export class ConversationalEstimateService {
     }
 
     const estimate = await this.prisma.estimate.findUnique({
-      where: { id: flow.estimateId! },
+      where: { id: flow.estimateId },
     });
 
     if (!estimate) {
@@ -228,7 +236,10 @@ export class ConversationalEstimateService {
   /**
    * 일정 확정 및 전문가에게 전송
    */
-  async finalizeItinerary(sessionId: string, userId?: string): Promise<{
+  async finalizeItinerary(
+    sessionId: string,
+    userId?: string,
+  ): Promise<{
     success: boolean;
     message: string;
     estimateId: number;
@@ -267,7 +278,7 @@ export class ConversationalEstimateService {
 
     // 견적 상태를 pending으로 변경 (전문가 검토 대기)
     await this.prisma.estimate.update({
-      where: { id: flow.estimateId! },
+      where: { id: flow.estimateId },
       data: { statusAi: 'pending' },
     });
 
@@ -701,7 +712,14 @@ export class ConversationalEstimateService {
   private async addItemToItinerary(
     flow: FlowWithEstimate,
     items: EstimateItem[],
-    dbItem: { id: number; type?: string; nameEng: string; nameKor: string; descriptionEng?: string | null; images?: unknown },
+    dbItem: {
+      id: number;
+      type?: string;
+      nameEng: string;
+      nameKor: string;
+      descriptionEng?: string | null;
+      images?: unknown;
+    },
     intent: ModificationIntent,
     reason: string,
   ): Promise<{
@@ -1113,7 +1131,7 @@ export class ConversationalEstimateService {
     let estimateRecord: { id: number; items: unknown } | null = null;
     if (flow.estimateId) {
       estimateRecord = await this.prisma.estimate.findUnique({
-        where: { id: flow.estimateId! },
+        where: { id: flow.estimateId },
       });
 
       if (estimateRecord?.items) {

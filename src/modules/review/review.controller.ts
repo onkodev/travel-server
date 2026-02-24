@@ -142,7 +142,10 @@ export class ReviewController {
     description: '리뷰 없음',
     type: ErrorResponseDto,
   })
-  async updateReview(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateReviewDto) {
+  async updateReview(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateReviewDto,
+  ) {
     return this.reviewService.updateReview(id, body);
   }
 

@@ -50,15 +50,20 @@ export class FaqChatService {
     // 0. FaqChatConfig 로드
     const chatConfig = await this.aiPromptService.getFaqChatConfig();
 
-    // 1. 의도 분류 + 유사 FAQ 검색 + 투어 검색 (병렬, 대화 컨텍스트 반영)
-    const topFaqCount = chatConfig.topFaqCount ?? 4;
+    // 1. 의도 분류 + 유사 FAQ 검색 + 제안 질문 + 투어 검색 (병렬)
     const tourSearchQuery = this.buildTourSearchQuery(message, history);
-    const [intent, similar, relatedTours] = await Promise.all([
+    const [intent, topFaqs, suggestions, relatedTours] = await Promise.all([
       this.classifyIntent(message),
-      this.faqEmbeddingService.searchSimilar(message, topFaqCount),
+      this.faqEmbeddingService.searchSimilar(message, 1),
+      this.faqEmbeddingService.searchSimilar(
+        message,
+        3,
+        FAQ_SIMILARITY.SUGGESTION_THRESHOLD,
+      ),
       this.searchOdkTours(tourSearchQuery, 5),
     ]);
-    const topSimilarity = similar.length > 0 ? similar[0].similarity : 0;
+    const topFaq = topFaqs[0] ?? null;
+    const topSimilarity = topFaq?.similarity ?? 0;
 
     this.logger.debug(
       `Intent: ${intent}, topSim: ${topSimilarity.toFixed(2)} for: "${message.substring(0, 50)}..."`,
@@ -66,7 +71,12 @@ export class FaqChatService {
 
     // 2. 하이브리드 분기
     let answer: string;
-    let responseTier: 'direct' | 'rag' | 'general' | 'tour_recommend' | 'no_match';
+    let responseTier:
+      | 'direct'
+      | 'rag'
+      | 'general'
+      | 'tour_recommend'
+      | 'no_match';
     let suggestedQuestions: Array<{ id: number; question: string }> | undefined;
     let tourRecommendations:
       | Array<{
@@ -112,32 +122,30 @@ export class FaqChatService {
         responseTier = 'general';
         answer = await this.generateGeneralTravelAnswer(message, history);
       }
-    } else if (intent === 'company' && topSimilarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD) {
-      // 커스텀 지시사항이 있으면 RAG를 거쳐 적용, 없으면 직접 반환
-      if (chatConfig.faqCustomInstructions) {
-        responseTier = 'rag';
-        const ragResult = await this.generateRagAnswer(message, similar, history);
-        answer = ragResult.matched ? ragResult.answer : similar[0].answer;
-      } else {
-        responseTier = 'direct';
-        answer = similar[0].answer;
-      }
+    } else if (
+      intent === 'company' &&
+      topFaq &&
+      topSimilarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD
+    ) {
+      // 단일 FAQ 매칭 → 가이드라인 기반 답변 생성
+      responseTier = 'rag';
+      answer = await this.generateGuidelineAnswer(message, topFaq, history);
     } else if (intent === 'company') {
-      const ragResult = await this.generateRagAnswer(message, similar, history);
-      if (!ragResult.matched) {
-        responseTier = 'no_match';
-        const noMatchBuilt = await this.aiPromptService.buildPrompt(PromptKey.FAQ_NO_MATCH_RESPONSE, {});
-        answer = chatConfig.noMatchResponse || noMatchBuilt.text;
-        const relevantSuggestions = similar.filter((f) => f.similarity >= FAQ_SIMILARITY.SUGGESTION_THRESHOLD);
-        if (relevantSuggestions.length > 0) {
-          suggestedQuestions = relevantSuggestions.slice(0, 3).map((f) => ({
-            id: f.id,
-            question: f.question,
-          }));
-        }
-      } else {
-        responseTier = 'rag';
-        answer = ragResult.answer;
+      // 유사도 낮음 → no_match + 제안 질문
+      responseTier = 'no_match';
+      const noMatchBuilt = await this.aiPromptService.buildPrompt(
+        PromptKey.FAQ_NO_MATCH_RESPONSE,
+        {},
+      );
+      answer = chatConfig.noMatchResponse || noMatchBuilt.text;
+      const relevantSuggestions = suggestions.filter(
+        (f) => f.similarity >= FAQ_SIMILARITY.SUGGESTION_THRESHOLD,
+      );
+      if (relevantSuggestions.length > 0) {
+        suggestedQuestions = relevantSuggestions.slice(0, 3).map((f) => ({
+          id: f.id,
+          question: f.question,
+        }));
       }
     } else {
       responseTier = 'general';
@@ -145,7 +153,10 @@ export class FaqChatService {
     }
 
     // 2.5. 투어 추천 보충 (company 인텐트는 제외, 관련 투어가 있을 때만)
-    if (intent !== 'company' && (!tourRecommendations || tourRecommendations.length === 0)) {
+    if (
+      intent !== 'company' &&
+      (!tourRecommendations || tourRecommendations.length === 0)
+    ) {
       if (relatedTours.length > 0) {
         tourRecommendations = mapTours(relatedTours);
       }
@@ -153,8 +164,8 @@ export class FaqChatService {
 
     // 3. 매칭된 FAQ 정보
     const noMatch = responseTier === 'no_match';
-    const matchedFaqIds = similar.map((f) => f.id);
-    const matchedSimilarities = similar.map((f) => f.similarity);
+    const matchedFaqIds = topFaq ? [topFaq.id] : [];
+    const matchedSimilarities = topFaq ? [topFaq.similarity] : [];
 
     // 4. 로그 저장 (동기 — chatLogId 반환 필요)
     let chatLogId: number | undefined;
@@ -165,7 +176,7 @@ export class FaqChatService {
           answer,
           matchedFaqIds,
           matchedSimilarities,
-          topSimilarity: similar.length > 0 ? similar[0].similarity : null,
+          topSimilarity: topFaq ? topFaq.similarity : null,
           noMatch,
           responseTier,
           visitorId: meta?.visitorId || null,
@@ -187,13 +198,11 @@ export class FaqChatService {
         .catch((err) => this.logger.error('FAQ viewCount 증가 실패:', err));
     }
 
-    const filteredSources = similar.filter((f) => f.similarity >= FAQ_SIMILARITY.SOURCE_FILTER);
-
     return {
       answer,
       sources:
-        filteredSources.length > 0
-          ? filteredSources.map((f) => ({ question: f.question, id: f.id }))
+        topFaq && topFaq.similarity >= FAQ_SIMILARITY.SOURCE_FILTER
+          ? [{ question: topFaq.question, id: topFaq.id }]
           : undefined,
       noMatch,
       responseTier,
@@ -327,6 +336,7 @@ export class FaqChatService {
       maxOutputTokens: built.maxOutputTokens,
       systemPrompt: built.text,
       history: toGeminiHistory(history),
+      disableThinking: true,
     });
   }
 
@@ -334,55 +344,51 @@ export class FaqChatService {
     message: string,
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
   ): Promise<string> {
-    const built = await this.aiPromptService.buildPrompt(PromptKey.FAQ_GENERAL_TRAVEL, {});
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.FAQ_GENERAL_TRAVEL,
+      {},
+    );
 
     return this.geminiCore.callGemini(message, {
       temperature: built.temperature,
       maxOutputTokens: built.maxOutputTokens,
       systemPrompt: built.text,
       history: toGeminiHistory(history),
+      disableThinking: true,
     });
   }
 
-  private async generateRagAnswer(
+  private async generateGuidelineAnswer(
     message: string,
-    relevant: Array<{
-      id: number;
+    faq: {
       question: string;
-      answer: string;
-      similarity: number;
-    }>,
+      guideline?: string | null;
+      reference?: string | null;
+    },
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
-  ): Promise<{ matched: boolean; answer: string }> {
-    const faqContext = relevant
-      .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
-      .join('\n\n');
+  ): Promise<string> {
+    const parts: string[] = [];
+    if (faq.guideline)
+      parts.push(`=== Guideline ===\n${faq.guideline}\n=== End Guideline ===`);
+    if (faq.reference)
+      parts.push(`=== Reference ===\n${faq.reference}\n=== End Reference ===`);
+    const faqGuideline = parts.length > 0 ? `\n${parts.join('\n')}` : '';
 
-    const built = await this.aiPromptService.buildPrompt(PromptKey.FAQ_RAG_ANSWER, { faqContext });
+    const built = await this.aiPromptService.buildPrompt(
+      PromptKey.FAQ_GUIDELINE_ANSWER,
+      {
+        faqQuestion: faq.question,
+        faqGuideline,
+      },
+    );
 
-    const raw = await this.geminiCore.callGemini(message, {
+    return this.geminiCore.callGemini(message, {
       temperature: built.temperature,
       maxOutputTokens: built.maxOutputTokens,
       systemPrompt: built.text,
       history: toGeminiHistory(history),
       disableThinking: true,
     });
-
-    // JSON 파싱 시도 → 실패 시 기존 텍스트 방식 폴백
-    try {
-      const cleaned = raw.replace(/```json?\s*/g, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleaned);
-      if (typeof parsed.matched === 'boolean') {
-        return { matched: parsed.matched, answer: parsed.answer || '' };
-      }
-    } catch {
-      this.logger.warn('RAG JSON 파싱 실패, 텍스트 폴백:', raw.slice(0, 100));
-    }
-
-    if (raw.startsWith('[NO_MATCH]')) {
-      return { matched: false, answer: '' };
-    }
-    return { matched: true, answer: raw };
   }
 
   /**
@@ -404,22 +410,21 @@ export class FaqChatService {
     }
 
     const excludeIds = log.matchedFaqIds;
-    const similar = await this.faqEmbeddingService.searchSimilar(log.message, 10);
+    const similar = await this.faqEmbeddingService.searchSimilar(
+      log.message,
+      10,
+    );
     const remaining = similar.filter((f) => !excludeIds.includes(f.id));
 
     if (remaining.length === 0) {
       throw new NotFoundException('더 이상 유사한 FAQ가 없습니다');
     }
 
-    const topFaqs = remaining.slice(0, 4);
-    const ragResult = await this.generateRagAnswer(log.message, topFaqs);
+    const nextFaq = remaining[0];
+    const answer = await this.generateGuidelineAnswer(log.message, nextFaq);
 
-    const answer = ragResult.matched
-      ? ragResult.answer
-      : topFaqs[0].answer;
-
-    const newMatchedFaqIds = [...excludeIds, ...topFaqs.map((f) => f.id)];
-    const newMatchedSimilarities = topFaqs.map((f) => f.similarity);
+    const newMatchedFaqIds = [...excludeIds, nextFaq.id];
+    const newMatchedSimilarities = [nextFaq.similarity];
 
     let newChatLogId: number;
     try {
@@ -429,7 +434,7 @@ export class FaqChatService {
           answer,
           matchedFaqIds: newMatchedFaqIds,
           matchedSimilarities: newMatchedSimilarities,
-          topSimilarity: topFaqs.length > 0 ? topFaqs[0].similarity : null,
+          topSimilarity: nextFaq.similarity,
           noMatch: false,
           responseTier: 'rag',
         },
@@ -441,14 +446,15 @@ export class FaqChatService {
       throw err;
     }
 
-    const nextRemaining = similar.filter((f) => !newMatchedFaqIds.includes(f.id));
-    const filteredSources = topFaqs.filter((f) => f.similarity >= 0.4);
+    const nextRemaining = similar.filter(
+      (f) => !newMatchedFaqIds.includes(f.id),
+    );
 
     return {
       answer,
       sources:
-        filteredSources.length > 0
-          ? filteredSources.map((f) => ({ question: f.question, id: f.id }))
+        nextFaq.similarity >= 0.4
+          ? [{ question: nextFaq.question, id: nextFaq.id }]
           : undefined,
       chatLogId: newChatLogId,
       hasMore: nextRemaining.length > 0,
@@ -505,5 +511,4 @@ export class FaqChatService {
 
     return { success: true };
   }
-
 }

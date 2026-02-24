@@ -57,10 +57,7 @@ export class ChatbotService {
   }
 
   // 새 플로우 시작
-  async startFlow(
-    dto: StartFlowDto,
-    userId?: string,
-  ) {
+  async startFlow(dto: StartFlowDto, userId?: string) {
     // tourType이 제공되면 Step 1 완료 상태로 생성 (currentStep = 2)
     const hasTourType = !!dto.tourType;
 
@@ -640,11 +637,7 @@ export class ChatbotService {
     }
 
     // 정렬 로직
-    const SORT_WHITELIST = [
-      'createdAt',
-      'customerName',
-      'currentStep',
-    ];
+    const SORT_WHITELIST = ['createdAt', 'customerName', 'currentStep'];
     let orderBy: Record<string, 'asc' | 'desc'> = { createdAt: 'desc' };
     if (sortColumn && SORT_WHITELIST.includes(sortColumn)) {
       const dir = sortDirection === 'asc' ? 'asc' : 'desc';
