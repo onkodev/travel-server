@@ -90,6 +90,8 @@ export class EstimateService {
     amountMax?: number;
     durationMin?: number;
     durationMax?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
   }) {
     const {
       page = 1,
@@ -112,6 +114,8 @@ export class EstimateService {
       amountMax,
       durationMin,
       durationMax,
+      sortBy,
+      sortOrder = 'desc',
     } = params;
     const skip = calculateSkip(page, limit);
 
@@ -224,10 +228,54 @@ export class EstimateService {
       if (durationMax !== undefined) where.travelDays.lte = durationMax;
     }
 
+    // 정렬 로직
+    let orderBy: Prisma.EstimateOrderByWithRelationInput[] = [
+      { isPinned: 'desc' },
+      { createdAt: 'desc' },
+    ];
+
+    if (sortBy) {
+      const dir = sortOrder === 'asc' ? 'asc' : 'desc';
+      let sortConfig: Prisma.EstimateOrderByWithRelationInput | null = null;
+
+      switch (sortBy) {
+        case 'title':
+          sortConfig = { title: dir };
+          break;
+        case 'schedule':
+          sortConfig = { startDate: dir };
+          break;
+        case 'duration':
+          sortConfig = { travelDays: dir };
+          break;
+        case 'pax':
+          sortConfig = { totalTravelers: dir };
+          break;
+        case 'amount':
+          sortConfig = { totalAmount: dir };
+          break;
+        case 'status':
+          if (source === 'ai') sortConfig = { statusAi: dir };
+          else if (source === 'manual') sortConfig = { statusManual: dir };
+          else sortConfig = { source: dir }; // 전체 탭일 경우 임의의 필드 기준
+          break;
+        case 'createdAt':
+          sortConfig = { createdAt: dir };
+          break;
+        case 'updatedAt':
+          sortConfig = { updatedAt: dir };
+          break;
+      }
+
+      if (sortConfig) {
+        orderBy = [{ isPinned: 'desc' }, sortConfig, { id: 'desc' }];
+      }
+    }
+
     const [estimates, total] = await Promise.all([
       this.prisma.estimate.findMany({
         where,
-        orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
+        orderBy,
         skip,
         take: limit,
         // 목록 조회 시 큰 필드 제외 (items, requestContent, revisionHistory)

@@ -178,6 +178,23 @@ export class EstimateListQueryDto extends PaginationQueryDto {
   @IsNumber()
   @Min(1)
   durationMax?: number;
+
+  @ApiPropertyOptional({
+    description: '정렬 필드',
+    example: 'createdAt',
+  })
+  @IsOptional()
+  @IsString()
+  sortBy?: string;
+
+  @ApiPropertyOptional({
+    description: '정렬 순서',
+    example: 'desc',
+    enum: ['asc', 'desc'],
+  })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortOrder?: 'asc' | 'desc';
 }
 
 export class BatchSummariesDto {

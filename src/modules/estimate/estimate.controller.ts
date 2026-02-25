@@ -104,6 +104,8 @@ export class EstimateController {
       amountMax: query.amountMax,
       durationMin: query.durationMin,
       durationMax: query.durationMax,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
     });
   }
 
