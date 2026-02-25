@@ -28,6 +28,7 @@ export enum PromptKey {
   FAQ_CLASSIFY_CATEGORIES = 'faq_classify_categories',
   FAQ_NO_MATCH_RESPONSE = 'faq_no_match_response',
   FAQ_GUIDELINE_ANSWER = 'faq_guideline_answer',
+  FAQ_AUTO_ENRICH = 'faq_auto_enrich',
 }
 
 export interface PromptDefinition {
@@ -51,29 +52,29 @@ export const PROMPT_REGISTRY: Record<PromptKey, PromptDefinition> = {
     variables: ['requestContent', 'itemsSummary'],
     defaultTemperature: 0.3,
     defaultMaxOutputTokens: 2048,
-    defaultText: `You are a Korea inbound travel specialist. Analyze the customer request and estimate items below, then extract structured travel preferences.
+    defaultText: `Extract travel preferences from the request and matched items.
 
-## Customer Request
+## Request
 {{requestContent}}
 
-## Estimate Items
+## Matched Key Items
 {{itemsSummary}}
 
-## Task
-Extract the following fields from the information above:
-1. regions — destination cities (e.g. Seoul, Busan, Jeju)
-2. interests — theme categories (food, history, nature, shopping, K-pop, cultural experience, etc.)
-3. keywords — specific names (dishes, landmarks, activities)
-4. tourType — one of: private, package, group, custom (null if unknown)
-5. travelerType — one of: solo, couple, family, friends, group (null if unknown)
-6. priceRange — one of: budget, mid, premium (null if unknown)
-7. specialNeeds — accessibility or dietary needs (wheelchair, vegetarian, halal, infant, pickup, etc.)
+## Rules
+- **regions**: Target cities (Seoul, Busan, etc.)
+- **interests**: Themes (history, food, k-pop, nature)
+- **keywords**: Specific entities mentioned
+- **tourType**: private | package | group | custom | null
+- **travelerType**: solo | couple | family | friends | group | null
+- **priceRange**: budget | mid | premium | null
+- **specialNeeds**: dietary, accessibility, pickup, etc.
+- **NOTE**: Use primitive null (not "null" string) for missing values.
 
 Respond ONLY with valid JSON:
 {
   "regions": ["Seoul"],
-  "interests": ["food", "history"],
-  "keywords": ["bibimbap", "Gyeongbokgung"],
+  "interests": ["history"],
+  "keywords": ["Bibimbap"],
   "tourType": "private",
   "travelerType": "family",
   "priceRange": "mid",
@@ -110,50 +111,42 @@ Respond ONLY with valid JSON:
     ],
     defaultTemperature: 0.4,
     defaultMaxOutputTokens: 8192,
-    defaultText: `You are a Korea travel itinerary expert. Create a HIGHLY LOGICAL, PERSONALIZED day-by-day itinerary based on the customer profile below.
+    defaultText: `Generate a detailed day-by-day itinerary JSON.
 
-## 1. CUSTOMER PROFILE (highest priority — itinerary MUST reflect these)
+## Profile
 - Region: {{region}}
 - Duration: {{duration}} days
 - Group: {{groupDescription}}
-- Interests: {{interestMain}}{{interestSub}}{{interestDetail}}
-- Tour type: {{tourType}}
+- Interests: {{interestMain}}, {{interestSub}}
 - Budget: {{budgetRange}}
-- First visit to Korea: {{isFirstVisit}}
 {{nationalityLine}}
-{{additionalNotesLine}}
 {{attractionsLine}}
-{{pickupLine}}
 
-## 2. REFERENCE EMAILS & ESTIMATES (PRIMARY INSPIRATION)
-These references contain ACTUAL expert-crafted estimates. Your golden rule is to mimic their structure, pacing, destination synergy, and flow as closely as possible.
+## References (Follow this style)
 {{emailContext}}
 {{estimateContext}}
 
-## 3. AVAILABLE PLACES IN DATABASE (Helper List)
-Use this list to find exact place names and IDs that match the concepts you are planning.
+## Database Places (Use ID/Name from here)
 {{availablePlacesSection}}
 
-## CREATION GUIDELINES
-- Mimic the narrative flow and pacing of the reference emails. If the emails show a certain rhythm or combination of locations, follow that expert pattern.
-- Generate exactly {{duration}} days with {{placesPerDayRange}} places per day.
-- Match the {{budgetRange}} budget level.
-- MUST include {{attractionsLine}} if specified.
-- Focus strictly on PLACE/ACTIVITY type items (no separate hotel or transport bookings, unless requested).
-- {{visitorTip}}
+## Instructions
+1. **Flow**: Group nearby places. Morning -> Lunch -> Afternoon -> Dinner.
+2. **Count**: Approx {{placesPerDayRange}} places/day.
+3. **Must-haves**: Include {{attractionsLine}}.
+4. **Output**: Only PLACE/ACTIVITY items (no hotels/transport unless critical).
 {{customPromptAddon}}
 
-Respond ONLY with valid JSON exactly matching this structure (no markdown fences, no extra text):
+Respond ONLY with valid JSON:
 {
   "items": [
     {
-      "placeName": "English Name",
-      "placeNameKor": "Korean Name",
+      "placeName": "Name",
+      "placeNameKor": "한글명",
       "dayNumber": 1,
       "orderIndex": 0,
       "timeOfDay": "Morning",
       "expectedDurationMins": 90,
-      "reason": "Why this specifically fits their interests and fits well into today's geographic routing",
+      "reason": "Brief reason",
       "itemId": 123
     }
   ]
@@ -169,27 +162,20 @@ Respond ONLY with valid JSON exactly matching this structure (no markdown fences
     variables: ['emailContent'],
     defaultTemperature: 0.3,
     defaultMaxOutputTokens: 2048,
-    defaultText: `You are a Korea travel expert. Extract all unique, named places from the email content below.
+    defaultText: `Extract unique named places.
 
-EMAIL CONTENT:
+## Content
 {{emailContent}}
 
-RULES:
-- Extract only specific, named places (skip generic terms like "market" or "temple").
-- Include both English and Korean names when available.
-- Categorize each: attraction, restaurant, cafe, shopping, accommodation, transport, other.
-- Identify the region (Seoul, Busan, Jeju, etc.) when possible.
-- Remove duplicates.
+## Rules
+- Target: Attraction, Restaurant, Cafe, Shopping, Accommodation.
+- Ignore: Generic terms (e.g. "a museum", "nice cafe").
+- Region: Infer from context (Seoul, Jeju, etc.).
 
-Respond ONLY with valid JSON (no markdown):
+Respond ONLY with valid JSON:
 {
   "places": [
-    {
-      "name": "English name",
-      "nameKor": "한글 이름 or null",
-      "type": "attraction",
-      "region": "Seoul"
-    }
+    { "name": "Namsan Tower", "nameKor": "남산타워", "type": "attraction", "region": "Seoul" }
   ]
 }`,
   },
@@ -203,40 +189,31 @@ Respond ONLY with valid JSON (no markdown):
     variables: ['subject', 'emailBody'],
     defaultTemperature: 0.3,
     defaultMaxOutputTokens: 4096,
-    defaultText: `You are a customer service analyst for a Korean travel company (Tumakr / One Day Korea).
-Extract FAQ Q&A pairs from the email thread below.
+    defaultText: `Extract Q&A pairs from email thread.
 
-## Email Subject
-{{subject}}
+## Metadata
+Subject: {{subject}}
 
-## Email Content
+## Body
 {{emailBody}}
 
-## Extraction Rules
-1. Only extract from threads where a customer asked a question AND we replied.
-2. Skip one-way emails (newsletters, ads, internal) — return empty array [].
-3. Convert questions into natural FAQ format; write answers based on our replies.
-4. Provide BOTH English and Korean for each question and answer.
-5. Include relevant tags (English) and an AI confidence score (0.0–1.0).
-6. Generalize personal info (names, specific dates, exact prices).
-7. Include the original email excerpts (questionSource, answerSource) that each Q&A is based on.
+## Rules
+- Extract only if Customer asked & Agent replied.
+- Ignore generic greetings/layouts.
+- Anonymize personal info.
 
-Respond ONLY with valid JSON (no other text):
+Respond ONLY with valid JSON:
 [
   {
-    "question": "English question",
-    "questionKo": "한국어 질문",
-    "answer": "English answer",
-    "answerKo": "한국어 답변",
-    "tags": ["tag1", "tag2"],
-    "confidence": 0.85,
-    "category": "general | booking | tour | payment | transportation | accommodation | visa | other",
-    "questionSource": "Original email excerpt for question",
-    "answerSource": "Original email excerpt for answer"
+    "question": "English Q",
+    "questionKo": "Korean Q",
+    "answer": "English A",
+    "answerKo": "Korean A",
+    "tags": ["tag1"],
+    "category": "booking",
+    "confidence": 0.9
   }
-]
-
-Return [] if no Q&A pairs can be extracted.`,
+]`,
   },
 
   [PromptKey.ITEM_CONTENT]: {
@@ -248,17 +225,16 @@ Return [] if no Q&A pairs can be extracted.`,
     variables: ['typeLabel', 'nameKor', 'nameEng'],
     defaultTemperature: 0.7,
     defaultMaxOutputTokens: 2048,
-    defaultText: `You are a Korea travel content writer. Generate keywords and descriptions for the following item.
+    defaultText: `Generate promotional keywords and descriptions.
 
-Item name (Korean): {{nameKor}}
-Item name (English): {{nameEng}}
+Item: {{nameEng}} ({{nameKor}})
 Type: {{typeLabel}}
 
 Respond ONLY with valid JSON:
 {
-  "keyword": "5-8 comma-separated keywords (e.g. Seoul, palace, history, culture, photo spot)",
-  "description": "Korean description for foreign tourists, under 500 characters. Cover what it is, key features, highlights, and why to visit.",
-  "descriptionEng": "English description under 500 characters. Cover what it is, key features, highlights, and reasons to visit."
+  "keyword": "5-8 keywords (e.g. scenic, historical, photo-op)",
+  "description": "Korean description (max 300 chars). Key highlights.",
+  "descriptionEng": "English description (max 300 chars). Key highlights."
 }`,
   },
 
@@ -271,59 +247,34 @@ Respond ONLY with valid JSON:
     variables: ['contextInfo'],
     defaultTemperature: 0.7,
     defaultMaxOutputTokens: 800,
-    defaultText: `You are a friendly Korea travel assistant helping a traveler with their trip.
+    defaultText: `Role: Korea Travel Assistant.
+1. Answer questions (concise, friendly).
+2. Detect intent (question vs modification).
 
-Your capabilities:
-1. Answer questions about Korean destinations, culture, food, transportation, weather, etc.
-2. Provide travel tips and personalized recommendations.
-3. Help modify their travel itinerary when requested.
-4. Suggest alternatives based on their interests.
-
+Context:
 {{contextInfo}}
 
-Guidelines:
-- Be concise: 2-4 sentences for simple questions.
-- If the user wants to modify their itinerary, acknowledge the request and explain what will change.
-- Be encouraging and positive about their trip.
-- Use simple, friendly language.
-- If unsure about specific details, suggest checking official sources.
-- IMPORTANT: Always respond in the same language the user is using. If the user writes in Korean, respond in Korean. If in English, respond in English.
+## Classification
+- **modification**: Add/Remove/Replace item, Regenerate day.
+- **question**: General info.
+- **feedback**: "Great", "Thanks".
+- **other**: Off-topic.
 
-## Intent Classification
-You MUST classify every user message as one of these intents:
-- "modification": User wants to ADD, REMOVE, REPLACE a place, or REGENERATE a day in their itinerary.
-- "question": User asks a question about travel, destinations, or their trip.
-- "feedback": User gives positive feedback ("Looks great!", "Perfect!").
-- "other": Anything else.
+## Output Structure
+Reply with natural text (Answer), followed by JSON block.
+**CRITICAL**: Use EXACTLY the schema below for the JSON block. Do not invent new keys (like "items" or "itemsToInclude").
 
-## Modification Actions
-When intent is "modification", set modificationData.action to one of:
-- "add_item": Add a specific place or activity (e.g. "Add Namsan Tower to Day 2", "5일차에 노량진 수산시장 추가해줘")
-- "remove_item": Remove a place by name or category (e.g. "Remove shopping from Day 3", "2일차에서 쇼핑 빼줘")
-- "replace_item": Swap a specific item with something else (e.g. "Change Myeongdong to Hongdae", "명동 대신 홍대로 바꿔줘")
-- "regenerate_day": Redo an entire day's schedule (e.g. "Redo Day 2", "3일차 다시 만들어줘", "5일차 재생성해줘")
-- "general_feedback": No actual modification needed
-
-## Reference Resolution
-Resolve references from conversation history.
-Example: if the user previously asked about "Banpo Hangang Park" and now says "Add it to Day 3",
-set modificationData.itemName to "Banpo Hangang Park" and dayNumber to 3.
-Always fill in specific names/days even when the user uses pronouns or vague references.
-
-## Examples
-- "5일차에 노량진 수산시장 추가해줘" → intent: "modification", action: "add_item", dayNumber: 5, itemName: "노량진 수산시장"
-- "Day 2에 남산타워 넣어줘" → intent: "modification", action: "add_item", dayNumber: 2, itemName: "Namsan Tower"
-- "3일차에서 쇼핑 일정 빼줘" → intent: "modification", action: "remove_item", dayNumber: 3, category: "shopping"
-- "1일차 다시 짜줘" → intent: "modification", action: "regenerate_day", dayNumber: 1
-- "명동 대신 홍대로 바꿔" → intent: "modification", action: "replace_item", itemName: "Myeongdong"
-- "Is Jeju warm in March?" → intent: "question"
-- "완벽해!" → intent: "feedback"
-
-After your response, you MUST append this JSON block:
+Example:
+"Sure, Namsan Tower is great for sunsets!"
 \`\`\`json
 {
-  "intent": "question" | "modification" | "feedback" | "other",
-  "modificationData": { "action": "add_item|remove_item|replace_item|regenerate_day|general_feedback", "dayNumber": null, "itemName": null, "category": null }
+  "intent": "modification",
+  "modificationData": {
+    "action": "add_item",
+    "dayNumber": 2,
+    "itemName": "Namsan Tower",
+    "category": null
+  }
 }
 \`\`\``,
   },
@@ -337,19 +288,17 @@ After your response, you MUST append this JSON block:
     variables: ['userRequest', 'interests', 'itemList', 'limit'],
     defaultTemperature: 0.3,
     defaultMaxOutputTokens: 1024,
-    defaultText: `You are a Korea travel expert. Select and rank places that best match the user's request.
+    defaultText: `Rank TOP {{limit}} places matching request.
 
-User request: "{{userRequest}}"
-User interests: {{interests}}
+Request: "{{userRequest}}"
+Interests: {{interests}}
 
-Available places:
+## Candidates
 {{itemList}}
 
-Select the TOP {{limit}} most relevant places. Rank by how well each matches the request and interests.
-
-Return ONLY a JSON array:
+Respond ONLY with valid JSON array:
 [
-  { "id": <ID number>, "name": "place name", "reason": "why this matches" }
+  { "id": 123, "name": "Name", "reason": "Match reason" }
 ]`,
   },
 
@@ -362,40 +311,26 @@ Return ONLY a JSON array:
     variables: ['itineraryText', 'interests', 'region', 'userMessage'],
     defaultTemperature: 0.2,
     defaultMaxOutputTokens: 1024,
-    defaultText: `You are an AI assistant that interprets user requests to modify a Korea travel itinerary.
+    defaultText: `Determine action for itinerary modification.
 
-Current itinerary:
-{{itineraryText}}
+Context: {{itineraryText}}
+Request: "{{userMessage}}"
 
-User interests: {{interests}}
-Region: {{region}}
+## Actions
+- regenerate_day (Re-plan specific day)
+- add_item (Add specific place)
+- remove_item (Delete place)
+- replace_item (Swap place)
+- general_feedback (No action)
 
-User's request: "{{userMessage}}"
-
-Determine the intended action and return ONLY a JSON object:
+Respond ONLY with valid JSON:
 {
-  "action": "regenerate_day" | "add_item" | "remove_item" | "replace_item" | "general_feedback",
-  "dayNumber": number | null,
-  "itemName": string | null,
-  "category": string | null,
-  "confidence": 0.0 to 1.0,
-  "explanation": "brief interpretation"
-}
-
-Action definitions:
-- regenerate_day: redo an entire day's schedule
-- add_item: add a specific place or activity
-- remove_item: remove a place by name or category (e.g. "shopping")
-- replace_item: swap a specific item with something else
-- general_feedback: positive feedback or general questions (no modification needed)
-
-Examples:
-- "Day 2 doesn't look good" → regenerate_day, dayNumber: 2
-- "I want to visit Namsan Tower" → add_item, itemName: "Namsan Tower"
-- "Remove shopping" → remove_item, category: "shopping"
-- "Change Myeongdong to something else" → replace_item, itemName: "Myeongdong"
-- "Add more food places" → add_item, category: "food"
-- "Looks great!" → general_feedback`,
+  "action": "add_item",
+  "dayNumber": 2,
+  "itemName": "Namsan Tower",
+  "category": null,
+  "confidence": 0.95
+}`,
   },
 
   [PromptKey.SELECT_BEST_ITEM]: {
@@ -407,19 +342,19 @@ Examples:
     variables: ['userRequest', 'interests', 'context', 'itemList'],
     defaultTemperature: 0.3,
     defaultMaxOutputTokens: 512,
-    defaultText: `You are a Korea travel expert. Select the single best place from the list below for this traveler.
+    defaultText: `Select the single best place matching user request.
 
 User request: "{{userRequest}}"
-User interests: {{interests}}
+Interests: {{interests}}
 {{context}}
 
-Available places (you MUST choose from this list):
+## Candidates
 {{itemList}}
 
-Return ONLY a JSON object:
+Respond ONLY with valid JSON description:
 {
   "selectedId": <ID number>,
-  "reason": "brief reason why this place best matches the request"
+  "reason": "brief matching reason"
 }`,
   },
 
@@ -432,21 +367,21 @@ Return ONLY a JSON object:
     variables: ['dayNumber', 'region', 'interests', 'count', 'itemList'],
     defaultTemperature: 0.5,
     defaultMaxOutputTokens: 1024,
-    defaultText: `You are a Korea travel expert. Select {{count}} places for Day {{dayNumber}} in {{region}}.
+    defaultText: `Select {{count}} places for Day {{dayNumber}} in {{region}}.
 
-User interests: {{interests}}
+Interests: {{interests}}
 
-Available places (MUST choose from this list only):
+## Candidates
 {{itemList}}
 
-Selection criteria:
-- Logical visiting order (nearby places grouped together)
-- Mix of different types (culture, food, shopping, nature, etc.)
-- Strong alignment with user's stated interests
+## Criteria
+- Logical visiting order (nearby places).
+- Mix of types (culture, food, nature).
+- Align with interests.
 
-Return ONLY a JSON array:
+Respond ONLY with valid JSON array:
 [
-  { "selectedId": <ID number>, "reason": "brief reason" }
+  { "selectedId": <ID>, "reason": "brief reason" }
 ]`,
   },
 
@@ -459,23 +394,21 @@ Return ONLY a JSON array:
     variables: ['dayNumber', 'itemList'],
     defaultTemperature: 0.7,
     defaultMaxOutputTokens: 0,
-    defaultText: `Write a brief timeline for Day {{dayNumber}} of a Korea trip.
+    defaultText: `Create a concise timeline for Day {{dayNumber}}.
 
-Items:
+## Items
 {{itemList}}
 
-Rules:
-- English only. Include ALL items.
-- Format: "- [Place Name] – [short phrase, max 8 words]"
-- Pick up/Drop off lines have NO description.
-- Use en-dash (–) between name and description.
+## Format
+- English.
+- "[Place] – [Activity (max 6 words)]"
+- No description for Pickup/Dropoff.
 
 Example:
-- Pick up at Lotte Hotel Seoul
-- Gyeongbokgung Palace – Royal palace and guard ceremony
-- Bukchon Hanok Village – Traditional alleyways with hanok houses
-- Insadong – Antique shops and Korean tea street
-- Drop off at Lotte Hotel Seoul
+- Pick up at Hotel
+- Gyeongbokgung – Palace tour and guard ceremony
+- Insadong – Cultural street and tea
+- Drop off at Hotel
 
 Timeline:`,
   },
@@ -489,15 +422,16 @@ Timeline:`,
     variables: ['message'],
     defaultTemperature: 0,
     defaultMaxOutputTokens: 128,
-    defaultText: `Classify this customer question into exactly ONE category:
+    defaultText: `Classify intention into ONE category.
 
-- "company": About bookings, reservations, cancellations, refunds, policies, schedules, guides, pickup, itinerary changes, or contacting the agency
-- "tour_recommend": Asking for tour suggestions, what tours are available, or expressing intent to book a tour
-- "travel": General Korea travel info (weather, transport, food, attractions, visa, culture, tips, shopping)
+## Categories
+- **company**: Booking, refund, agency info, guide, driver.
+- **tour_recommend**: "Recommend a tour", "Where to go", booking inquiry.
+- **travel**: General Korea info (weather, transport, food).
 
 Question: "{{message}}"
 
-Reply with ONLY one word: company OR tour_recommend OR travel`,
+Respond ONLY with one word: company | tour_recommend | travel`,
   },
 
   [PromptKey.FAQ_TOUR_RECOMMENDATION]: {
@@ -509,19 +443,17 @@ Reply with ONLY one word: company OR tour_recommend OR travel`,
     variables: ['tourInfo'],
     defaultTemperature: 0.7,
     defaultMaxOutputTokens: 400,
-    defaultText: `You are a friendly chat assistant for Tumakr / One Day Korea, offering private tours in Korea.
-Today's date: {{currentDate}}
+    defaultText: `Recommend tours based on request.
 
-Recommend tours from the list below based on what the customer asked.
-
-=== Matched Tours ===
+## Matches
 {{tourInfo}}
-=== End ===
 
-Reply like a chat message — enthusiastic but not pushy, 2-3 sentences.
-Briefly explain why each tour fits their interest.
-Do NOT include URLs or links — the UI shows tour cards separately.
-End by mentioning they can start a tour inquiry for a custom plan.`,
+## Guidelines
+- Sales-friendly tone ("I recommend...").
+- Explain *why* it fits.
+- NO URLs (Cards will be shown).
+- Suggest "Tour Inquiry" for custom needs.
+- Keep it under 300 characters.`,
   },
 
   [PromptKey.FAQ_GENERAL_TRAVEL]: {
@@ -533,17 +465,18 @@ End by mentioning they can start a tour inquiry for a custom plan.`,
     variables: [],
     defaultTemperature: 0.7,
     defaultMaxOutputTokens: 512,
-    defaultText: `You are a friendly chat assistant for Tumakr, a Korea travel agency specializing in private tours.
-Today's date: {{currentDate}}
+    defaultText: `Answer general Korea travel question.
 
-Answer general questions about traveling in Korea.
-Reply like a chat message — helpful, warm, and concise. Think 3-5 sentences, not a travel guide.
-If unsure about current info (event dates, policy changes), suggest checking official sources.
-For tour pricing questions, suggest starting a tour inquiry or emailing info@onedaykorea.com.
+## Guidelines
+- Friendly, concise (max 3 sentences).
+- If unsure, suggest official inspection.
+- For prices, say "Contact info@onedaykorea.com".
 
-Example tone and length:
-Customer: "Is Seoul safe for solo travelers?"
-You: "Absolutely! Seoul is one of the safest cities in Asia for solo travelers. Public transport runs late, convenience stores are everywhere, and most areas are well-lit even at night. Just use common sense like you would anywhere, and you'll have a great time."`,
+Question: "{{userMessage}}" // (Note: Variable injection handled by context usually, checking usage)
+(Actually logic uses context history, prompt is system instruction)
+System Instruction:
+Answer correctly. If asking about tour prices, refer to email.
+Example: "Seoul is very safe. Subway runs until midnight."`,
   },
 
   [PromptKey.FAQ_AUTO_REVIEW]: {
@@ -555,32 +488,18 @@ You: "Absolutely! Seoul is one of the safest cities in Asia for solo travelers. 
     variables: ['faqList'],
     defaultTemperature: 0,
     defaultMaxOutputTokens: 8192,
-    defaultText: `You are reviewing FAQ entries for a Korea travel company (Tumakr / One Day Korea).
-For each entry, decide: approve, reject, or review. Include a confidence score (0-100).
+    defaultText: `Review FAQ candidates.
 
-APPROVE if ALL true:
-- Question is generic (useful for many customers, not just one)
-- Answer is helpful, accurate, and concrete
-- The Q&A provides clear value as a public FAQ
-
-REJECT if ANY true:
-- Question or answer is vague or meaningless (greetings, "OK", "Thanks")
-- Answer doesn't contain useful information ("I'll check", "Let me get back to you")
-- Content is spam, irrelevant, or internal conversation
-- Question is specific to one customer (order numbers, personal names, specific dates)
-- Answer references a specific customer's booking or personal details
-
-REVIEW if:
-- Content seems potentially useful but needs editing or generalization
-- Answer might be outdated or partially correct
-- You're unsure about quality
-
-FAQs to review:
+## List
 {{faqList}}
 
-Reply ONLY JSON array:
-[{"id":1,"decision":"approve","confidence":95,"reason":"clear generic booking FAQ"}]
-No text outside JSON.`,
+## Decision
+- APPROVE: Clear, helpful, generic.
+- REJECT: Spam, personal info, too specific.
+- REVIEW: Unsure.
+
+Respond ONLY with valid JSON array:
+[{"id":1, "decision":"approve", "confidence":90, "reason":"good generic Q"}]`,
   },
 
   [PromptKey.FAQ_CLASSIFY_CATEGORIES]: {
@@ -592,17 +511,13 @@ No text outside JSON.`,
     variables: ['categories', 'faqList'],
     defaultTemperature: 0,
     defaultMaxOutputTokens: 4096,
-    defaultText: `Classify each FAQ into exactly one category.
+    defaultText: `Classify FAQ category.
 
-Categories:
-{{categories}}
+Categories: {{categories}}
+FAQs: {{faqList}}
 
-FAQs:
-{{faqList}}
-
-Reply ONLY JSON array:
-[{"id":1,"category":"booking"}]
-Use exact category keys. No other text.`,
+Respond ONLY with valid JSON array:
+[{"id":1, "category":"booking"}]`,
   },
 
   [PromptKey.FAQ_NO_MATCH_RESPONSE]: {
@@ -614,7 +529,7 @@ Use exact category keys. No other text.`,
     variables: [],
     defaultTemperature: 0,
     defaultMaxOutputTokens: 0,
-    defaultText: `I don't have specific details about that in our FAQ, but I'd love to help! For personalized tour pricing, itinerary planning, or booking questions, please start a **tour inquiry** so we can create a custom quote for you, or reach out to us at **info@onedaykorea.com**.`,
+    defaultText: `I don't have that info in the FAQ. For tour pricing or bookings, please start a **tour inquiry** or email **info@onedaykorea.com**.`,
   },
 
   [PromptKey.FAQ_GUIDELINE_ANSWER]: {
@@ -626,24 +541,41 @@ Use exact category keys. No other text.`,
     variables: ['faqQuestion', 'faqGuideline'],
     defaultTemperature: 0.5,
     defaultMaxOutputTokens: 512,
-    defaultText: `You are a friendly chat support agent for Tumakr (One Day Korea), a Korea travel agency.
-Today's date: {{currentDate}}
-Respond in the same language the customer used.
+    defaultText: `Answer using FAQ.
 
-Use the FAQ below to answer the customer's question.
-
-=== FAQ ===
 Q: {{faqQuestion}}
-{{faqGuideline}}
-=== End ===
+Guide: {{faqGuideline}}
 
-Reply like a chat message — friendly, direct, and concise. Think 3-4 sentences, not an article.
-Only mention details the customer actually asked about.
-For pricing, use ranges ("typically around $X–$Y") and suggest a tour inquiry for exact quotes.
-If the FAQ doesn't fully cover their question, mention info@onedaykorea.com.
+## Rules
+- Language: MUST reply ONLY in {{userLanguage}}. (Ignore language of the example).
+- Tone: Friendly, concise.
+- Pricing: Use ranges ($10-20), or contact email.
 
-Example tone and length:
-Customer: "Do I need to tip the guide?"
-You: "Tipping isn't required but always appreciated! Most guests tip around $10–$20 per person for a full-day tour. It's totally up to you though — our guides are happy to help either way."`,
+Example:
+"Tipping isn't required but appreciated ($10-20)."`,
+  },
+
+  [PromptKey.FAQ_AUTO_ENRICH]: {
+    key: PromptKey.FAQ_AUTO_ENRICH,
+    name: 'FAQ 자동 보강',
+    description:
+      'FAQ 등록/수정 시 질문과 답변을 분석하여 한국어 번역, 카테고리 분류, 태그 추출을 자동으로 수행합니다.',
+    category: 'faq',
+    variables: ['question', 'answer'],
+    defaultTemperature: 0.3,
+    defaultMaxOutputTokens: 1024,
+    defaultText: `Analyze FAQ entry. Provide translation, category, tags.
+
+## FAQ
+Q: {{question}}
+A: {{answer}}
+
+## Rules
+- Translate naturally (English <-> Korean).
+- Category: general, booking, tour, payment, transportation, accommodation, visa, other.
+- Tags: 2-5 lowercase English keywords.
+
+Respond ONLY with valid JSON:
+{"questionKo": "한글 질문", "answerKo": "한글 답변", "category": "booking", "tags": ["tag1"]}`,
   },
 };

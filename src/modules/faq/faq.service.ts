@@ -12,6 +12,8 @@ import { FAQ_BATCH } from './faq.constants';
 import { FaqEmbeddingService } from './faq-embedding.service';
 import { GeminiCoreService } from '../ai/core/gemini-core.service';
 import { FaqCategorizeService } from './faq-categorize.service';
+import { AiPromptService } from '../ai-prompt/ai-prompt.service';
+import { PromptKey } from '../ai-prompt/prompt-registry';
 
 @Injectable()
 export class FaqService {
@@ -22,6 +24,7 @@ export class FaqService {
     private prisma: PrismaService,
     private faqEmbeddingService: FaqEmbeddingService,
     private geminiCore: GeminiCoreService,
+    private aiPromptService: AiPromptService,
   ) {}
 
   // ============================================================================
@@ -105,31 +108,14 @@ export class FaqService {
     tags: string[];
   } | null> {
     try {
-      const prompt = `You are a bilingual (English/Korean) FAQ specialist for a Korea travel company.
+      const built = await this.aiPromptService.buildPrompt(
+        PromptKey.FAQ_AUTO_ENRICH,
+        { question, answer },
+      );
 
-Given this FAQ entry, provide:
-1. Korean translation of the question and answer
-2. Category classification
-3. Relevant tags (English, 2-5 tags)
-
-## FAQ
-Question: ${question}
-Answer: ${answer}
-
-## Valid Categories
-general, booking, tour, payment, transportation, accommodation, visa, other
-
-## Rules
-- Translate naturally, not literally
-- Tags should be lowercase, relevant keywords
-- Pick exactly ONE category
-
-Respond ONLY with valid JSON (no markdown):
-{"questionKo": "한국어 질문", "answerKo": "한국어 답변", "category": "booking", "tags": ["tag1", "tag2"]}`;
-
-      const result = await this.geminiCore.callGemini(prompt, {
-        temperature: 0.3,
-        maxOutputTokens: 1024,
+      const result = await this.geminiCore.callGemini(built.text, {
+        temperature: built.temperature,
+        maxOutputTokens: built.maxOutputTokens,
         disableThinking: true,
       });
 

@@ -11,6 +11,9 @@ async function bootstrap() {
     logger: ['error', 'warn', 'log'], // 에러, 경고, 로그 출력
   });
 
+  // ETag 비활성화 (정렬 등 query param 변경 시 304 캐시 방지)
+  app.getHttpAdapter().getInstance().set('etag', false);
+
   // 보안 헤더 (XSS, Clickjacking 등 방어)
   app.use(helmet());
 

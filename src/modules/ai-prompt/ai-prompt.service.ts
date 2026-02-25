@@ -29,6 +29,38 @@ export class AiPromptService implements OnModuleInit {
 
   async onModuleInit() {
     await this.seedMissingPrompts();
+    await this.migrateNullPrompts();
+  }
+
+  /**
+   * DB-First Migration: 기존에 null(기본값 사용)로 설정된 프롬프트를 실제 텍스트로 채움
+   */
+  private async migrateNullPrompts() {
+    const nullPrompts = await this.prisma.aiPromptTemplate.findMany({
+      where: { promptText: null },
+    });
+
+    if (nullPrompts.length === 0) return;
+
+    this.logger.log(
+      `DB-First 마이그레이션 시작: ${nullPrompts.length}개 프롬프트 업데이트`,
+    );
+
+    for (const row of nullPrompts) {
+      const def = PROMPT_REGISTRY[row.key as PromptKey];
+      if (!def) continue;
+
+      await this.prisma.aiPromptTemplate.update({
+        where: { id: row.id },
+        data: {
+          promptText: def.defaultText,
+          temperature: row.temperature ?? def.defaultTemperature,
+          maxOutputTokens: row.maxOutputTokens ?? def.defaultMaxOutputTokens,
+        },
+      });
+    }
+
+    this.logger.log('DB-First 마이그레이션 완료');
   }
 
   /**
@@ -52,9 +84,9 @@ export class AiPromptService implements OnModuleInit {
         name: def.name,
         description: def.description,
         category: def.category,
-        promptText: null, // null = 코드 기본값 사용
-        temperature: null,
-        maxOutputTokens: null,
+        promptText: def.defaultText, // DB-First: 기본값 저장
+        temperature: def.defaultTemperature,
+        maxOutputTokens: def.defaultMaxOutputTokens,
       })),
       skipDuplicates: true,
     });
@@ -234,9 +266,9 @@ export class AiPromptService implements OnModuleInit {
     const updated = await this.prisma.aiPromptTemplate.update({
       where: { key },
       data: {
-        promptText: null,
-        temperature: null,
-        maxOutputTokens: null,
+        promptText: def.defaultText, // DB-First: 기본값으로 덮어쓰기
+        temperature: def.defaultTemperature,
+        maxOutputTokens: def.defaultMaxOutputTokens,
       },
     });
 
