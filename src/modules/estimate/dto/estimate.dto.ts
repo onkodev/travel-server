@@ -57,16 +57,10 @@ export class EstimateItemDto {
   id: number;
 
   @ApiProperty({
-    description: '아이템 타입',
+    description: '아이템 카테고리',
     enum: ['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'],
   })
-  type: string;
-
-  @ApiPropertyOptional({
-    description: '아이템 카테고리 (type과 동일, 마이그레이션 용도)',
-    enum: ['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'],
-  })
-  category?: string;
+  category: string;
 
   @ApiProperty({ description: '아이템 이름' })
   name: string;

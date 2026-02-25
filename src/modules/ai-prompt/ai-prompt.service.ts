@@ -19,25 +19,6 @@ export interface BuiltPrompt {
   maxOutputTokens: number;
 }
 
-// FAQ 프리셋 → 실제 값 매핑
-const FAQ_STYLE_MAP: Record<string, number> = {
-  precise: 0.2,
-  balanced: 0.5,
-  conversational: 0.8,
-};
-
-const FAQ_LENGTH_MAP: Record<string, number> = {
-  concise: 300,
-  standard: 600,
-  detailed: 1200,
-};
-
-const FAQ_ANSWER_PROMPT_KEYS = new Set([
-  PromptKey.FAQ_RAG_ANSWER,
-  PromptKey.FAQ_GENERAL_TRAVEL,
-  PromptKey.FAQ_TOUR_RECOMMENDATION,
-  PromptKey.FAQ_GUIDELINE_ANSWER,
-]);
 
 @Injectable()
 export class AiPromptService implements OnModuleInit {
@@ -141,56 +122,11 @@ export class AiPromptService implements OnModuleInit {
       ...variables,
     };
 
-    let temperature = tpl.temperature;
-    let maxOutputTokens = tpl.maxOutputTokens;
-
-    // FAQ 답변 프롬프트에 프리셋 오버라이드 적용
-    if (FAQ_ANSWER_PROMPT_KEYS.has(key)) {
-      const config = await this.getFaqConfigCached();
-      temperature = FAQ_STYLE_MAP[config.faqAnswerStyle] ?? temperature;
-      maxOutputTokens =
-        FAQ_LENGTH_MAP[config.faqAnswerLength] ?? maxOutputTokens;
-      if (config.faqCustomInstructions) {
-        vars.faqCustomInstructions = config.faqCustomInstructions;
-      }
-    }
-
     return {
       text: resolveTemplate(tpl.text, vars),
-      temperature,
-      maxOutputTokens,
+      temperature: tpl.temperature,
+      maxOutputTokens: tpl.maxOutputTokens,
     };
-  }
-
-  /**
-   * FAQ config 캐시 (10분)
-   */
-  private async getFaqConfigCached() {
-    const cacheKey = 'faq-config';
-    const cached = this.cache.get<{
-      faqAnswerStyle: string;
-      faqAnswerLength: string;
-      faqCustomInstructions: string | null;
-    }>(cacheKey);
-    if (cached) return cached;
-
-    const config = await this.prisma.aiGenerationConfig.findFirst({
-      where: { id: 1 },
-      select: {
-        faqAnswerStyle: true,
-        faqAnswerLength: true,
-        faqCustomInstructions: true,
-      },
-    });
-
-    const result = {
-      faqAnswerStyle: config?.faqAnswerStyle ?? 'balanced',
-      faqAnswerLength: config?.faqAnswerLength ?? 'standard',
-      faqCustomInstructions: config?.faqCustomInstructions ?? null,
-    };
-
-    this.cache.set(cacheKey, result);
-    return result;
   }
 
   /**
@@ -313,29 +249,21 @@ export class AiPromptService implements OnModuleInit {
   // ============================================================================
 
   async getFaqChatConfig() {
+    const defaultText =
+      PROMPT_REGISTRY[PromptKey.FAQ_NO_MATCH_RESPONSE].defaultText;
     const config = await this.prisma.aiGenerationConfig.findFirst({
       where: { id: 1 },
       select: {
         id: true,
-        topFaqCount: true,
         noMatchResponse: true,
-        faqAnswerStyle: true,
-        faqAnswerLength: true,
-        faqCustomInstructions: true,
         updatedAt: true,
       },
     });
-    return (
-      config ?? {
-        id: 1,
-        topFaqCount: 4,
-        noMatchResponse: null,
-        faqAnswerStyle: 'balanced',
-        faqAnswerLength: 'standard',
-        faqCustomInstructions: null,
-        updatedAt: new Date(),
-      }
-    );
+    return {
+      id: config?.id ?? 1,
+      noMatchResponse: config?.noMatchResponse ?? defaultText,
+      updatedAt: config?.updatedAt ?? new Date(),
+    };
   }
 
   // ============================================================================
@@ -423,33 +351,16 @@ export class AiPromptService implements OnModuleInit {
     };
   }
 
-  async updateFaqChatConfig(data: {
-    noMatchResponse?: string | null;
-    faqAnswerStyle?: string;
-    faqAnswerLength?: string;
-    faqCustomInstructions?: string | null;
-  }) {
+  async updateFaqChatConfig(data: { noMatchResponse?: string | null }) {
     const updated = await this.prisma.aiGenerationConfig.upsert({
       where: { id: 1 },
-      create: {
-        id: 1,
-        noMatchResponse: data.noMatchResponse ?? null,
-        faqAnswerStyle: data.faqAnswerStyle ?? 'balanced',
-        faqAnswerLength: data.faqAnswerLength ?? 'standard',
-        faqCustomInstructions: data.faqCustomInstructions ?? null,
-      },
-      update: data,
+      create: { id: 1, noMatchResponse: data.noMatchResponse ?? null },
+      update: { noMatchResponse: data.noMatchResponse },
     });
-
-    // FAQ config 캐시 무효화
-    this.cache.delete('faq-config');
 
     return {
       id: updated.id,
       noMatchResponse: updated.noMatchResponse,
-      faqAnswerStyle: updated.faqAnswerStyle,
-      faqAnswerLength: updated.faqAnswerLength,
-      faqCustomInstructions: updated.faqCustomInstructions,
       updatedAt: updated.updatedAt,
     };
   }

@@ -46,7 +46,7 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
   '28': 'contents', // 레포츠
   '32': 'accommodation', // 숙박
   '38': 'place', // 쇼핑
-  '39': 'contents', // 음식점
+  '39': 'restaurant', // 음식점
 };
 
 @Injectable()
@@ -148,7 +148,14 @@ export class TourApiService {
     korItem: TourAPIRawItem,
     engItems: TourAPIRawItem[],
   ): TourAPIRawItem | null {
-    // 정확한 지역 + 카테고리 매칭
+    // 1순위: contentid 정확 매칭
+    for (const item of engItems) {
+      if (korItem.contentid === item.contentid) {
+        return item;
+      }
+    }
+
+    // 2순위: 정확한 지역 + 카테고리 매칭
     for (const item of engItems) {
       if (
         korItem.areacode === item.areacode &&
@@ -161,17 +168,18 @@ export class TourApiService {
       }
     }
 
-    // 지역 매칭
+    // 3순위: 지역 매칭만 (같은 contenttypeid)
     for (const item of engItems) {
       if (
         korItem.areacode === item.areacode &&
-        korItem.sigungucode === item.sigungucode
+        korItem.sigungucode === item.sigungucode &&
+        korItem.contenttypeid === item.contenttypeid
       ) {
         return item;
       }
     }
 
-    return engItems[0] || null;
+    return null;
   }
 
   // 한국 관광 API 검색 (기본)
@@ -325,6 +333,7 @@ export class TourApiService {
         nameKor: itemData.title,
         nameEng: itemData.titleEng || itemData.title,
         type: itemData.type,
+        category: itemData.type, // type → category 동기화
         address: itemData.address,
         addressEnglish: itemData.addressEng,
         lat: itemData.lat,

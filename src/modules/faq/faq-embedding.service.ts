@@ -102,6 +102,42 @@ export class FaqEmbeddingService {
     return { total, success, failed };
   }
 
+  /**
+   * 승인된 FAQ 중 임베딩이 없는 항목만 찾아 임베딩 생성
+   * (동기화 완료 후 자동 호출용)
+   */
+  async syncMissingEmbeddings(): Promise<{
+    total: number;
+    success: number;
+    failed: number;
+  }> {
+    const unembedded = await this.prisma.$queryRawUnsafe<
+      Array<{ id: number; question: string; question_ko: string | null }>
+    >(
+      `SELECT id, question, question_ko FROM faqs
+       WHERE status = 'approved' AND embedding IS NULL
+       ORDER BY id ASC`,
+    );
+
+    if (unembedded.length === 0) {
+      return { total: 0, success: 0, failed: 0 };
+    }
+
+    const faqs = unembedded.map((f) => ({
+      id: f.id,
+      question: f.question,
+      questionKo: f.question_ko,
+    }));
+
+    const { success, failed } = await this.processEmbeddingBatch(faqs);
+
+    this.logger.log(
+      `미임베딩 FAQ 동기화: ${faqs.length}건 중 성공 ${success}, 실패 ${failed}`,
+    );
+
+    return { total: faqs.length, success, failed };
+  }
+
   /** 임베딩 배치 처리 (동시 처리) */
   async processEmbeddingBatch(
     faqs: Array<{

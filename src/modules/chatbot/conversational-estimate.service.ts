@@ -74,7 +74,7 @@ export class ConversationalEstimateService {
     const currentItinerary = items.map((item) => ({
       dayNumber: item.dayNumber,
       name: item.itemName || item.name || item.nameEng || 'Unknown',
-      type: item.type,
+      category: item.category,
     }));
 
     const interests = [
@@ -411,7 +411,6 @@ export class ConversationalEstimateService {
 
         return {
           id: `ai-day${dayNumber}-${idx + 1}`,
-          type: dbItem.type || 'place',
           category: dbItem.type || 'place',
           itemId: dbItem.id,
           itemName: dbItem.nameEng,
@@ -737,7 +736,6 @@ export class ConversationalEstimateService {
 
     const newItem: EstimateItem = {
       id: `ai-added-${Date.now()}`,
-      type: dbItem.type || 'place',
       category: dbItem.type || 'place',
       itemId: dbItem.id,
       itemName: dbItem.nameEng,
@@ -793,7 +791,6 @@ export class ConversationalEstimateService {
 
     const newItem: EstimateItem = {
       id: `tbd-${Date.now()}`,
-      type: 'place',
       category: 'place',
       itemId: undefined, // DB 아이템 없음
       itemName: placeName,
@@ -873,7 +870,7 @@ export class ConversationalEstimateService {
       // 카테고리로 제거 (type 기반)
       const categoryLower = intent.category.toLowerCase();
       updatedItems = items.filter((i) => {
-        const type = (i.type || '').toLowerCase();
+        const type = (i.category || '').toLowerCase();
         const names = [
           i.itemName,
           i.name,
@@ -1031,7 +1028,7 @@ export class ConversationalEstimateService {
     updatedItems[itemIndex] = {
       ...itemToReplace,
       id: `ai-replaced-${Date.now()}`,
-      category: itemToReplace.type || 'place',
+      category: itemToReplace.category || 'place',
       itemId: selectedDbItem.id,
       itemName: selectedDbItem.nameEng,
       name: selectedDbItem.nameEng,
@@ -1107,7 +1104,7 @@ export class ConversationalEstimateService {
       currentItinerary?: Array<{
         dayNumber: number;
         name: string;
-        type: string;
+        category: string;
       }>;
     } = {};
 
@@ -1143,7 +1140,7 @@ export class ConversationalEstimateService {
         context.currentItinerary = items.map((item) => ({
           dayNumber: item.dayNumber,
           name: item.itemName || item.name || item.nameEng || 'Unknown',
-          type: item.type,
+          category: item.category,
         }));
       }
     }

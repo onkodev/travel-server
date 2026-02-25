@@ -96,6 +96,14 @@ export class EstimateController {
       dateTo: query.dateTo,
       isPinned: query.isPinned,
       upcoming: query.upcoming,
+      startDateFrom: query.startDateFrom,
+      startDateTo: query.startDateTo,
+      paxMin: query.paxMin,
+      paxMax: query.paxMax,
+      amountMin: query.amountMin,
+      amountMax: query.amountMax,
+      durationMin: query.durationMin,
+      durationMax: query.durationMax,
     });
   }
 

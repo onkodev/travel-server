@@ -73,4 +73,30 @@ export class GmailController {
   async getThreadByGmailId(@Param('gmailThreadId') gmailThreadId: string) {
     return this.gmailSyncService.getThreadByGmailId(gmailThreadId);
   }
+
+  @Get('history')
+  @ApiOperation({ summary: '동기화 히스토리 목록 조회' })
+  async getSyncHistory(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.gmailSyncService.getSyncHistory({
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
+  @Get('schedule')
+  @ApiOperation({ summary: '자동 동기화 스케줄 조회' })
+  async getSchedule() {
+    return this.gmailSyncService.getSchedule();
+  }
+
+  @Post('schedule')
+  @ApiOperation({ summary: '자동 동기화 스케줄 설정' })
+  async updateSchedule(
+    @Body() body: { enabled: boolean; intervalHours?: number },
+  ) {
+    return this.gmailSyncService.updateSchedule(body);
+  }
 }

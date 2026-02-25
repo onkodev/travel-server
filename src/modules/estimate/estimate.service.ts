@@ -82,6 +82,14 @@ export class EstimateService {
     dateTo?: string;
     isPinned?: boolean;
     upcoming?: boolean; // 예정 필터 추가
+    startDateFrom?: string;
+    startDateTo?: string;
+    paxMin?: number;
+    paxMax?: number;
+    amountMin?: number;
+    amountMax?: number;
+    durationMin?: number;
+    durationMax?: number;
   }) {
     const {
       page = 1,
@@ -96,6 +104,14 @@ export class EstimateService {
       dateTo,
       isPinned,
       upcoming,
+      startDateFrom,
+      startDateTo,
+      paxMin,
+      paxMax,
+      amountMin,
+      amountMax,
+      durationMin,
+      durationMax,
     } = params;
     const skip = calculateSkip(page, limit);
 
@@ -139,12 +155,14 @@ export class EstimateService {
       }
     }
 
-    // 검색 (customerEmail 제외 — 프라이버시)
+    // 통합 검색 (제목, 고객명, 내부메모, 코멘트 — customerEmail 제외)
     const sanitized = sanitizeSearch(search);
     if (sanitized) {
       where.OR = [
         { title: { contains: sanitized, mode: 'insensitive' } },
         { customerName: { contains: sanitized, mode: 'insensitive' } },
+        { internalMemo: { contains: sanitized, mode: 'insensitive' } },
+        { comment: { contains: sanitized, mode: 'insensitive' } },
       ];
     }
 
@@ -167,6 +185,43 @@ export class EstimateService {
     // 고정 여부 필터
     if (isPinned !== undefined) {
       where.isPinned = isPinned;
+    }
+
+    // 여행 시작일 범위 필터
+    if (startDateFrom || startDateTo) {
+      where.startDate = {};
+      if (startDateFrom) {
+        const d = new Date(startDateFrom);
+        if (!isNaN(d.getTime())) where.startDate.gte = d;
+      }
+      if (startDateTo) {
+        const endDate = new Date(startDateTo);
+        if (!isNaN(endDate.getTime())) {
+          endDate.setHours(23, 59, 59, 999);
+          where.startDate.lte = endDate;
+        }
+      }
+    }
+
+    // 인원수 범위 필터
+    if (paxMin !== undefined || paxMax !== undefined) {
+      where.totalTravelers = {};
+      if (paxMin !== undefined) where.totalTravelers.gte = paxMin;
+      if (paxMax !== undefined) where.totalTravelers.lte = paxMax;
+    }
+
+    // 금액 범위 필터
+    if (amountMin !== undefined || amountMax !== undefined) {
+      where.totalAmount = {};
+      if (amountMin !== undefined) where.totalAmount.gte = amountMin;
+      if (amountMax !== undefined) where.totalAmount.lte = amountMax;
+    }
+
+    // 여행일수 범위 필터
+    if (durationMin !== undefined || durationMax !== undefined) {
+      where.travelDays = {};
+      if (durationMin !== undefined) where.travelDays.gte = durationMin;
+      if (durationMax !== undefined) where.travelDays.lte = durationMax;
     }
 
     const [estimates, total] = await Promise.all([
@@ -307,11 +362,6 @@ export class EstimateService {
 
     // 아이템 정보 보강 + 이미지 포맷 정규화
     const enrichedItems = items.map((item) => {
-      // category 정규화: 기존 데이터에 category가 없으면 type으로 채움
-      if (!item.category && item.type) {
-        item.category = item.type;
-      }
-
       // 이미지 포맷 정규화 (항상 수행 - 객체 형식 → 문자열 배열 변환)
       const normalizedImages = extractImageUrls(item.itemInfo?.images);
 

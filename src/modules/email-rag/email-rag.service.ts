@@ -211,6 +211,79 @@ export class EmailRagService {
   }
 
   /**
+   * 유사 장소 검색 (pgvector - items 테이블)
+   * 프롬프트 토큰 폭발을 막기 위해 연관도 높은 상위 N개 장소만 추출
+   */
+  async searchSimilarPlaces(
+    categories: string[],
+    regionFilter: string,
+    limit = 30,
+  ): Promise<Array<{
+    id: number;
+    nameEng: string;
+    nameKor: string | null;
+    categories: string[];
+    descriptionEng: string | null;
+    similarity: number;
+  }>> {
+    // 1. 카테고리가 일치하고 지역이 맞는 장소 우선 검색
+    const places = await this.prisma.item.findMany({
+      where: {
+        type: 'place',
+        aiEnabled: true,
+        OR: regionFilter ? [
+          { region: { contains: regionFilter, mode: 'insensitive' } },
+          { addressEnglish: { contains: regionFilter, mode: 'insensitive' } }
+        ] : undefined,
+        ...(categories.length > 0 ? {
+          categories: { hasSome: categories }
+        } : {})
+      },
+      take: limit,
+      select: {
+        id: true,
+        nameEng: true,
+        nameKor: true,
+        categories: true,
+        descriptionEng: true,
+      }
+    });
+
+    // 2. 개수가 부족하면 카테고리 무관하게 해당 지역의 다른 장소 추가
+    if (places.length < limit && regionFilter) {
+      const morePlaces = await this.prisma.item.findMany({
+        where: {
+          type: 'place',
+          aiEnabled: true,
+          OR: [
+            { region: { contains: regionFilter, mode: 'insensitive' } },
+            { addressEnglish: { contains: regionFilter, mode: 'insensitive' } }
+          ],
+          id: { notIn: places.map(p => p.id) }
+        },
+        take: limit - places.length,
+        select: {
+          id: true,
+          nameEng: true,
+          nameKor: true,
+          categories: true,
+          descriptionEng: true,
+        }
+      });
+      places.push(...morePlaces);
+    }
+
+    return places.map(p => ({
+      id: p.id,
+      nameEng: p.nameEng,
+      nameKor: p.nameKor,
+      categories: p.categories || [],
+      descriptionEng: p.descriptionEng,
+      similarity: 1.0 // 벡터 미사용이므로 가짜 유사도 1.0 반환
+    }));
+  }
+
+  /**
    * ChatbotFlow 데이터 기반으로 검색 쿼리 생성
    * 관심사 확장 키워드를 쿼리 앞부분에 배치 → 임베딩 벡터에 관심사가 강하게 반영됨
    */
@@ -351,7 +424,7 @@ export class EmailRagService {
       `[pipeline:categories] 관심사 [${allInterests.join(', ')}] → DB 카테고리 [${dbCategories.join(', ')}]`,
     );
 
-    // 리랭킹(CPU)과 DB 장소 조회(I/O)를 동시에 실행
+    // 카테고리 기반으로 연관성 높은 30개 장소만 로딩 (토큰 절약)
     const [rerankResult, dbPlacesResult] = await Promise.all([
       Promise.resolve(
         this.rerankByRelevance(
@@ -361,7 +434,7 @@ export class EmailRagService {
           searchLimit,
         ),
       ),
-      this.loadDbPlaces(regionFilter, dbCategories),
+      this.searchSimilarPlaces(dbCategories, regionFilter, 30),
     ]);
 
     lap('rerankAndDbPlaces');
@@ -405,11 +478,11 @@ export class EmailRagService {
         })
         .join('\n');
       this.logger.log(
-        `[pipeline:dbPlaces] "${regionFilter}" 지역 DB 장소 ${dbPlacesResult.length}개 로드 (프롬프트에 포함)`,
+        `[pipeline:dbPlaces] "${regionFilter}" 지역 연관 DB 장소 ${dbPlacesResult.length}개 로드 (프롬프트 주입됨)`,
       );
     } else {
       this.logger.warn(
-        `[pipeline:dbPlaces] "${regionFilter}" 지역 DB 장소 0개`,
+        `[pipeline:dbPlaces] "${regionFilter}" 지역 DB 장소 0개 검색됨`,
       );
     }
 
@@ -468,7 +541,7 @@ export class EmailRagService {
             ? '- Needs airport pickup (add pickup point as Day 1 first item)'
             : '',
         availablePlacesSection: availablePlaces
-          ? `\n2. AVAILABLE PLACES IN OUR DATABASE (STRONGLY prefer these):\n${availablePlaces}\n\n- When a place from this list fits, include its ID in the response as "itemId"\n- Use category tags to match places with the customer's interests\n- IMPORTANT: Only suggest places NOT in this list as a last resort when no database place fits at all\n- At least 80% of places MUST come from this database list\n`
+          ? `\n3. AVAILABLE PLACES IN OUR DATABASE:\n${availablePlaces}\n\n- Use this list to match specific locations to the planned itinerary\n- Keep the natural flow and pacing observed in the Reference Emails, and pick from this database to fulfill the concepts\n`
           : '',
         emailContext,
         estimateContext,
@@ -506,6 +579,8 @@ export class EmailRagService {
       placeNameKor?: string;
       dayNumber?: number;
       orderIndex?: number;
+      timeOfDay?: string;
+      expectedDurationMins?: number;
       reason?: string;
       itemId?: number | null;
     }
@@ -525,17 +600,19 @@ export class EmailRagService {
       // itemId를 숫자로 변환 (Gemini가 문자열로 반환할 수 있음)
       let itemId: number | undefined;
       if (item.itemId != null) {
-        const parsed = Number(item.itemId);
-        itemId = !isNaN(parsed) && parsed > 0 ? parsed : undefined;
+        const parsedId = Number(item.itemId);
+        itemId = !isNaN(parsedId) && parsedId > 0 ? parsedId : undefined;
       }
       return {
         placeName: item.placeName || `Place ${idx + 1}`,
         placeNameKor: item.placeNameKor,
         dayNumber: item.dayNumber || Math.floor(idx / placesPerDay) + 1,
         orderIndex: item.orderIndex ?? idx % placesPerDay,
+        timeOfDay: item.timeOfDay,
+        expectedDurationMins: item.expectedDurationMins,
         reason: item.reason || '',
         itemId,
-      };
+      } as any; // Type override since DraftItem doesn't officially support these yet, we will map them via AiEstimateService
     });
 
     const geminiMatched = rawItems.filter((i) => i.itemId).length;

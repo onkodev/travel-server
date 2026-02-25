@@ -41,6 +41,8 @@ export interface DraftItem {
   placeNameKor?: string;
   dayNumber: number;
   orderIndex: number;
+  timeOfDay?: string;
+  expectedDurationMins?: number;
   reason: string;
   itemId?: number;
   isTbd?: boolean;

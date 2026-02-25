@@ -79,12 +79,7 @@ export class EstimateItemExtendedDto {
   @IsNumber()
   itemId?: number;
 
-  @ApiPropertyOptional({ description: '아이템 타입' })
-  @IsOptional()
-  @IsString()
-  type?: string;
-
-  @ApiPropertyOptional({ description: '아이템 카테고리 (type과 동일, 마이그레이션 용도)' })
+  @ApiPropertyOptional({ description: '아이템 카테고리' })
   @IsOptional()
   @IsString()
   category?: string;

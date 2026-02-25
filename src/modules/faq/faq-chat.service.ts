@@ -52,9 +52,8 @@ export class FaqChatService {
 
     // 1. 의도 분류 + 유사 FAQ 검색 + 제안 질문 + 투어 검색 (병렬)
     const tourSearchQuery = this.buildTourSearchQuery(message, history);
-    const [intent, topFaqs, suggestions, relatedTours] = await Promise.all([
+    const [intent, suggestions, relatedTours] = await Promise.all([
       this.classifyIntent(message),
-      this.faqEmbeddingService.searchSimilar(message, 1),
       this.faqEmbeddingService.searchSimilar(
         message,
         3,
@@ -62,7 +61,7 @@ export class FaqChatService {
       ),
       this.searchOdkTours(tourSearchQuery, 5),
     ]);
-    const topFaq = topFaqs[0] ?? null;
+    const topFaq = suggestions.length > 0 && suggestions[0].similarity >= FAQ_SIMILARITY.MIN_SEARCH ? suggestions[0] : null;
     const topSimilarity = topFaq?.similarity ?? 0;
 
     this.logger.debug(
@@ -462,14 +461,20 @@ export class FaqChatService {
   }
 
   /**
-   * FAQ 원문 직접 반환 (제안 질문 클릭 시 사용)
+   * FAQ 가이드라인 기반 AI 답변 생성 (제안 질문 클릭 시 사용)
+   * 기존에는 answer 원문을 반환했으나, guideline 기반 AI 생성으로 변경
    */
   async getDirectFaqAnswer(
     faqId: number,
   ): Promise<{ question: string; answer: string }> {
     const faq = await this.prisma.faq.findUnique({
       where: { id: faqId },
-      select: { id: true, question: true, answer: true },
+      select: {
+        id: true,
+        question: true,
+        guideline: true,
+        reference: true,
+      },
     });
 
     if (!faq) {
@@ -481,7 +486,9 @@ export class FaqChatService {
       .update({ where: { id: faqId }, data: { viewCount: { increment: 1 } } })
       .catch((err) => this.logger.error('FAQ viewCount 증가 실패:', err));
 
-    return { question: faq.question, answer: faq.answer };
+    // guideline 기반 AI 답변 생성
+    const answer = await this.generateGuidelineAnswer(faq.question, faq);
+    return { question: faq.question, answer };
   }
 
   /**

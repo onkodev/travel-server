@@ -245,15 +245,17 @@ export class NotificationService {
   // 견적 발송 완료 알림 (내부 로깅용)
   async notifyEstimateSent(data: {
     estimateId: number;
+    estimateTitle?: string;
     customerName?: string;
     customerEmail?: string;
   }): Promise<void> {
+    const titleDisplay = data.estimateTitle || `견적 #${data.estimateId}`;
     const customerDisplay = data.customerName || '고객';
 
     await this.notifyAdmins({
       type: NOTIFICATION_TYPES.ESTIMATE_SENT,
       title: '견적 발송 완료',
-      message: `${customerDisplay}님에게 견적 #${data.estimateId}가 발송되었습니다.`,
+      message: `${titleDisplay} - ${customerDisplay}님에게 발송되었습니다.`,
       relatedEstimateId: data.estimateId,
       metadata: {
         customerName: data.customerName,

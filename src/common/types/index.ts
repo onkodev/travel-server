@@ -133,8 +133,7 @@ export interface EstimateItemInfo {
  */
 export interface EstimateItem {
   id: string;
-  type: EstimateItemType | string;
-  category?: EstimateItemType | string;
+  category: EstimateItemType | string;
   dayNumber: number;
   orderIndex: number;
   quantity?: number;

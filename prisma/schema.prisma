@@ -539,8 +539,28 @@ model GmailSyncState {
   syncProgress         Json?     @map("sync_progress")
   nextPageToken        String?   @map("next_page_token")
   fullScanCompleted    Boolean   @default(false) @map("full_scan_completed")
+  autoSyncEnabled      Boolean   @default(false) @map("auto_sync_enabled")
+  autoSyncInterval     Int       @default(24) @map("auto_sync_interval")
+  nextAutoSyncAt       DateTime? @map("next_auto_sync_at") @db.Timestamptz(6)
 
   @@map("gmail_sync_states")
+}
+
+model GmailSyncHistory {
+  id          Int       @id @default(autoincrement())
+  type        String    @default("manual") @map("type") @db.VarChar(20)
+  fetched     Int       @default(0)
+  processed   Int       @default(0)
+  extracted   Int       @default(0)
+  skipped     Int       @default(0)
+  failed      Int       @default(0)
+  startedAt   DateTime  @map("started_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  error       String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)], map: "idx_gmail_sync_history_created_at")
+  @@map("gmail_sync_histories")
 }
 
 model EmailThread {

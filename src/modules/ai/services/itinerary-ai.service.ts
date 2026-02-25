@@ -38,14 +38,14 @@ export class ItineraryAiService {
 
   async parseModificationIntent(params: {
     userMessage: string;
-    currentItinerary: Array<{ dayNumber: number; name: string; type: string }>;
+    currentItinerary: Array<{ dayNumber: number; name: string; category: string }>;
     interests?: string[];
     region?: string;
   }): Promise<ModificationIntent> {
     const { userMessage, currentItinerary, interests, region } = params;
 
     const itineraryText = currentItinerary
-      .map((item) => `Day ${item.dayNumber}: ${item.name} (${item.type})`)
+      .map((item) => `Day ${item.dayNumber}: ${item.name} (${item.category})`)
       .join('\n');
 
     const built = await this.aiPromptService.buildPrompt(
@@ -156,7 +156,7 @@ export class ItineraryAiService {
 
     const sortedItems = [...items].sort((a, b) => a.order - b.order);
     const itemList = sortedItems
-      .map((item) => `- ${item.name} (${item.type})`)
+      .map((item) => `- ${item.name} (${item.category})`)
       .join('\n');
 
     const built = await this.aiPromptService.buildPrompt(

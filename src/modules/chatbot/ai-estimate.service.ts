@@ -79,7 +79,7 @@ interface AiEstimateMetadata {
 // 프론트엔드용 가공된 아이템
 export interface FormattedEstimateItem {
   id: string;
-  type: string;
+  category: string;
   itemId: number | null;
   itemName: string | undefined;
   name: string | undefined;
@@ -422,8 +422,7 @@ export class AiEstimateService {
   private formatItemsForClient(items: EstimateItem[]): FormattedEstimateItem[] {
     return items.map((item, idx) => ({
       id: String(item.itemId || `tbd-${item.dayNumber}-${idx}`),
-      type: item.type || 'place',
-      category: item.category || item.type || 'place',
+      category: item.category || 'place',
       itemId: item.itemId || null,
       itemName: item.itemInfo?.nameKor || item.itemInfo?.nameEng,
       name: item.itemInfo?.nameKor,
@@ -530,7 +529,6 @@ export class AiEstimateService {
             id: generateItemId(),
             dayNumber: draftItem.dayNumber,
             orderIndex: draftItem.orderIndex,
-            type: 'place',
             category: 'place',
             itemId: undefined,
             isTbd: true,
@@ -557,7 +555,7 @@ export class AiEstimateService {
       if (item) items.push(item);
     }
 
-    // --- 후처리 1: 다른 지역 아이템 제거 ---
+    // --- 후처리 1: 다른 지역 아이템 제거 (완화됨 - 삭제 대기 및 로깅만 수행) ---
     const requestedRegion = flow.region?.toLowerCase();
     if (requestedRegion) {
       const regionKor = this.REGION_MAP[requestedRegion];
@@ -566,45 +564,45 @@ export class AiEstimateService {
           .filter(Boolean)
           .map((r) => r.toLowerCase()),
       );
-      const beforeCount = items.length;
-      items = items.filter((item) => {
-        if (item.isTbd || !item.itemId) return true; // TBD는 유지
-        const itemRegion = (item as EstimateItem & { _region?: string })
-          ._region;
-        if (!itemRegion) return true; // region 정보 없으면 유지
-        // 정확 매치 (대소문자 무시)
-        if (allowedRegions.has(itemRegion.toLowerCase())) return true;
-        // 불일치 → 제거
-        this.logger.log(
-          `[postFilter:region] 제거: "${item.itemInfo?.nameKor || item.itemInfo?.nameEng}" (region=${itemRegion}, 요청=${requestedRegion})`,
-        );
-        return false;
+      items.forEach((item) => {
+        if (item.isTbd || !item.itemId) return;
+        const itemRegion = (item as EstimateItem & { _region?: string })._region;
+        if (!itemRegion) return;
+        if (!allowedRegions.has(itemRegion.toLowerCase())) {
+          this.logger.log(
+            `[postFilter:region] 다른 지역 감지 (유지됨): "${item.itemInfo?.nameKor || item.itemInfo?.nameEng}" (region=${itemRegion}, 요청=${requestedRegion})`,
+          );
+        }
       });
-      if (beforeCount > items.length) {
-        this.logger.log(
-          `[postFilter:region] ${beforeCount - items.length}개 다른 지역 아이템 제거`,
-        );
-      }
     }
 
-    // --- 후처리 2: 중복 itemId 제거 (첫 등장만 유지) ---
+    // --- 후처리 2: 중복 itemId 제거 (같은 날짜 내 중복만 제거, 다른 날짜 재방문 허용) ---
     {
-      const seenItemIds = new Set<number>();
+      const seenItemsPerDay = new Map<number, Set<number>>(); // dayNumber -> itemIds
       const beforeCount = items.length;
       items = items.filter((item) => {
-        if (item.isTbd || !item.itemId) return true; // TBD는 유지
-        if (seenItemIds.has(item.itemId)) {
+        if (item.isTbd || !item.itemId) return true; // TBD 유지
+
+        const day = item.dayNumber || 1;
+        if (!seenItemsPerDay.has(day)) {
+          seenItemsPerDay.set(day, new Set());
+        }
+
+        const dailySeen = seenItemsPerDay.get(day)!;
+        
+        if (dailySeen.has(item.itemId)) {
           this.logger.log(
-            `[postFilter:dedup] 중복 제거: "${item.itemInfo?.nameKor || item.itemInfo?.nameEng}" (Day${item.dayNumber}, itemId=${item.itemId})`,
+            `[postFilter:dedup] Day ${day} 중복 제거: "${item.itemInfo?.nameKor || item.itemInfo?.nameEng}" (itemId=${item.itemId})`,
           );
           return false;
         }
-        seenItemIds.add(item.itemId);
+        
+        dailySeen.add(item.itemId);
         return true;
       });
       if (beforeCount > items.length) {
         this.logger.log(
-          `[postFilter:dedup] ${beforeCount - items.length}개 중복 아이템 제거`,
+          `[postFilter:dedup] ${beforeCount - items.length}개 일자 내 중복 아이템 제거`,
         );
       }
     }
@@ -668,7 +666,7 @@ export class AiEstimateService {
    * DraftItem + DB 아이템 → EstimateItem 생성 헬퍼
    */
   private buildEstimateItem(
-    draftItem: { dayNumber: number; orderIndex: number; reason: string },
+    draftItem: { dayNumber: number; orderIndex: number; timeOfDay?: string; expectedDurationMins?: number; reason: string },
     dbMatch: {
       id: number;
       nameKor: string;
@@ -688,14 +686,13 @@ export class AiEstimateService {
       id: generateItemId(),
       dayNumber: draftItem.dayNumber,
       orderIndex: draftItem.orderIndex,
-      type: 'place',
       category: 'place',
       itemId: dbMatch.id,
       isTbd: false,
       quantity: totalPax,
       unitPrice,
       subtotal: unitPrice * totalPax,
-      note: draftItem.reason,
+      note: `[${draftItem.timeOfDay || 'Anytime'}${draftItem.expectedDurationMins ? ` - ${draftItem.expectedDurationMins}m` : ''}] ${draftItem.reason}`,
       itemInfo: {
         nameKor: dbMatch.nameKor,
         nameEng: dbMatch.nameEng,
@@ -772,7 +769,7 @@ export class AiEstimateService {
     for (let d = 1; d <= duration; d++) dayCount[d] = 0;
     for (const i of result) {
       if (
-        i.type === 'place' &&
+        i.category === 'place' &&
         !i.isTbd &&
         dayCount[i.dayNumber] !== undefined
       ) {
@@ -801,7 +798,6 @@ export class AiEstimateService {
         id: generateItemId(),
         dayNumber,
         orderIndex: maxOrder + 1,
-        type: 'place',
         category: 'place',
         itemId: attraction.id,
         isTbd: false,
@@ -913,7 +909,6 @@ export class AiEstimateService {
           id: generateItemId(),
           dayNumber: day,
           orderIndex: 0,
-          type: 'place',
           category: 'place',
           itemId: undefined,
           isTbd: true,

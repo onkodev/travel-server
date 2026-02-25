@@ -90,6 +90,7 @@ export class EstimateDispatchService {
     this.notificationService
       .notifyEstimateSent({
         estimateId: estimate.id,
+        estimateTitle: estimate.title || undefined,
         customerName: estimate.customerName || undefined,
         customerEmail: estimate.customerEmail || undefined,
       })

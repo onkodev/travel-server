@@ -116,27 +116,6 @@ export class UpdateEstimateConfigDto {
 
 export class UpdateFaqChatConfigDto {
   @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(10)
-  @Type(() => Number)
-  topFaqCount?: number;
-
-  @IsOptional()
   @IsString()
   noMatchResponse?: string | null;
-
-  @IsOptional()
-  @IsString()
-  @IsIn(['precise', 'balanced', 'conversational'])
-  faqAnswerStyle?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsIn(['concise', 'standard', 'detailed'])
-  faqAnswerLength?: string;
-
-  @IsOptional()
-  @IsString()
-  faqCustomInstructions?: string | null;
 }

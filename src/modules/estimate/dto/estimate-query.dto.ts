@@ -8,8 +8,9 @@ import {
   IsNumber,
   MaxLength,
   ArrayMaxSize,
+  Min,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/dto';
 
 export class EstimateListQueryDto extends PaginationQueryDto {
@@ -55,7 +56,7 @@ export class EstimateListQueryDto extends PaginationQueryDto {
   excludeStatusAi?: string;
 
   @ApiPropertyOptional({
-    description: '검색어 (제목, 고객명)',
+    description: '통합 검색어 (제목, 고객명, 내부메모, 코멘트)',
     example: '홍길동',
     maxLength: 200,
   })
@@ -101,6 +102,82 @@ export class EstimateListQueryDto extends PaginationQueryDto {
   )
   @IsBoolean()
   upcoming?: boolean;
+
+  @ApiPropertyOptional({
+    description: '여행 시작일 범위 (이후)',
+    example: '2024-01-01',
+  })
+  @IsOptional()
+  @IsString()
+  startDateFrom?: string;
+
+  @ApiPropertyOptional({
+    description: '여행 시작일 범위 (이전)',
+    example: '2024-12-31',
+  })
+  @IsOptional()
+  @IsString()
+  startDateTo?: string;
+
+  @ApiPropertyOptional({
+    description: '최소 인원수',
+    example: 2,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  paxMin?: number;
+
+  @ApiPropertyOptional({
+    description: '최대 인원수',
+    example: 10,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  paxMax?: number;
+
+  @ApiPropertyOptional({
+    description: '최소 금액',
+    example: 100,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  amountMin?: number;
+
+  @ApiPropertyOptional({
+    description: '최대 금액',
+    example: 10000,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  amountMax?: number;
+
+  @ApiPropertyOptional({
+    description: '최소 여행일수',
+    example: 3,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  durationMin?: number;
+
+  @ApiPropertyOptional({
+    description: '최대 여행일수',
+    example: 14,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  durationMax?: number;
 }
 
 export class BatchSummariesDto {

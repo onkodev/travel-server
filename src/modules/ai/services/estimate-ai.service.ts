@@ -41,7 +41,7 @@ export class EstimateAiService {
         ? items
             .map(
               (item) =>
-                `- ${item.name} (${item.type}${item.region ? `, ${item.region}` : ''})`,
+                `- ${item.name} (${item.category}${item.region ? `, ${item.region}` : ''})`,
             )
             .join('\n')
         : '아이템 없음';

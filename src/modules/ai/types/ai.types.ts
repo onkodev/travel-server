@@ -18,7 +18,7 @@ export interface AvailableItem {
  */
 export interface TimelineItem {
   name: string;
-  type: string;
+  category: string;
   order: number;
 }
 
@@ -28,6 +28,6 @@ export interface TimelineItem {
 export interface EstimateItemForAnalysis {
   id: string;
   name: string;
-  type: string;
+  category: string;
   region?: string;
 }

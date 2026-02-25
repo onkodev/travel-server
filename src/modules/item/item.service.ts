@@ -67,6 +67,8 @@ export class ItemService {
         { nameKor: { contains: sanitized, mode: 'insensitive' } },
         { nameEng: { contains: sanitized, mode: 'insensitive' } },
         { keyword: { contains: sanitized, mode: 'insensitive' } },
+        { description: { contains: sanitized, mode: 'insensitive' } },
+        { descriptionEng: { contains: sanitized, mode: 'insensitive' } },
       ];
     }
 

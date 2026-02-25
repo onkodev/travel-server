@@ -6,7 +6,7 @@ export interface TravelAssistantContext {
   tripDates?: { start: string; end: string };
   region?: string;
   interests?: string[];
-  currentItinerary?: Array<{ dayNumber: number; name: string; type: string }>;
+  currentItinerary?: Array<{ dayNumber: number; name: string; category: string }>;
 }
 
 /**
@@ -28,7 +28,7 @@ export function buildContextInfo(context?: TravelAssistantContext): string {
   }
   if (context.currentItinerary?.length) {
     const itineraryText = context.currentItinerary
-      .map((item) => `Day ${item.dayNumber}: ${item.name} (${item.type})`)
+      .map((item) => `Day ${item.dayNumber}: ${item.name} (${item.category})`)
       .join('\n');
     contextInfo += `Current itinerary:\n${itineraryText}\n`;
   }

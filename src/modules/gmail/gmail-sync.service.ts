@@ -23,6 +23,9 @@ export class GmailSyncService implements OnModuleInit {
   private readonly logger = new Logger(GmailSyncService.name);
   private isSyncRunning = false;
   private shouldStop = false;
+  private autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  // 현재 동기화의 트리거 타입 (히스토리 저장용)
+  private currentSyncType: 'manual' | 'auto' = 'manual';
 
   /** 비표준 날짜 문자열 안전 파싱 (Invalid Date → 현재 시간 fallback) */
   private safeDate(dateStr: string | null | undefined): Date {
@@ -56,6 +59,9 @@ export class GmailSyncService implements OnModuleInit {
     if (updated.count > 0) {
       this.logger.warn(`서버 시작: stale 동기화 상태 ${updated.count}건 리셋`);
     }
+
+    // 자동 동기화 스케줄러 초기화
+    await this.initAutoSyncScheduler();
   }
 
   // ============================================================================
@@ -419,6 +425,10 @@ export class GmailSyncService implements OnModuleInit {
             lastError: '사용자 요청으로 중지됨',
           },
         });
+
+        // 히스토리 저장
+        await this.saveHistory(progress, this.currentSyncType, '사용자 요청으로 중지됨');
+        this.currentSyncType = 'manual';
         return;
       }
 
@@ -462,6 +472,15 @@ export class GmailSyncService implements OnModuleInit {
       this.runAutoEmbedding().catch((err) => {
         this.logger.warn(`자동 임베딩 실패: ${err.message}`);
       });
+
+      // 히스토리 저장
+      const historyProgress = {
+        ...progress,
+        status: 'completed' as const,
+        completedAt: new Date().toISOString(),
+      };
+      await this.saveHistory(historyProgress, this.currentSyncType);
+      this.currentSyncType = 'manual';
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -478,6 +497,10 @@ export class GmailSyncService implements OnModuleInit {
           syncProgress: Prisma.DbNull,
         },
       });
+
+      // 에러 히스토리 저장
+      await this.saveHistory(progress, this.currentSyncType, errorMessage);
+      this.currentSyncType = 'manual';
     } finally {
       this.isSyncRunning = false;
     }
@@ -632,9 +655,10 @@ export class GmailSyncService implements OnModuleInit {
         await this.prisma.faq.createMany({
           data: nonDuplicateFaqs.map((faq) => ({
             question: faq.question,
-            answer: faq.answer,
+            answer: '-',
             questionKo: faq.questionKo || null,
-            answerKo: faq.answerKo || null,
+            answerKo: '-',
+            reference: `[AI 추출 답변]\n${faq.answer}${faq.answerKo ? `\n\n[한국어]\n${faq.answerKo}` : ''}`,
             tags: faq.tags || [],
             category: faq.category || null,
             source: 'gmail',
@@ -782,17 +806,232 @@ export class GmailSyncService implements OnModuleInit {
   }
 
   /**
-   * 동기화 완료 후 미임베딩 이메일 자동 임베딩
+   * 동기화 완료 후 미임베딩 FAQ + 이메일 자동 임베딩
    */
   private async runAutoEmbedding(): Promise<void> {
     this.logger.log('자동 임베딩 시작...');
+
+    // FAQ 임베딩 (승인된 FAQ 중 미임베딩 처리)
+    try {
+      const faqResult = await this.faqEmbeddingService.syncMissingEmbeddings();
+      if (faqResult.total > 0) {
+        this.logger.log(
+          `FAQ 임베딩 완료: ${faqResult.success}건 성공, ${faqResult.failed}건 실패`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `FAQ 임베딩 실패: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+
+    // 이메일 임베딩
     const result = await this.emailEmbeddingService.syncAll();
     this.logger.log(
-      `자동 임베딩 완료: ${result.embedded}건 성공, ${result.failed}건 실패`,
+      `이메일 임베딩 완료: ${result.embedded}건 성공, ${result.failed}건 실패`,
     );
   }
 
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // ============================================================================
+  // 히스토리 관리
+  // ============================================================================
+
+  /**
+   * 동기화 결과를 히스토리에 저장
+   */
+  private async saveHistory(
+    progress: SyncProgress,
+    type: 'manual' | 'auto',
+    error?: string,
+  ) {
+    try {
+      await this.prisma.gmailSyncHistory.create({
+        data: {
+          type,
+          fetched: progress.fetched,
+          processed: progress.processed,
+          extracted: progress.extracted,
+          skipped: progress.skipped,
+          failed: progress.failed,
+          startedAt: new Date(progress.startedAt),
+          completedAt: progress.completedAt
+            ? new Date(progress.completedAt)
+            : new Date(),
+          error: error || null,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `히스토리 저장 실패: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /**
+   * 동기화 히스토리 목록 조회 (최근 순)
+   */
+  async getSyncHistory(params?: { page?: number; limit?: number }) {
+    const page = params?.page || 1;
+    const limit = params?.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.prisma.gmailSyncHistory.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.gmailSyncHistory.count(),
+    ]);
+
+    return {
+      data,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  // ============================================================================
+  // 자동 동기화 스케줄러
+  // ============================================================================
+
+  /**
+   * 현재 스케줄 설정 조회
+   */
+  async getSchedule() {
+    const state = await this.prisma.gmailSyncState.findFirst();
+    return {
+      enabled: state?.autoSyncEnabled ?? false,
+      intervalHours: state?.autoSyncInterval ?? 24,
+      nextSyncAt: state?.nextAutoSyncAt?.toISOString() ?? null,
+    };
+  }
+
+  /**
+   * 스케줄 설정 변경
+   */
+  async updateSchedule(params: {
+    enabled: boolean;
+    intervalHours?: number;
+  }) {
+    const state = await this.prisma.gmailSyncState.findFirst();
+    if (!state) {
+      return { success: false, message: '동기화 상태가 없습니다' };
+    }
+
+    const intervalHours = params.intervalHours ?? state.autoSyncInterval;
+    const nextSyncAt = params.enabled
+      ? new Date(Date.now() + intervalHours * 60 * 60 * 1000)
+      : null;
+
+    await this.prisma.gmailSyncState.update({
+      where: { id: state.id },
+      data: {
+        autoSyncEnabled: params.enabled,
+        autoSyncInterval: intervalHours,
+        nextAutoSyncAt: nextSyncAt,
+      },
+    });
+
+    // 타이머 재설정
+    if (params.enabled) {
+      this.scheduleNextSync(intervalHours);
+      this.logger.log(
+        `자동 동기화 활성화: ${intervalHours}시간 간격`,
+      );
+    } else {
+      if (this.autoSyncTimer) {
+        clearTimeout(this.autoSyncTimer);
+        this.autoSyncTimer = null;
+      }
+      this.logger.log('자동 동기화 비활성화');
+    }
+
+    return {
+      success: true,
+      enabled: params.enabled,
+      intervalHours,
+      nextSyncAt: nextSyncAt?.toISOString() ?? null,
+    };
+  }
+
+  /**
+   * 서버 시작 시 자동 동기화 스케줄러 초기화
+   */
+  private async initAutoSyncScheduler() {
+    const state = await this.prisma.gmailSyncState.findFirst();
+    if (!state?.autoSyncEnabled) return;
+
+    const intervalHours = state.autoSyncInterval;
+
+    if (state.nextAutoSyncAt) {
+      const msUntilNext =
+        new Date(state.nextAutoSyncAt).getTime() - Date.now();
+      if (msUntilNext > 0) {
+        // 예정 시간까지 남은 시간만큼 대기
+        this.scheduleNextSync(msUntilNext / (60 * 60 * 1000));
+        this.logger.log(
+          `자동 동기화 복구: ${Math.round(msUntilNext / 60000)}분 후 실행 예정`,
+        );
+        return;
+      }
+    }
+
+    // 예정 시간이 이미 지났으면 즉시 실행 후 재스케줄
+    this.logger.log('자동 동기화: 예정 시간 초과, 즉시 실행');
+    this.runAutoSync(intervalHours);
+  }
+
+  /**
+   * 다음 자동 동기화 타이머 설정
+   */
+  private scheduleNextSync(intervalHours: number) {
+    if (this.autoSyncTimer) {
+      clearTimeout(this.autoSyncTimer);
+    }
+
+    const ms = intervalHours * 60 * 60 * 1000;
+    this.autoSyncTimer = setTimeout(() => {
+      this.runAutoSync(intervalHours);
+    }, ms);
+  }
+
+  /**
+   * 자동 동기화 실행 (타이머 콜백)
+   */
+  private async runAutoSync(intervalHours: number) {
+    if (this.isSyncRunning) {
+      this.logger.warn('자동 동기화: 이미 동기화 진행 중, 다음 주기로 연기');
+      this.scheduleNextSync(intervalHours);
+      return;
+    }
+
+    this.logger.log('자동 동기화 시작');
+    this.currentSyncType = 'auto';
+
+    try {
+      await this.startBatchSync({ maxResults: 0 });
+    } catch (err) {
+      this.logger.error(
+        `자동 동기화 실패: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+
+    // 다음 실행 예약 및 DB 업데이트
+    const nextSyncAt = new Date(
+      Date.now() + intervalHours * 60 * 60 * 1000,
+    );
+    this.scheduleNextSync(intervalHours);
+
+    try {
+      await this.prisma.gmailSyncState.updateMany({
+        data: { nextAutoSyncAt: nextSyncAt },
+      });
+    } catch {
+      // DB 업데이트 실패는 무시
+    }
   }
 }
