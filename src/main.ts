@@ -14,6 +14,15 @@ async function bootstrap() {
   // ETag 비활성화 (정렬 등 query param 변경 시 304 캐시 방지)
   app.getHttpAdapter().getInstance().set('etag', false);
 
+  // 전역 캐시 방지 미들웨어 (CDN 노드 및 브라우저 캐시 무효화)
+  app.use((req, res, next) => {
+    res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.header('Pragma', 'no-cache');
+    res.header('Expires', '0');
+    res.header('Surrogate-Control', 'no-store');
+    next();
+  });
+
   // 보안 헤더 (XSS, Clickjacking 등 방어)
   app.use(helmet());
 
