@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Body, Query } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Query, Req } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -100,7 +100,11 @@ export class AuthController {
     description: '로그아웃 성공',
     type: SuccessMessageResponseDto,
   })
-  async signOut() {
+  async signOut(@Req() req: { headers: { authorization?: string } }) {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (token) {
+      return this.authService.signOut(token);
+    }
     return { success: true };
   }
 

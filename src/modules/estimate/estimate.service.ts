@@ -18,6 +18,7 @@ import {
   extractImageUrls,
   MemoryCache,
   jsonCast,
+  formatDateKST,
 } from '../../common/utils';
 import { CreateEstimateDto } from './dto/estimate-create.dto';
 import { UpdateEstimateDto } from './dto/estimate-update.dto';
@@ -90,7 +91,7 @@ export class EstimateService {
     amountMax?: number;
     durationMin?: number;
     durationMax?: number;
-    sortBy?: string;
+    sortBy?: 'title' | 'schedule' | 'duration' | 'pax' | 'amount' | 'status' | 'createdAt' | 'updatedAt';
     sortOrder?: 'asc' | 'desc';
   }) {
     const {
@@ -497,11 +498,8 @@ export class EstimateService {
 
     // 유효기간 체크 — KST 기준 날짜만 비교 (타임존/시간 이슈 방지)
     if (estimate.validDate) {
-      const toDateStr = (d: Date) =>
-        d.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }); // "YYYY-MM-DD"
-
-      const todayKST = toDateStr(new Date());
-      const validDateKST = toDateStr(new Date(estimate.validDate));
+      const todayKST = formatDateKST();
+      const validDateKST = formatDateKST(new Date(estimate.validDate));
 
       this.logger.debug(
         `[유효기간 체크] today=${todayKST}, validDate=${validDateKST}, expired=${todayKST > validDateKST}`,

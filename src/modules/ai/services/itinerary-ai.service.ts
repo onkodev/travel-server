@@ -24,9 +24,6 @@ export interface SelectedItem {
   reason: string;
 }
 
-// Re-export types for backward compatibility
-export type { AvailableItem, TimelineItem };
-
 @Injectable()
 export class ItineraryAiService {
   private readonly logger = new Logger(ItineraryAiService.name);

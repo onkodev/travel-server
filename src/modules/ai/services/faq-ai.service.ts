@@ -6,11 +6,8 @@ import { PromptKey } from '../../ai-prompt/prompt-registry';
 
 export interface ExtractedFaqItem {
   question: string;
-  answer: string;
   questionKo?: string;
-  answerKo?: string;
   tags: string[];
-  confidence: number;
   category: string;
   questionSource?: string;
   answerSource?: string;
@@ -48,11 +45,8 @@ export class FaqAiService {
       return result.filter(
         (item) =>
           item.question &&
-          item.answer &&
           typeof item.question === 'string' &&
-          typeof item.answer === 'string' &&
-          item.question.length > 0 &&
-          item.answer.length > 0,
+          item.question.length > 0,
       );
     } catch (error) {
       this.logger.error('FAQ 추출 실패:', error);

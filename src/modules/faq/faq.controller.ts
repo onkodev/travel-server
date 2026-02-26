@@ -180,6 +180,12 @@ export class FaqController {
     return this.faqChatLogService.getFaqChatStats();
   }
 
+  @Delete('chat-logs')
+  @ApiOperation({ summary: '채팅 로그 삭제' })
+  async deleteChatLogs(@Body() body: { ids: number[] }) {
+    return this.faqChatLogService.deleteChatLogs(body.ids);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'FAQ 상세 조회' })
   @ApiParam({ name: 'id', description: 'FAQ ID' })
@@ -192,9 +198,7 @@ export class FaqController {
   async createFaq(@Body() body: CreateFaqDto) {
     return this.faqService.createFaq({
       question: body.question,
-      answer: body.answer,
       questionKo: body.questionKo,
-      answerKo: body.answerKo,
       tags: body.tags,
       category: body.category,
       guideline: body.guideline,
@@ -212,9 +216,7 @@ export class FaqController {
   ) {
     const data: Record<string, unknown> = {};
     if (body.question !== undefined) data.question = body.question;
-    if (body.answer !== undefined) data.answer = body.answer;
     if (body.questionKo !== undefined) data.questionKo = body.questionKo;
-    if (body.answerKo !== undefined) data.answerKo = body.answerKo;
     if (body.tags !== undefined) data.tags = body.tags;
     if (body.category !== undefined) data.category = body.category;
     if (body.guideline !== undefined) data.guideline = body.guideline;

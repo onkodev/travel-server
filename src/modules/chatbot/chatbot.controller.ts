@@ -9,9 +9,7 @@ import {
   ParseIntPipe,
   Query,
   UseGuards,
-  ForbiddenException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import {
   ApiTags,
   ApiOperation,
@@ -76,7 +74,6 @@ export class ChatbotController {
     private aiEstimateService: AiEstimateService,
     private conversationalEstimateService: ConversationalEstimateService,
     private prisma: PrismaService,
-    private configService: ConfigService,
   ) {}
 
   @Post('start')
@@ -811,11 +808,6 @@ export class ChatbotController {
     type: ErrorResponseDto,
   })
   async generateAiEstimate(@Param('sessionId') sessionId: string) {
-    if (this.configService.get('ENABLE_AI_ESTIMATE') !== 'true') {
-      throw new ForbiddenException(
-        'AI estimate generation is not available in this environment.',
-      );
-    }
     return this.aiEstimateService.generateFirstEstimate(sessionId);
   }
 

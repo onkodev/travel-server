@@ -47,9 +47,7 @@ export class FaqEmbeddingService {
       select: {
         id: true,
         question: true,
-        answer: true,
         questionKo: true,
-        answerKo: true,
       },
     });
 
@@ -78,9 +76,7 @@ export class FaqEmbeddingService {
         select: {
           id: true,
           question: true,
-          answer: true,
           questionKo: true,
-          answerKo: true,
         },
         skip: offset,
         take: FAQ_BATCH.EMBEDDING,

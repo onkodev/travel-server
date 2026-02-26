@@ -3,6 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DASHBOARD_EVENTS } from '../../common/events';
 import { CACHE_TTL } from '../../common/constants/cache';
+import { formatDateISO } from '../../common/utils';
 
 // 일별 트렌드 데이터
 export interface DailyTrend {
@@ -197,10 +198,10 @@ export class DashboardService {
         (SELECT COUNT(*) FROM chat_sessions WHERE is_completed = true) as completed_chats,
         -- 아이템 통계
         (SELECT COUNT(*) FROM items) as total_items,
-        (SELECT COUNT(*) FROM items WHERE type = 'place') as place_count,
-        (SELECT COUNT(*) FROM items WHERE type = 'accommodation') as accommodation_count,
-        (SELECT COUNT(*) FROM items WHERE type = 'transportation') as transportation_count,
-        (SELECT COUNT(*) FROM items WHERE type = 'contents') as contents_count,
+        (SELECT COUNT(*) FROM items WHERE category = 'place') as place_count,
+        (SELECT COUNT(*) FROM items WHERE category = 'accommodation') as accommodation_count,
+        (SELECT COUNT(*) FROM items WHERE category = 'transportation') as transportation_count,
+        (SELECT COUNT(*) FROM items WHERE category = 'contents') as contents_count,
         -- 전환 퍼널
         (SELECT COUNT(*) FROM chat_sessions WHERE created_at >= ${thirtyDaysAgo}) as funnel_chatbot,
         (SELECT COUNT(*) FROM chat_sessions WHERE created_at >= ${thirtyDaysAgo} AND estimate_id IS NOT NULL) as funnel_estimate,
@@ -405,23 +406,23 @@ export class DashboardService {
     for (let i = 0; i < 30; i++) {
       const date = new Date(thirtyDaysAgo);
       date.setDate(date.getDate() + i);
-      const ds = date.toISOString().split('T')[0];
+      const ds = formatDateISO(date);
       dateMap.set(ds, { date: ds, estimates: 0, bookings: 0, chats: 0 });
     }
 
     // 데이터 매핑
     estimateData.forEach((e) => {
-      const ds = new Date(e.date).toISOString().split('T')[0];
+      const ds = formatDateISO(new Date(e.date));
       const entry = dateMap.get(ds);
       if (entry) entry.estimates = Number(e.count);
     });
     bookingData.forEach((b) => {
-      const ds = new Date(b.date).toISOString().split('T')[0];
+      const ds = formatDateISO(new Date(b.date));
       const entry = dateMap.get(ds);
       if (entry) entry.bookings = Number(b.count);
     });
     chatData.forEach((c) => {
-      const ds = new Date(c.date).toISOString().split('T')[0];
+      const ds = formatDateISO(new Date(c.date));
       const entry = dateMap.get(ds);
       if (entry) entry.chats = Number(c.count);
     });

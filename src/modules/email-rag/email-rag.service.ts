@@ -229,7 +229,7 @@ export class EmailRagService {
     // 1. 카테고리가 일치하고 지역이 맞는 장소 우선 검색
     const places = await this.prisma.item.findMany({
       where: {
-        type: 'place',
+        category: 'place',
         aiEnabled: true,
         OR: regionFilter ? [
           { region: { contains: regionFilter, mode: 'insensitive' } },
@@ -253,7 +253,7 @@ export class EmailRagService {
     if (places.length < limit && regionFilter) {
       const morePlaces = await this.prisma.item.findMany({
         where: {
-          type: 'place',
+          category: 'place',
           aiEnabled: true,
           OR: [
             { region: { contains: regionFilter, mode: 'insensitive' } },
@@ -574,58 +574,10 @@ export class EmailRagService {
     lap('geminiCall');
     this.logger.log(`[pipeline:gemini] 응답 수신 (${text.length}자)`);
 
-    interface ParsedDraftItem {
-      placeName?: string;
-      placeNameKor?: string;
-      dayNumber?: number;
-      orderIndex?: number;
-      timeOfDay?: string;
-      expectedDurationMins?: number;
-      reason?: string;
-      itemId?: number | null;
-    }
-
-    const parsed = parseJsonResponse<{ items: ParsedDraftItem[] } | null>(
-      text,
-      null,
-    );
-
-    if (!parsed?.items || parsed.items.length === 0) {
-      this.logger.warn('[pipeline:gemini] Gemini 응답에 items 없음 → 종료');
-      return null;
-    }
-
     // ── 8. Gemini 결과 파싱 ──
-    const rawItems: DraftItem[] = parsed.items.map((item, idx) => {
-      // itemId를 숫자로 변환 (Gemini가 문자열로 반환할 수 있음)
-      let itemId: number | undefined;
-      if (item.itemId != null) {
-        const parsedId = Number(item.itemId);
-        itemId = !isNaN(parsedId) && parsedId > 0 ? parsedId : undefined;
-      }
-      return {
-        placeName: item.placeName || `Place ${idx + 1}`,
-        placeNameKor: item.placeNameKor,
-        dayNumber: item.dayNumber || Math.floor(idx / placesPerDay) + 1,
-        orderIndex: item.orderIndex ?? idx % placesPerDay,
-        timeOfDay: item.timeOfDay,
-        expectedDurationMins: item.expectedDurationMins,
-        reason: item.reason || '',
-        itemId,
-      } as any; // Type override since DraftItem doesn't officially support these yet, we will map them via AiEstimateService
-    });
-
-    const geminiMatched = rawItems.filter((i) => i.itemId).length;
-    this.logger.log(
-      `[pipeline:parsed] Gemini 결과 ${rawItems.length}개 장소:\n` +
-        rawItems
-          .map(
-            (item) =>
-              `  Day${item.dayNumber}-${item.orderIndex}: ${item.placeName}${item.placeNameKor ? ` (${item.placeNameKor})` : ''} → ${item.itemId ? `[ID:${item.itemId}]` : 'TBD'} | ${item.reason.slice(0, 50)}`,
-          )
-          .join('\n') +
-        `\n  → Gemini 자체 매칭: ${geminiMatched}/${rawItems.length}개`,
-    );
+    const parseResult = this.parseGeminiDraftResponse(text, placesPerDay);
+    if (!parseResult) return null;
+    const { rawItems, geminiMatched } = parseResult;
 
     // ── 9. 후처리: 미매칭 장소 DB 매칭 ──
     this.logger.log(`[pipeline:postMatch] 후처리 DB 매칭 시작...`);
@@ -673,36 +625,12 @@ export class EmailRagService {
         }`,
     );
 
-    const pipelineLog: PipelineLog = {
-      expandedInterests: expandedInterestsText,
-      searchQuery,
-      vectorSearchResults: rawEmails.map((e) => ({
-        emailThreadId: e.emailThreadId,
-        subject: e.subject,
-        similarity: e.similarity,
-        contentLength: e.content.length,
-      })),
-      reranking: {
-        keywords: rerankResult.keywords,
-        details: rerankResult.details,
-      },
-      selectedEmails: emails.map((e) => ({
-        emailThreadId: e.emailThreadId,
-        subject: e.subject,
-        similarity: e.similarity,
-      })),
-      estimateSearchResults: estimateResults.map((e) => ({
-        estimateId: e.estimateId,
-        title: e.title,
-        similarity: e.similarity,
-      })),
-      availablePlacesCount,
-      geminiPromptLength: prompt.length,
-      geminiResponseLength: text.length,
-      postMatching: matchingDetails,
-      totalTimeMs: elapsed,
-      stepTimings,
-    };
+    const pipelineLog = this.buildPipelineLog({
+      expandedInterestsText, searchQuery, rawEmails, rerankResult,
+      emails, estimateResults, availablePlacesCount,
+      promptLength: prompt.length, textLength: text.length,
+      matchingDetails, elapsed, stepTimings,
+    });
 
     return {
       items,
@@ -963,7 +891,7 @@ export class EmailRagService {
       if (dbCategories.length > 0) {
         results = await this.prisma.item.findMany({
           where: {
-            type: 'place',
+            category: 'place',
             aiEnabled: true,
             AND: [
               regionFilter,
@@ -982,7 +910,7 @@ export class EmailRagService {
       if (results.length < 15) {
         const existIds = new Set(results.map((r) => r.id));
         const fallback = await this.prisma.item.findMany({
-          where: { type: 'place', aiEnabled: true, ...regionFilter },
+          where: { category: 'place', aiEnabled: true, ...regionFilter },
           select,
           take: 50,
         });
@@ -1151,5 +1079,115 @@ export class EmailRagService {
     }
 
     return '';
+  }
+
+  /**
+   * Gemini 응답 JSON → DraftItem[] 파싱
+   */
+  private parseGeminiDraftResponse(
+    text: string,
+    placesPerDay: number,
+  ): { rawItems: DraftItem[]; geminiMatched: number } | null {
+    interface ParsedDraftItem {
+      placeName?: string;
+      placeNameKor?: string;
+      dayNumber?: number;
+      orderIndex?: number;
+      timeOfDay?: string;
+      expectedDurationMins?: number;
+      reason?: string;
+      itemId?: number | null;
+    }
+
+    const parsed = parseJsonResponse<{ items: ParsedDraftItem[] } | null>(
+      text,
+      null,
+    );
+
+    if (!parsed?.items || parsed.items.length === 0) {
+      this.logger.warn('[pipeline:gemini] Gemini 응답에 items 없음 → 종료');
+      return null;
+    }
+
+    const rawItems: DraftItem[] = parsed.items.map((item, idx) => {
+      let itemId: number | undefined;
+      if (item.itemId != null) {
+        const parsedId = Number(item.itemId);
+        itemId = !isNaN(parsedId) && parsedId > 0 ? parsedId : undefined;
+      }
+      return {
+        placeName: item.placeName || `Place ${idx + 1}`,
+        placeNameKor: item.placeNameKor,
+        dayNumber: item.dayNumber || Math.floor(idx / placesPerDay) + 1,
+        orderIndex: item.orderIndex ?? idx % placesPerDay,
+        timeOfDay: item.timeOfDay,
+        expectedDurationMins: item.expectedDurationMins,
+        reason: item.reason || '',
+        itemId,
+      } as any;
+    });
+
+    const geminiMatched = rawItems.filter((i) => i.itemId).length;
+    this.logger.log(
+      `[pipeline:parsed] Gemini 결과 ${rawItems.length}개 장소:\n` +
+        rawItems
+          .map(
+            (item) =>
+              `  Day${item.dayNumber}-${item.orderIndex}: ${item.placeName}${item.placeNameKor ? ` (${item.placeNameKor})` : ''} → ${item.itemId ? `[ID:${item.itemId}]` : 'TBD'} | ${item.reason.slice(0, 50)}`,
+          )
+          .join('\n') +
+        `\n  → Gemini 자체 매칭: ${geminiMatched}/${rawItems.length}개`,
+    );
+
+    return { rawItems, geminiMatched };
+  }
+
+  /**
+   * PipelineLog 객체 조립
+   */
+  private buildPipelineLog(params: {
+    expandedInterestsText: string;
+    searchQuery: string;
+    rawEmails: EmailSearchResult[];
+    rerankResult: { keywords: string[]; details: PipelineLog['reranking']['details'] };
+    emails: EmailSearchResult[];
+    estimateResults: EstimateSearchResult[];
+    availablePlacesCount: number;
+    promptLength: number;
+    textLength: number;
+    matchingDetails: PipelineLog['postMatching'];
+    elapsed: number;
+    stepTimings: NonNullable<PipelineLog['stepTimings']>;
+  }): PipelineLog {
+    return {
+      expandedInterests: params.expandedInterestsText,
+      searchQuery: params.searchQuery,
+      vectorSearchResults: params.rawEmails.map((e) => ({
+        emailThreadId: e.emailThreadId,
+        subject: e.subject,
+        similarity: e.similarity,
+        contentLength: e.content.length,
+      })),
+      reranking: {
+        keywords: params.rerankResult.keywords,
+        details: params.rerankResult.details,
+      },
+      selectedEmails: params.emails.map((e) => ({
+        emailThreadId: e.emailThreadId,
+        subject: e.subject,
+        similarity: e.similarity,
+      })),
+      estimateSearchResults: params.estimateResults.map((e) => ({
+        estimateId: e.estimateId,
+        title: e.title,
+        similarity: e.similarity,
+      })),
+      availablePlacesCount: params.availablePlacesCount,
+      geminiPromptLength: params.promptLength,
+      geminiResponseLength: params.textLength,
+      postMatching: params.matchingDetails,
+      totalTimeMs: params.elapsed,
+      stepTimings: params.stepTimings,
+    };
   }
 }

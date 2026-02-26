@@ -60,8 +60,6 @@ export class FaqService {
         where.OR = [
           { question: { contains: search, mode: 'insensitive' } },
           { questionKo: { contains: search, mode: 'insensitive' } },
-          { answer: { contains: search, mode: 'insensitive' } },
-          { answerKo: { contains: search, mode: 'insensitive' } },
           { tags: { has: search.toLowerCase() } },
         ];
       }
@@ -100,17 +98,15 @@ export class FaqService {
    */
   private async autoEnrichFaq(
     question: string,
-    answer: string,
   ): Promise<{
     questionKo: string;
-    answerKo: string;
     category: string;
     tags: string[];
   } | null> {
     try {
       const built = await this.aiPromptService.buildPrompt(
         PromptKey.FAQ_AUTO_ENRICH,
-        { question, answer },
+        { question },
       );
 
       const result = await this.geminiCore.callGemini(built.text, {
@@ -129,7 +125,6 @@ export class FaqService {
 
       return {
         questionKo: parsed.questionKo || '',
-        answerKo: parsed.answerKo || '',
         category: validCategories.has(parsed.category)
           ? parsed.category
           : 'other',
@@ -145,9 +140,7 @@ export class FaqService {
 
   async createFaq(data: {
     question: string;
-    answer: string;
     questionKo?: string;
-    answerKo?: string;
     tags?: string[];
     category?: string;
     guideline?: string;
@@ -155,22 +148,17 @@ export class FaqService {
     source?: string;
     sourceEmailId?: string;
     sourceEmailSubject?: string;
-    confidence?: number;
     sourceContext?: { questionSource?: string; answerSource?: string };
   }) {
     // 수동 생성 시 누락된 필드 자동 보강 (한국어/카테고리/태그 중 하나라도 없으면)
     const needsEnrich =
       data.source !== 'gmail' &&
-      (!data.questionKo ||
-        !data.answerKo ||
-        !data.category ||
-        !data.tags?.length);
+      (!data.questionKo || !data.category || !data.tags?.length);
 
     if (needsEnrich) {
-      const enriched = await this.autoEnrichFaq(data.question, data.answer);
+      const enriched = await this.autoEnrichFaq(data.question);
       if (enriched) {
         data.questionKo = data.questionKo || enriched.questionKo;
-        data.answerKo = data.answerKo || enriched.answerKo;
         data.category = data.category || enriched.category;
         data.tags = data.tags?.length ? data.tags : enriched.tags;
       }
@@ -179,9 +167,7 @@ export class FaqService {
     const faq = await this.prisma.faq.create({
       data: {
         question: data.question,
-        answer: data.answer,
         questionKo: data.questionKo || null,
-        answerKo: data.answerKo || null,
         tags: data.tags || [],
         category: data.category || null,
         guideline: data.guideline || null,
@@ -189,7 +175,6 @@ export class FaqService {
         source: data.source || 'manual',
         sourceEmailId: data.sourceEmailId,
         sourceEmailSubject: data.sourceEmailSubject,
-        confidence: data.confidence,
         sourceContext: data.sourceContext || undefined,
         status: data.source === 'gmail' ? 'pending' : 'approved',
         approvedAt: data.source === 'gmail' ? undefined : new Date(),
@@ -247,22 +232,16 @@ export class FaqService {
     userId: string,
     updates?: {
       question?: string;
-      answer?: string;
       questionKo?: string;
-      answerKo?: string;
     },
   ) {
     const data: Prisma.FaqUpdateInput = {
       status: 'approved',
       approvedAt: new Date(),
-      approvedBy: userId,
-      rejectionReason: null,
     };
 
     if (updates?.question) data.question = updates.question;
-    if (updates?.answer) data.answer = updates.answer;
     if (updates?.questionKo !== undefined) data.questionKo = updates.questionKo;
-    if (updates?.answerKo !== undefined) data.answerKo = updates.answerKo;
 
     const faq = await this.prisma.faq.update({
       where: { id },
@@ -289,8 +268,6 @@ export class FaqService {
       where: { id },
       data: {
         status: 'rejected',
-        rejectionReason: reason || null,
-        approvedBy: userId,
       },
     });
 
@@ -328,8 +305,6 @@ export class FaqService {
           data: {
             status: 'approved',
             approvedAt: new Date(),
-            approvedBy: userId,
-            rejectionReason: null,
           },
         });
 
@@ -345,8 +320,6 @@ export class FaqService {
         where: { id: { in: ids } },
         data: {
           status: 'rejected',
-          rejectionReason: reason || null,
-          approvedBy: userId,
         },
       });
 
@@ -373,7 +346,6 @@ export class FaqService {
       needsReview,
       approved,
       rejected,
-      fromGmail,
       categoryCounts,
     ] = await Promise.all([
       this.prisma.faq.count(),
@@ -381,7 +353,6 @@ export class FaqService {
       this.prisma.faq.count({ where: { status: 'needs_review' } }),
       this.prisma.faq.count({ where: { status: 'approved' } }),
       this.prisma.faq.count({ where: { status: 'rejected' } }),
-      this.prisma.faq.count({ where: { source: 'gmail' } }),
       this.prisma.faq.groupBy({
         by: ['category'],
         _count: true,
@@ -404,7 +375,6 @@ export class FaqService {
       needsReview,
       approved,
       rejected,
-      fromGmail,
       byCategory,
       uncategorized,
     };
@@ -430,16 +400,11 @@ export class FaqService {
         status: 'pending',
         OR: [{ question: { not: { contains: '          ' } } }],
       },
-      select: { id: true, question: true, answer: true },
+      select: { id: true, question: true },
     });
 
     const lowQualityIds = lowQuality
-      .filter(
-        (f) =>
-          f.question.trim().length < 10 ||
-          f.answer.trim().length < 10 ||
-          f.question.trim().toLowerCase() === f.answer.trim().toLowerCase(),
-      )
+      .filter((f) => f.question.trim().length < 10)
       .map((f) => f.id);
 
     let lowQualityDeleted = 0;
@@ -471,7 +436,6 @@ export class FaqService {
           WHERE LOWER(TRIM(question)) = ${group.lower_q}
           ORDER BY
             CASE WHEN status = 'approved' THEN 0 ELSE 1 END,
-            COALESCE(confidence, 0) DESC,
             id ASC
           LIMIT 1
         `;
@@ -517,8 +481,6 @@ export class FaqService {
         id: number;
         question: string;
         questionKo: string | null;
-        answer: string;
-        answerKo: string | null;
         status: string;
         category: string | null;
       }>;
@@ -603,8 +565,6 @@ export class FaqService {
         id: true,
         question: true,
         questionKo: true,
-        answer: true,
-        answerKo: true,
         status: true,
         category: true,
       },
@@ -621,8 +581,6 @@ export class FaqService {
           id: number;
           question: string;
           questionKo: string | null;
-          answer: string;
-          answerKo: string | null;
           status: string;
           category: string | null;
         }>,

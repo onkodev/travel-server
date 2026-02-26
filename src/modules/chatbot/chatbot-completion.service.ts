@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ForbiddenException,
   InternalServerErrorException,
+  NotFoundException,
   Logger,
 } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
@@ -19,7 +20,8 @@ import {
   chatbotInquiryAdminTemplate,
   modificationRequestTemplate,
 } from '../email/email-templates';
-import { EstimateItem } from '../../common/types';
+import { EstimateItem, EstimateStatusAi, EstimateSource } from '../../common/types';
+import { formatDateKR } from '../../common/utils';
 import { ESTIMATE_EVENTS } from '../../common/events';
 import type { EstimateSentEvent } from '../../common/events';
 import { ChatbotService } from './chatbot.service';
@@ -401,7 +403,7 @@ export class ChatbotCompletionService {
     const flow = await this.chatbotService.getFlow(sessionId);
 
     if (!flow.estimateId) {
-      throw new BadRequestException('Estimate not found.');
+      throw new NotFoundException('Estimate not found.');
     }
 
     // 소유자 검증
@@ -667,7 +669,7 @@ export class ChatbotCompletionService {
     requestContentParts.push(`\n--- 여행 정보 ---`);
     if (flow.travelDate) {
       requestContentParts.push(
-        `[여행일] ${new Date(flow.travelDate).toLocaleDateString('ko-KR')}`,
+        `[여행일] ${formatDateKR(flow.travelDate)}`,
       );
     }
     if (flow.duration) {
@@ -702,8 +704,8 @@ export class ChatbotCompletionService {
     // 견적 생성
     const estimate = await this.estimateService.createEstimate({
       title: estimateTitle,
-      source: 'ai',
-      statusAi: 'draft',
+      source: EstimateSource.AI,
+      statusAi: EstimateStatusAi.DRAFT,
       customerName: flow.customerName ?? undefined,
       customerEmail: flow.customerEmail ?? undefined,
       customerPhone: flow.customerPhone ?? undefined,

@@ -57,7 +57,7 @@ export class ItemController {
     return this.itemService.getItems({
       page: query.page,
       limit: query.limit,
-      type: query.type,
+      category: query.category,
       region: query.region,
       search: query.search,
     });
@@ -73,18 +73,18 @@ export class ItemController {
     return this.itemService.getItemsByIds(body.ids);
   }
 
-  @Get('type/:type')
+  @Get('category/:category')
   @ApiOperation({
-    summary: '타입별 아이템 조회',
-    description: '특정 타입의 모든 아이템을 조회합니다.',
+    summary: '카테고리별 아이템 조회',
+    description: '특정 카테고리의 모든 아이템을 조회합니다.',
   })
   @ApiParam({
-    name: 'type',
-    description: '아이템 타입 (place, accommodation, transportation, contents)',
+    name: 'category',
+    description: '아이템 카테고리 (place, accommodation, transportation, contents)',
   })
   @ApiResponse({ status: 200, description: '조회 성공', type: [ItemDto] })
-  async getItemsByType(@Param('type') type: string) {
-    return this.itemService.getItemsByType(type);
+  async getItemsByCategory(@Param('category') category: string) {
+    return this.itemService.getItemsByCategory(category);
   }
 
   @Get('region/:region')

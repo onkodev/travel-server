@@ -119,7 +119,7 @@ export class PlaceMatcherService {
     });
 
     const dbItems = await this.prisma.item.findMany({
-      where: { type: 'place', aiEnabled: true, OR: orConditions },
+      where: { category: 'place', aiEnabled: true, OR: orConditions },
       select,
     });
 
@@ -229,7 +229,7 @@ export class PlaceMatcherService {
     if (ids.length === 0) return new Map();
 
     const items = await this.prisma.item.findMany({
-      where: { id: { in: ids }, type: 'place', aiEnabled: true },
+      where: { id: { in: ids }, category: 'place', aiEnabled: true },
       select: ITEM_SELECT_FULL,
     });
 
@@ -269,7 +269,7 @@ export class PlaceMatcherService {
     ]);
 
     const dbItems = await this.prisma.item.findMany({
-      where: { type: 'place', aiEnabled: false, OR: orConditions },
+      where: { category: 'place', aiEnabled: false, OR: orConditions },
       select: { nameEng: true, nameKor: true },
     });
 
@@ -304,7 +304,7 @@ export class PlaceMatcherService {
             GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
           FROM items
           CROSS JOIN unnest(${remaining}::text[]) AS query_name
-          WHERE type = 'place'
+          WHERE category = 'place'
             AND ai_enabled = false
             AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > 0.3
           ORDER BY query_name, sim DESC
@@ -361,7 +361,7 @@ export class PlaceMatcherService {
             GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
           FROM items
           CROSS JOIN unnest(${names}::text[]) AS query_name
-          WHERE type = 'place'
+          WHERE category = 'place'
             AND ai_enabled = true
             AND (region ILIKE ${'%' + region + '%'} OR address_english ILIKE ${'%' + region + '%'})
             AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
@@ -388,7 +388,7 @@ export class PlaceMatcherService {
             GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) AS sim
           FROM items
           CROSS JOIN unnest(${names}::text[]) AS query_name
-          WHERE type = 'place'
+          WHERE category = 'place'
             AND ai_enabled = true
             AND GREATEST(similarity(name_eng, query_name), similarity(name_kor, query_name)) > ${threshold}
           ORDER BY query_name, sim DESC

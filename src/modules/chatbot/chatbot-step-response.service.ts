@@ -7,9 +7,9 @@ import {
   ATTRACTIONS,
   BUDGET_RANGES,
   AGE_RANGES,
-  REFERRAL_SOURCES,
 } from './constants/categories';
 import { StepResponseDto } from './dto/step-response.dto';
+import { formatDateISO } from '../../common/utils';
 
 /**
  * 챗봇 스텝별 응답 DTO 생성 서비스
@@ -325,77 +325,6 @@ export class ChatbotStepResponseService {
     };
   }
 
-  // Step 7: 연락처 (레거시)
-  getStep7(flow: {
-    customerName: string | null;
-    customerEmail: string | null;
-    customerPhone: string | null;
-    nationality: string | null;
-    referralSource: string | null;
-    additionalNotes: string | null;
-  }): StepResponseDto {
-    return {
-      step: 7,
-      title: 'Almost done! How can we reach you?',
-      titleKo: '거의 다 됐어요! 연락처를 알려주세요',
-      type: 'form',
-      required: true,
-      fields: [
-        {
-          name: 'customerName',
-          type: 'text',
-          label: 'Your Name',
-          labelKo: '이름',
-          required: true,
-        },
-        {
-          name: 'customerEmail',
-          type: 'email',
-          label: 'Email',
-          labelKo: '이메일',
-          required: true,
-        },
-        {
-          name: 'customerPhone',
-          type: 'tel',
-          label: 'Phone (optional)',
-          labelKo: '전화번호 (선택)',
-        },
-        {
-          name: 'nationality',
-          type: 'text',
-          label: 'Nationality',
-          labelKo: '국적',
-        },
-        {
-          name: 'referralSource',
-          type: 'select',
-          label: 'How did you find us?',
-          labelKo: '어떻게 알게 되셨나요?',
-          options: Object.entries(REFERRAL_SOURCES).map(([value, data]) => ({
-            value,
-            label: data.label,
-            labelKo: data.labelKo,
-          })),
-        },
-        {
-          name: 'additionalNotes',
-          type: 'textarea',
-          label: 'Any special requests?',
-          labelKo: '특별 요청사항',
-        },
-      ],
-      currentValue: {
-        customerName: flow.customerName,
-        customerEmail: flow.customerEmail,
-        customerPhone: flow.customerPhone,
-        nationality: flow.nationality,
-        referralSource: flow.referralSource,
-        additionalNotes: flow.additionalNotes,
-      },
-    };
-  }
-
   /**
    * 챗봇 설문 응답 요약 생성 (이메일 발송용)
    */
@@ -462,7 +391,7 @@ export class ChatbotStepResponseService {
 
     if (flow.travelDate) {
       lines.push(
-        `• Travel Date: ${flow.travelDate.toISOString().split('T')[0]}`,
+        `• Travel Date: ${formatDateISO(flow.travelDate)}`,
       );
     }
 

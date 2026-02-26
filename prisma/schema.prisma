@@ -88,8 +88,7 @@ model Estimate {
 
 model Item {
   id               Int       @id @default(autoincrement())
-  type             String    @db.VarChar(50)
-  category         String?   @db.VarChar(50)
+  category         String    @db.VarChar(50)
   nameKor          String    @map("name_kor") @db.VarChar(255)
   nameEng          String    @map("name_eng") @db.VarChar(255)
   description      String    @default("")
@@ -117,9 +116,8 @@ model Item {
   @@index([nameEng(ops: raw("gin_trgm_ops"))], map: "idx_items_name_eng_trgm", type: Gin)
   @@index([nameKor(ops: raw("gin_trgm_ops"))], map: "idx_items_name_kor_trgm", type: Gin)
   @@index([tourApiContentId], map: "idx_items_tour_api_content_id")
-  @@index([type], map: "idx_items_type")
-  @@index([type, createdAt(sort: Desc)], map: "idx_items_type_created")
   @@index([category], map: "idx_items_category")
+  @@index([category, createdAt(sort: Desc)], map: "idx_items_category_created")
   @@index([area], map: "idx_items_area")
   @@index([categories], map: "idx_items_categories", type: Gin)
   @@index([region], map: "idx_items_region")
@@ -473,24 +471,19 @@ model Contact {
 model Faq {
   id                 Int                    @id @default(autoincrement())
   question           String
-  answer             String
   status             String                 @default("pending") @db.VarChar(20)
   source             String                 @default("manual") @db.VarChar(20)
   sourceEmailId      String?                @map("source_email_id")
   sourceEmailSubject String?                @map("source_email_subject")
-  confidence         Decimal?               @db.Decimal(3, 2)
   tags               String[]
   viewCount          Int                    @default(0) @map("view_count")
   helpfulCount       Int                    @default(0) @map("helpful_count")
   notHelpfulCount    Int                    @default(0) @map("not_helpful_count")
   approvedAt         DateTime?              @map("approved_at") @db.Timestamptz(6)
-  approvedBy         String?                @map("approved_by") @db.Uuid
-  rejectionReason    String?                @map("rejection_reason")
   createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   sourceContext      Json?                  @map("source_context")
   embedding          Unsupported("vector")? @map("embedding")
-  answerKo           String?                @map("answer_ko")
   questionKo         String?                @map("question_ko")
   category           String?                @db.VarChar(30)
   guideline          String?

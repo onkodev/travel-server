@@ -25,10 +25,10 @@ export class ItemDto {
   description?: string;
 
   @ApiProperty({
-    description: '아이템 타입',
+    description: '아이템 카테고리',
     enum: ['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'],
   })
-  type: string;
+  category: string;
 
   @ApiPropertyOptional({ description: '지역' })
   region?: string;
@@ -74,12 +74,12 @@ export class ItemQueryDto extends PaginationQueryDto {
   override limit?: number = 20;
 
   @ApiPropertyOptional({
-    description: '아이템 타입 필터',
+    description: '아이템 카테고리 필터',
     enum: ['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'],
   })
   @IsOptional()
   @IsIn(['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'])
-  type?: string;
+  category?: string;
 
   @ApiPropertyOptional({ description: '지역 필터' })
   @IsOptional()
@@ -95,11 +95,11 @@ export class ItemQueryDto extends PaginationQueryDto {
 
 export class CreateItemDto {
   @ApiProperty({
-    description: '아이템 타입',
+    description: '아이템 카테고리',
     enum: ['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'],
   })
   @IsIn(['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'])
-  type: string;
+  category: string;
 
   @ApiProperty({ description: '한글 이름', example: '서울 남산타워' })
   @IsString()
@@ -199,12 +199,12 @@ export class CreateItemDto {
 
 export class UpdateItemDto {
   @ApiPropertyOptional({
-    description: '아이템 타입',
+    description: '아이템 카테고리',
     enum: ['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'],
   })
   @IsOptional()
   @IsIn(['place', 'accommodation', 'transportation', 'contents', 'service', 'restaurant'])
-  type?: string;
+  category?: string;
 
   @ApiPropertyOptional({ description: '한글 이름' })
   @IsOptional()

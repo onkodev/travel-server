@@ -14,7 +14,6 @@ export enum PromptKey {
   ITEM_CONTENT = 'item_content',
   // conversation
   TRAVEL_ASSISTANT = 'travel_assistant',
-  RANK_RECOMMENDATIONS = 'rank_recommendations',
   // itinerary
   MODIFICATION_INTENT = 'modification_intent',
   SELECT_BEST_ITEM = 'select_best_item',
@@ -207,11 +206,8 @@ Respond ONLY with valid JSON:
   {
     "question": "English Q",
     "questionKo": "Korean Q",
-    "answer": "English A",
-    "answerKo": "Korean A",
     "tags": ["tag1"],
-    "category": "booking",
-    "confidence": 0.9
+    "category": "booking"
   }
 ]`,
   },
@@ -277,29 +273,6 @@ Example:
   }
 }
 \`\`\``,
-  },
-
-  [PromptKey.RANK_RECOMMENDATIONS]: {
-    key: PromptKey.RANK_RECOMMENDATIONS,
-    name: '장소 추천 순위',
-    description:
-      '사용자 질문에 관련된 장소를 DB 아이템 목록에서 선별하여 추천 순위로 반환합니다. 일정 어시스턴트가 장소 관련 질문을 받았을 때 호출됩니다.',
-    category: 'conversation',
-    variables: ['userRequest', 'interests', 'itemList', 'limit'],
-    defaultTemperature: 0.3,
-    defaultMaxOutputTokens: 1024,
-    defaultText: `Rank TOP {{limit}} places matching request.
-
-Request: "{{userRequest}}"
-Interests: {{interests}}
-
-## Candidates
-{{itemList}}
-
-Respond ONLY with valid JSON array:
-[
-  { "id": 123, "name": "Name", "reason": "Match reason" }
-]`,
   },
 
   [PromptKey.MODIFICATION_INTENT]: {
@@ -550,6 +523,7 @@ Guide: {{faqGuideline}}
 - Language: MUST reply ONLY in {{userLanguage}}. (Ignore language of the example).
 - Tone: Friendly, concise.
 - Pricing: Use ranges ($10-20), or contact email.
+- Call to Action: If you need specific details from the user (e.g., dates, group size), ALWAYS instruct them to email 'info@onedaykorea.com' or request a 'Custom Tour'.
 
 Example:
 "Tipping isn't required but appreciated ($10-20)."`,
@@ -559,23 +533,22 @@ Example:
     key: PromptKey.FAQ_AUTO_ENRICH,
     name: 'FAQ 자동 보강',
     description:
-      'FAQ 등록/수정 시 질문과 답변을 분석하여 한국어 번역, 카테고리 분류, 태그 추출을 자동으로 수행합니다.',
+      'FAQ 등록/수정 시 질문을 분석하여 한국어 번역, 카테고리 분류, 태그 추출을 자동으로 수행합니다.',
     category: 'faq',
-    variables: ['question', 'answer'],
+    variables: ['question'],
     defaultTemperature: 0.3,
     defaultMaxOutputTokens: 1024,
-    defaultText: `Analyze FAQ entry. Provide translation, category, tags.
+    defaultText: `Analyze FAQ question. Provide translation, category, tags.
 
 ## FAQ
 Q: {{question}}
-A: {{answer}}
 
 ## Rules
-- Translate naturally (English <-> Korean).
+- Translate question naturally (English <-> Korean).
 - Category: general, booking, tour, payment, transportation, accommodation, visa, other.
 - Tags: 2-5 lowercase English keywords.
 
 Respond ONLY with valid JSON:
-{"questionKo": "한글 질문", "answerKo": "한글 답변", "category": "booking", "tags": ["tag1"]}`,
+{"questionKo": "한글 질문", "category": "booking", "tags": ["tag1"]}`,
   },
 };

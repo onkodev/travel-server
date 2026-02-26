@@ -19,7 +19,7 @@ import {
 // 아이템 목록 조회용 타입
 export interface ItemListItem {
   id: number;
-  type: string;
+  category: string;
   nameKor: string | null;
   nameEng: string | null;
   keyword: string | null;
@@ -44,17 +44,17 @@ export class ItemService {
   async getItems(params: {
     page?: number;
     limit?: number;
-    type?: string;
+    category?: string;
     region?: string;
     search?: string;
   }) {
-    const { page = 1, limit = 20, type, region, search } = params;
+    const { page = 1, limit = 20, category, region, search } = params;
     const skip = calculateSkip(page, limit);
 
     const where: Prisma.ItemWhereInput = {};
 
-    if (type) {
-      where.type = type;
+    if (category) {
+      where.category = category;
     }
 
     if (region) {
@@ -80,7 +80,7 @@ export class ItemService {
         take: limit,
         select: {
           id: true,
-          type: true,
+          category: true,
           nameKor: true,
           nameEng: true,
           description: true,
@@ -132,7 +132,7 @@ export class ItemService {
       where: { id: { in: ids } },
       select: {
         id: true,
-        type: true,
+        category: true,
         nameKor: true,
         nameEng: true,
         description: true,
@@ -159,27 +159,19 @@ export class ItemService {
 
   // 아이템 생성
   async createItem(data: Prisma.ItemCreateInput) {
-    // type → category 동기화
-    if (data.type) {
-      data.category = data.type;
-    }
     const item = await this.prisma.item.create({ data });
-    this.invalidateItemCache(item.type);
+    this.invalidateItemCache(item.category);
     return convertDecimalFields(item);
   }
 
   // 아이템 업데이트
   async updateItem(id: number, data: Prisma.ItemUpdateInput) {
-    // type 변경 시 category 동기화
-    if (data.type) {
-      data.category = data.type;
-    }
     try {
       const item = await this.prisma.item.update({
         where: { id },
         data,
       });
-      this.invalidateItemCache(item.type);
+      this.invalidateItemCache(item.category);
       return convertDecimalFields(item);
     } catch (error) {
       if (
@@ -204,8 +196,7 @@ export class ItemService {
 
     const newItem = await this.prisma.item.create({
       data: {
-        type: original.type,
-        category: original.type, // type → category 동기화
+        category: original.category,
         nameKor: `${original.nameKor} (복사본)`,
         nameEng: `${original.nameEng} (Copy)`,
         description: original.description,
@@ -228,7 +219,7 @@ export class ItemService {
       },
     });
 
-    this.invalidateItemCache(newItem.type);
+    this.invalidateItemCache(newItem.category);
     return convertDecimalFields(newItem);
   }
 
@@ -254,7 +245,7 @@ export class ItemService {
       const item = await this.prisma.item.delete({
         where: { id },
       });
-      this.invalidateItemCache(item.type);
+      this.invalidateItemCache(item.category);
       return { success: true, message: '삭제되었습니다' };
     } catch (error) {
       if (
@@ -271,7 +262,7 @@ export class ItemService {
   async toggleAiEnabled(id: number) {
     const item = await this.prisma.item.findUnique({
       where: { id },
-      select: { aiEnabled: true, type: true },
+      select: { aiEnabled: true, category: true },
     });
     if (!item) {
       throw new NotFoundException('아이템을 찾을 수 없습니다');
@@ -280,22 +271,22 @@ export class ItemService {
       where: { id },
       data: { aiEnabled: !item.aiEnabled },
     });
-    this.invalidateItemCache(updated.type);
+    this.invalidateItemCache(updated.category);
     return convertDecimalFields(updated);
   }
 
   // 타입별 아이템 조회 (캐싱 적용)
-  async getItemsByType(type: string) {
-    const cacheKey = `items_type_${type}`;
+  async getItemsByCategory(category: string) {
+    const cacheKey = `items_category_${category}`;
     const cached = this.cache.get<{ data: ItemListItem[] }>(cacheKey);
     if (cached) return cached;
 
     const items = await this.prisma.item.findMany({
-      where: { type },
+      where: { category },
       orderBy: { nameKor: 'asc' },
       select: {
         id: true,
-        type: true,
+        category: true,
         nameKor: true,
         nameEng: true,
         keyword: true,
@@ -324,7 +315,7 @@ export class ItemService {
       orderBy: { nameKor: 'asc' },
       select: {
         id: true,
-        type: true,
+        category: true,
         nameKor: true,
         nameEng: true,
         keyword: true,
@@ -343,9 +334,9 @@ export class ItemService {
   }
 
   // 선택적 캐시 무효화: 해당 타입과 지역 캐시만 삭제
-  private invalidateItemCache(type?: string) {
-    if (type) {
-      this.cache.delete(`items_type_${type}`);
+  private invalidateItemCache(category?: string | null) {
+    if (category) {
+      this.cache.delete(`items_category_${category}`);
     }
     this.cache.deleteByPrefix('items_region_');
     this.eventEmitter.emit(DASHBOARD_EVENTS.INVALIDATE);
@@ -403,7 +394,7 @@ export class ItemService {
     interests?: string[];
     categories?: string[];
     region?: string;
-    type?: string;
+    category?: string;
     excludeIds?: number[];
     limit?: number;
   }) {
@@ -412,7 +403,7 @@ export class ItemService {
       interests = [],
       categories = [],
       region,
-      type = 'place',
+      category = 'place',
       excludeIds = [],
       limit = 20,
     } = params;
@@ -447,7 +438,7 @@ export class ItemService {
     const regionCondition = getRegionCondition(region);
     // baseWhere에서 OR을 분리하여 AND로 조합할 수 있도록 함
     const baseWhere: Prisma.ItemWhereInput = {
-      type,
+      category,
       aiEnabled: true,
       ...(excludeIds.length > 0 && { id: { notIn: excludeIds } }),
     };
@@ -457,7 +448,7 @@ export class ItemService {
     // 아이템 select 필드 (공통)
     const itemSelect = {
       id: true,
-      type: true,
+      category: true,
       nameKor: true,
       nameEng: true,
       keyword: true,
@@ -529,7 +520,7 @@ export class ItemService {
       // 1-2. pg_trgm 유사도 검색 (fuzzy matching)
       const trigramResults = await this.findByTrigramSimilarity(
         query,
-        type,
+        category,
         excludeIds,
         limit,
       );
@@ -600,7 +591,7 @@ export class ItemService {
    */
   private async findByTrigramSimilarity(
     query: string,
-    type: string,
+    category: string,
     excludeIds: number[],
     limit: number,
   ) {
@@ -613,7 +604,7 @@ export class ItemService {
       const results = await this.prisma.$queryRaw<
         Array<{
           id: number;
-          type: string;
+          category: string;
           nameKor: string;
           nameEng: string;
           keyword: string | null;
@@ -627,7 +618,7 @@ export class ItemService {
         }>
       >`
         SELECT
-          id, type,
+          id, category,
           name_kor AS "nameKor",
           name_eng AS "nameEng",
           keyword, categories, description,
@@ -635,7 +626,7 @@ export class ItemService {
           price::float8 AS price,
           region, area, images
         FROM items
-        WHERE type = ${type}
+        WHERE category = ${category}
           AND ai_enabled = true
           ${excludeClause}
           AND (
@@ -688,7 +679,7 @@ export class ItemService {
     searchTerms.push(...interests);
 
     const where: Prisma.ItemWhereInput = {
-      type: 'place',
+      category: 'place',
       aiEnabled: true,
       ...(excludeIds.length > 0 && { id: { notIn: excludeIds } }),
       ...(region && { region: { contains: region, mode: 'insensitive' } }),

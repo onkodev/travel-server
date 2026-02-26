@@ -10,12 +10,14 @@ import { CACHE_TTL } from '../../common/constants/cache';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
-  normalizeImages,
   extractImageUrls,
   calculateTotalPax,
   jsonCast,
+  formatDateKR,
+  formatDateTimeKR,
+  buildItemInfo,
 } from '../../common/utils';
-import { EstimateItem } from '../../common/types';
+import { EstimateItem, EstimateStatusAi, EstimateSource } from '../../common/types';
 import {
   EmailRagService,
   type PipelineLog,
@@ -27,9 +29,6 @@ import {
   type MatchedItemFull,
   type PlaceMatchResult,
 } from '../item/place-matcher.service';
-
-// Re-export for backward compatibility
-export type { EstimateItem };
 
 function generateItemId(): string {
   return randomUUID();
@@ -555,100 +554,11 @@ export class AiEstimateService {
       if (item) items.push(item);
     }
 
-    // --- 후처리 1: 다른 지역 아이템 제거 (완화됨 - 삭제 대기 및 로깅만 수행) ---
-    const requestedRegion = flow.region?.toLowerCase();
-    if (requestedRegion) {
-      const regionKor = this.REGION_MAP[requestedRegion];
-      const allowedRegions = new Set(
-        [requestedRegion, regionKor]
-          .filter(Boolean)
-          .map((r) => r.toLowerCase()),
-      );
-      items.forEach((item) => {
-        if (item.isTbd || !item.itemId) return;
-        const itemRegion = (item as EstimateItem & { _region?: string })._region;
-        if (!itemRegion) return;
-        if (!allowedRegions.has(itemRegion.toLowerCase())) {
-          this.logger.log(
-            `[postFilter:region] 다른 지역 감지 (유지됨): "${item.itemInfo?.nameKor || item.itemInfo?.nameEng}" (region=${itemRegion}, 요청=${requestedRegion})`,
-          );
-        }
-      });
-    }
-
-    // --- 후처리 2: 중복 itemId 제거 (같은 날짜 내 중복만 제거, 다른 날짜 재방문 허용) ---
-    {
-      const seenItemsPerDay = new Map<number, Set<number>>(); // dayNumber -> itemIds
-      const beforeCount = items.length;
-      items = items.filter((item) => {
-        if (item.isTbd || !item.itemId) return true; // TBD 유지
-
-        const day = item.dayNumber || 1;
-        if (!seenItemsPerDay.has(day)) {
-          seenItemsPerDay.set(day, new Set());
-        }
-
-        const dailySeen = seenItemsPerDay.get(day)!;
-        
-        if (dailySeen.has(item.itemId)) {
-          this.logger.log(
-            `[postFilter:dedup] Day ${day} 중복 제거: "${item.itemInfo?.nameKor || item.itemInfo?.nameEng}" (itemId=${item.itemId})`,
-          );
-          return false;
-        }
-        
-        dailySeen.add(item.itemId);
-        return true;
-      });
-      if (beforeCount > items.length) {
-        this.logger.log(
-          `[postFilter:dedup] ${beforeCount - items.length}개 일자 내 중복 아이템 제거`,
-        );
-      }
-    }
-
-    // --- 후처리 3: aiEnabled=false 아이템이 TBD로 생성된 경우 제외 ---
-    // PlaceMatcherService의 3단계 매칭(exact+partial+fuzzy)으로 disabled 아이템 탐지
-    {
-      const tbdNames = items
-        .filter((i) => i.isTbd && i.name)
-        .map((i) => i.name!);
-      if (tbdNames.length > 0) {
-        const disabledNames =
-          await this.placeMatcher.findDisabledMatches(tbdNames);
-        if (disabledNames.size > 0) {
-          const beforeCount = items.length;
-          items = items.filter((item) => {
-            if (!item.isTbd || !item.name) return true;
-            if (disabledNames.has(item.name)) {
-              this.logger.log(
-                `[postFilter:aiDisabled] 제거: "${item.name}" (AI 추천 비활성화 아이템)`,
-              );
-              return false;
-            }
-            return true;
-          });
-          if (beforeCount > items.length) {
-            this.logger.log(
-              `[postFilter:aiDisabled] ${beforeCount - items.length}개 비활성화 아이템 제거`,
-            );
-          }
-        }
-      }
-    }
-
-    // 후처리 후 orderIndex 재정렬
-    const dayGroups = new Map<number, EstimateItem[]>();
-    for (const item of items) {
-      const day = item.dayNumber;
-      if (!dayGroups.has(day)) dayGroups.set(day, []);
-      dayGroups.get(day)!.push(item);
-    }
-    for (const dayItems of dayGroups.values()) {
-      dayItems.forEach((item, idx) => {
-        item.orderIndex = idx;
-      });
-    }
+    // 후처리 파이프라인
+    this.logRegionMismatches(items, flow.region);
+    items = this.deduplicateByDay(items);
+    items = await this.filterDisabledTbdItems(items);
+    this.reindexOrderByDay(items);
 
     this.logger.log(
       `[convertRagDraftToItems] ${draft.items.length} draft items → ` +
@@ -660,6 +570,116 @@ export class AiEstimateService {
     );
 
     return { items, matchedItems, tbdItems };
+  }
+
+  /**
+   * 후처리: 다른 지역 아이템 감지 로깅 (제거하지 않음)
+   */
+  private logRegionMismatches(
+    items: EstimateItem[],
+    region: string | null,
+  ): void {
+    const requestedRegion = region?.toLowerCase();
+    if (!requestedRegion) return;
+
+    const regionKor = this.REGION_MAP[requestedRegion];
+    const allowedRegions = new Set(
+      [requestedRegion, regionKor]
+        .filter(Boolean)
+        .map((r) => r.toLowerCase()),
+    );
+    for (const item of items) {
+      if (item.isTbd || !item.itemId) continue;
+      const itemRegion = (item as EstimateItem & { _region?: string })._region;
+      if (!itemRegion) continue;
+      if (!allowedRegions.has(itemRegion.toLowerCase())) {
+        this.logger.log(
+          `[postFilter:region] 다른 지역 감지 (유지됨): "${item.itemInfo?.nameKor || item.itemInfo?.nameEng}" (region=${itemRegion}, 요청=${requestedRegion})`,
+        );
+      }
+    }
+  }
+
+  /**
+   * 후처리: 같은 날짜 내 중복 itemId 제거 (다른 날짜 재방문은 허용)
+   */
+  private deduplicateByDay(items: EstimateItem[]): EstimateItem[] {
+    const seenItemsPerDay = new Map<number, Set<number>>();
+    const beforeCount = items.length;
+
+    const filtered = items.filter((item) => {
+      if (item.isTbd || !item.itemId) return true;
+      const day = item.dayNumber || 1;
+      if (!seenItemsPerDay.has(day)) seenItemsPerDay.set(day, new Set());
+      const dailySeen = seenItemsPerDay.get(day)!;
+      if (dailySeen.has(item.itemId)) {
+        this.logger.log(
+          `[postFilter:dedup] Day ${day} 중복 제거: "${item.itemInfo?.nameKor || item.itemInfo?.nameEng}" (itemId=${item.itemId})`,
+        );
+        return false;
+      }
+      dailySeen.add(item.itemId);
+      return true;
+    });
+
+    if (beforeCount > filtered.length) {
+      this.logger.log(
+        `[postFilter:dedup] ${beforeCount - filtered.length}개 일자 내 중복 아이템 제거`,
+      );
+    }
+    return filtered;
+  }
+
+  /**
+   * 후처리: aiEnabled=false 아이템이 TBD로 생성된 경우 제외
+   */
+  private async filterDisabledTbdItems(
+    items: EstimateItem[],
+  ): Promise<EstimateItem[]> {
+    const tbdNames = items
+      .filter((i) => i.isTbd && i.name)
+      .map((i) => i.name!);
+    if (tbdNames.length === 0) return items;
+
+    const disabledNames =
+      await this.placeMatcher.findDisabledMatches(tbdNames);
+    if (disabledNames.size === 0) return items;
+
+    const beforeCount = items.length;
+    const filtered = items.filter((item) => {
+      if (!item.isTbd || !item.name) return true;
+      if (disabledNames.has(item.name)) {
+        this.logger.log(
+          `[postFilter:aiDisabled] 제거: "${item.name}" (AI 추천 비활성화 아이템)`,
+        );
+        return false;
+      }
+      return true;
+    });
+
+    if (beforeCount > filtered.length) {
+      this.logger.log(
+        `[postFilter:aiDisabled] ${beforeCount - filtered.length}개 비활성화 아이템 제거`,
+      );
+    }
+    return filtered;
+  }
+
+  /**
+   * 후처리: 일자별 orderIndex 재정렬
+   */
+  private reindexOrderByDay(items: EstimateItem[]): void {
+    const dayGroups = new Map<number, EstimateItem[]>();
+    for (const item of items) {
+      const day = item.dayNumber;
+      if (!dayGroups.has(day)) dayGroups.set(day, []);
+      dayGroups.get(day)!.push(item);
+    }
+    for (const dayItems of dayGroups.values()) {
+      dayItems.forEach((item, idx) => {
+        item.orderIndex = idx;
+      });
+    }
   }
 
   /**
@@ -693,15 +713,7 @@ export class AiEstimateService {
       unitPrice,
       subtotal: unitPrice * totalPax,
       note: `[${draftItem.timeOfDay || 'Anytime'}${draftItem.expectedDurationMins ? ` - ${draftItem.expectedDurationMins}m` : ''}] ${draftItem.reason}`,
-      itemInfo: {
-        nameKor: dbMatch.nameKor,
-        nameEng: dbMatch.nameEng,
-        descriptionEng: dbMatch.descriptionEng || undefined,
-        images: normalizeImages(dbMatch.images),
-        lat: Number(dbMatch.lat),
-        lng: Number(dbMatch.lng),
-        addressEnglish: dbMatch.addressEnglish || undefined,
-      },
+      itemInfo: buildItemInfo(dbMatch),
     };
     // 후처리 지역 필터용 (DB 저장 시 제거됨)
     if (dbMatch.region) item._region = dbMatch.region;
@@ -737,7 +749,7 @@ export class AiEstimateService {
       : {};
     const attractionItems = await this.prisma.item.findMany({
       where: {
-        type: 'place',
+        category: 'place',
         aiEnabled: true,
         ...regionFilter,
         OR: flow.attractions.map((name) => ({
@@ -804,15 +816,7 @@ export class AiEstimateService {
         quantity: totalPax,
         unitPrice,
         subtotal: unitPrice * totalPax,
-        itemInfo: {
-          nameKor: attraction.nameKor,
-          nameEng: attraction.nameEng,
-          descriptionEng: attraction.descriptionEng || undefined,
-          images: normalizeImages(attraction.images),
-          lat: Number(attraction.lat),
-          lng: Number(attraction.lng),
-          addressEnglish: attraction.addressEnglish || undefined,
-        },
+        itemInfo: buildItemInfo(attraction),
       });
 
       existingItemIds.add(attraction.id);
@@ -1012,8 +1016,8 @@ export class AiEstimateService {
         customerEmail: flow.customerEmail,
         customerPhone: flow.customerPhone,
         nationality: flow.nationality,
-        source: 'ai',
-        statusAi: 'draft',
+        source: EstimateSource.AI,
+        statusAi: EstimateStatusAi.DRAFT,
         chatSessionId: flow.sessionId,
         shareHash,
         internalMemo,
@@ -1050,7 +1054,7 @@ export class AiEstimateService {
 
     lines.push('══════════════ AI 견적 생성 리포트 ══════════════');
     lines.push('');
-    lines.push(`📅 생성 시간: ${new Date().toLocaleString('ko-KR')}`);
+    lines.push(`📅 생성 시간: ${formatDateTimeKR()}`);
     lines.push(
       `🔧 생성 소스: ${extra?.generationSource === 'rag' ? 'Email RAG' : 'TBD (수동 필요)'}`,
     );
@@ -1105,7 +1109,7 @@ export class AiEstimateService {
 
     if (flow.travelDate) {
       lines.push(
-        `여행 날짜: ${new Date(flow.travelDate).toLocaleDateString('ko-KR')}`,
+        `여행 날짜: ${formatDateKR(flow.travelDate)}`,
       );
     }
 

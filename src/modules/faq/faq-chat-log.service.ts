@@ -235,4 +235,14 @@ export class FaqChatLogService {
     this.cache.set(cacheKey, result, CACHE_TTL.FAQ_CHAT_STATS);
     return result;
   }
+
+  async deleteChatLogs(ids: number[]) {
+    const { count } = await this.prisma.faqChatLog.deleteMany({
+      where: { id: { in: ids } },
+    });
+
+    this.cache.clear();
+
+    return { deleted: count };
+  }
 }

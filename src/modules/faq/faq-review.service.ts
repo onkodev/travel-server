@@ -50,10 +50,7 @@ export class FaqReviewService {
       select: {
         id: true,
         question: true,
-        answer: true,
         questionKo: true,
-        answerKo: true,
-        confidence: true,
         category: true,
         source: true,
       },
@@ -97,16 +94,8 @@ export class FaqReviewService {
       } else {
         await this.prisma.faq.updateMany({
           where: { id: { in: rejectIds } },
-          data: { status: 'rejected', approvedBy: userId },
+          data: { status: 'rejected' },
         });
-        for (const { id, reason } of autoReject) {
-          this.prisma.faq
-            .update({
-              where: { id },
-              data: { rejectionReason: `[Rule] ${reason}` },
-            })
-            .catch(() => {});
-        }
         this.faqEmbeddingService
           .cleanupBulkEmailRawData(rejectIds)
           .catch((err) => this.logger.error('룰 거절 rawData 정리 실패:', err));
@@ -124,14 +113,6 @@ export class FaqReviewService {
           where: { id: { in: reviewIds } },
           data: { status: 'needs_review' },
         });
-        for (const { id, reason } of autoReview) {
-          this.prisma.faq
-            .update({
-              where: { id },
-              data: { rejectionReason: `[Rule] ${reason}` },
-            })
-            .catch(() => {});
-        }
       }
     }
 
@@ -176,8 +157,6 @@ export class FaqReviewService {
               data: {
                 status: 'approved',
                 approvedAt: new Date(),
-                approvedBy: userId,
-                rejectionReason: null,
               },
             });
             this.faqEmbeddingService
@@ -190,16 +169,8 @@ export class FaqReviewService {
           if (rejectIds.length > 0) {
             await this.prisma.faq.updateMany({
               where: { id: { in: rejectIds } },
-              data: { status: 'rejected', approvedBy: userId },
+              data: { status: 'rejected' },
             });
-            for (const [faqId, reason] of rejectReasons) {
-              this.prisma.faq
-                .update({
-                  where: { id: faqId },
-                  data: { rejectionReason: reason },
-                })
-                .catch(() => {});
-            }
             this.faqEmbeddingService
               .cleanupBulkEmailRawData(rejectIds)
               .catch((err) =>
@@ -212,14 +183,6 @@ export class FaqReviewService {
               where: { id: { in: reviewIds } },
               data: { status: 'needs_review' },
             });
-            for (const [faqId, reason] of reviewReasons) {
-              this.prisma.faq
-                .update({
-                  where: { id: faqId },
-                  data: { rejectionReason: `[AI] ${reason}` },
-                })
-                .catch(() => {});
-            }
           }
         }
       } catch (error) {
@@ -257,10 +220,7 @@ export class FaqReviewService {
     faqs: Array<{
       id: number;
       question: string;
-      answer: string;
       questionKo: string | null;
-      answerKo: string | null;
-      confidence: any;
       category: string | null;
       source: string;
     }>,
@@ -271,8 +231,6 @@ export class FaqReviewService {
   } {
     const GREETING_PATTERN =
       /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|bye|good|sure|great|nice|wow|cool|haha|lol|hmm)\b/i;
-    const INCOMPLETE_ANSWER_PATTERN =
-      /\b(I'll check|Let me get back|I will confirm|I'll get back|I will check|I'll confirm|let me check|let me confirm|I need to check|I will get back)\b/i;
     const PERSONAL_QUESTION_PATTERN =
       /\b(my tour|my guide|my booking|my pickup|my reservation|my itinerary|my schedule|my hotel|my flight|my driver|my transfer)\b/i;
     const SPECIFIC_DATE_PATTERN =
@@ -289,14 +247,13 @@ export class FaqReviewService {
 
     for (const faq of faqs) {
       const q = faq.question.trim();
-      const a = faq.answer.trim();
 
       // 자동 REJECT 룰
-      if (a.length < 20) {
+      if (q.length < 10) {
         autoReject.push({
           id: faq.id,
           decision: 'reject',
-          reason: 'Answer too short (< 20 chars)',
+          reason: 'Question too short (< 10 chars)',
         });
         continue;
       }
@@ -306,15 +263,6 @@ export class FaqReviewService {
           id: faq.id,
           decision: 'reject',
           reason: 'Question is greeting/acknowledgment',
-        });
-        continue;
-      }
-
-      if (INCOMPLETE_ANSWER_PATTERN.test(a)) {
-        autoReject.push({
-          id: faq.id,
-          decision: 'reject',
-          reason: 'Answer is incomplete/deferred response',
         });
         continue;
       }
@@ -329,7 +277,7 @@ export class FaqReviewService {
       }
 
       // 자동 REVIEW 룰
-      if (SPECIFIC_DATE_PATTERN.test(a) || YEAR_PATTERN.test(a)) {
+      if (SPECIFIC_DATE_PATTERN.test(q) || YEAR_PATTERN.test(q)) {
         autoReview.push({
           id: faq.id,
           decision: 'review',
@@ -338,7 +286,7 @@ export class FaqReviewService {
         continue;
       }
 
-      if (PHONE_PATTERN.test(a)) {
+      if (PHONE_PATTERN.test(q)) {
         autoReview.push({
           id: faq.id,
           decision: 'review',
@@ -347,7 +295,7 @@ export class FaqReviewService {
         continue;
       }
 
-      if (CUSTOMER_NAME_PATTERN.test(a)) {
+      if (CUSTOMER_NAME_PATTERN.test(q)) {
         autoReview.push({
           id: faq.id,
           decision: 'review',
@@ -367,10 +315,7 @@ export class FaqReviewService {
     faqs: Array<{
       id: number;
       question: string;
-      answer: string;
       questionKo: string | null;
-      answerKo: string | null;
-      confidence: any;
       category: string | null;
       source: string;
     }>,
@@ -401,10 +346,7 @@ export class FaqReviewService {
     faqs: Array<{
       id: number;
       question: string;
-      answer: string;
       questionKo: string | null;
-      answerKo: string | null;
-      confidence: any;
       category: string | null;
       source: string;
     }>,
@@ -418,9 +360,7 @@ export class FaqReviewService {
     const faqListText = faqs
       .map((f) => {
         const q = f.question;
-        const a =
-          f.answer.length > 300 ? f.answer.substring(0, 300) + '...' : f.answer;
-        return `id=${f.id}\nQ: ${q}\nA: ${a}`;
+        return `id=${f.id}\nQ: ${q}`;
       })
       .join('\n---\n');
 

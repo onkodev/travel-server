@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
-import { isValidUUID } from '../../common/utils';
+import { isValidUUID, formatDateISO } from '../../common/utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ESTIMATE_STATUS } from '../estimate/dto';
 import { ChatbotStepResponseService } from './chatbot-step-response.service';
@@ -275,10 +275,8 @@ export class ChatbotService {
         return this.stepResponseService.getStep5(flow);
       case 6:
         return this.stepResponseService.getStep6(flow);
-      case 7:
-        return this.stepResponseService.getStep7(flow);
       default:
-        throw new NotFoundException('Invalid step.');
+        throw new BadRequestException('Invalid step.');
     }
   }
 
@@ -397,7 +395,7 @@ export class ChatbotService {
     await this.validateSessionExists(sessionId);
 
     // 여행 날짜가 오늘 이후인지 검증 (YYYY-MM-DD 문자열 비교로 타임존 이슈 방지)
-    const todayStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const todayStr = formatDateISO(new Date()); // YYYY-MM-DD
     if (dto.travelDate < todayStr) {
       throw new BadRequestException(
         'Travel date must be today or in the future.',
@@ -455,7 +453,7 @@ export class ChatbotService {
 
     const placeItems = await this.prisma.item.findMany({
       where: {
-        type: 'place',
+        category: 'place',
         nameEng: { in: attractionNames },
       },
       select: {
@@ -517,7 +515,7 @@ export class ChatbotService {
       })) as Array<{ value: string } & T[keyof T]>;
 
     return {
-      aiEnabled: this.configService.get('ENABLE_AI_ESTIMATE') === 'true',
+      aiEnabled: true,
       tourTypes: toArray(TOUR_TYPES),
       interestMain: toArray(INTEREST_MAIN),
       interestSub: toArray(INTEREST_SUB),
@@ -620,10 +618,10 @@ export class ChatbotService {
 
     // 견적 필터: estimateStatus 우선, 없으면 hasEstimate 적용
     if (estimateStatus) {
+      // ID 기반 필터 (take 제한 없이 전체 조회)
       const matchingEstimates = await this.prisma.estimate.findMany({
         where: { statusAi: estimateStatus },
         select: { id: true },
-        take: 1000,
       });
       const matchingIds = matchingEstimates.map((e) => e.id);
       if (matchingIds.length === 0) {

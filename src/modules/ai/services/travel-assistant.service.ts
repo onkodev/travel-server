@@ -1,16 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GeminiCoreService } from '../core/gemini-core.service';
-import {
-  parseJsonResponse,
-  extractJsonAndText,
-} from '../core/response-parser.util';
+import { extractJsonAndText } from '../core/response-parser.util';
 import {
   buildContextInfo,
   TravelAssistantContext,
 } from '../prompts/conversation.prompts';
 import { AiPromptService } from '../../ai-prompt/ai-prompt.service';
 import { PromptKey } from '../../ai-prompt/prompt-registry';
-import { AvailableItem } from '../types';
 
 export interface ChatResponse {
   response: string;
@@ -21,12 +17,6 @@ export interface ChatResponse {
     itemName?: string;
     category?: string;
   };
-}
-
-export interface RankedItem {
-  id: number;
-  name: string;
-  reason: string;
 }
 
 @Injectable()
@@ -88,40 +78,5 @@ export class TravelAssistantService {
     }
 
     return { response, intent, modificationData };
-  }
-
-  async rankRecommendations(params: {
-    availableItems: AvailableItem[];
-    userRequest: string;
-    interests: string[];
-    limit: number;
-  }): Promise<RankedItem[]> {
-    const { availableItems, userRequest, interests, limit } = params;
-
-    if (availableItems.length === 0) return [];
-
-    const itemList = availableItems
-      .map(
-        (i) =>
-          `[ID:${i.id}] ${i.nameEng}${i.keyword ? ` | ${i.keyword}` : ''}${i.descriptionEng ? ` | ${i.descriptionEng.slice(0, 100)}` : ''}`,
-      )
-      .join('\n');
-
-    const built = await this.aiPromptService.buildPrompt(
-      PromptKey.RANK_RECOMMENDATIONS,
-      {
-        itemList,
-        userRequest,
-        interests: interests.join(', '),
-        limit: String(limit),
-      },
-    );
-
-    const text = await this.geminiCore.callGemini(built.text, {
-      temperature: built.temperature,
-      maxOutputTokens: built.maxOutputTokens,
-    });
-
-    return parseJsonResponse(text, []);
   }
 }

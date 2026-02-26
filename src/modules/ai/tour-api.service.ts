@@ -14,7 +14,7 @@ export interface TourAPISearchItem {
   lng: number;
   thumbnail?: string;
   tel?: string;
-  type: string;
+  category: string;
   exists: boolean;
 }
 
@@ -201,6 +201,9 @@ export class TourApiService {
       pageNo: pageNo.toString(),
     });
 
+    if (areaCode) searchParams.append('areaCode', areaCode);
+    if (contentTypeId) searchParams.append('contentTypeId', contentTypeId);
+
     let apiUrl: string;
     if (keyword) {
       searchParams.append('keyword', keyword);
@@ -208,9 +211,6 @@ export class TourApiService {
     } else {
       apiUrl = `${this.baseUrlKor}/areaBasedList2?${searchParams}`;
     }
-
-    if (areaCode) searchParams.append('areaCode', areaCode);
-    if (contentTypeId) searchParams.append('contentTypeId', contentTypeId);
 
     try {
       const response = await fetch(apiUrl);
@@ -286,7 +286,7 @@ export class TourApiService {
           lng,
           thumbnail: korItem.firstimage || korItem.firstimage2,
           tel: korItem.tel,
-          type: CONTENT_TYPE_MAP[korItem.contenttypeid] || 'place',
+          category: CONTENT_TYPE_MAP[korItem.contenttypeid] || 'place',
           exists: existingSet.has(korItem.contentid),
         };
       }),
@@ -332,8 +332,7 @@ export class TourApiService {
         tourApiContentId: itemData.contentId,
         nameKor: itemData.title,
         nameEng: itemData.titleEng || itemData.title,
-        type: itemData.type,
-        category: itemData.type, // type → category 동기화
+        category: itemData.category,
         address: itemData.address,
         addressEnglish: itemData.addressEng,
         lat: itemData.lat,

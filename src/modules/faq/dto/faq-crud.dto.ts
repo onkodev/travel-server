@@ -21,22 +21,11 @@ export class CreateFaqDto {
   @MaxLength(500)
   question: string;
 
-  @ApiProperty({ description: '답변 (영어)' })
-  @IsString()
-  @MaxLength(5000)
-  answer: string;
-
   @ApiPropertyOptional({ description: '질문 (한국어)' })
   @IsOptional()
   @IsString()
   @MaxLength(500)
   questionKo?: string;
-
-  @ApiPropertyOptional({ description: '답변 (한국어)' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(5000)
-  answerKo?: string;
 
   @ApiPropertyOptional({ description: '태그' })
   @IsOptional()
@@ -69,23 +58,11 @@ export class UpdateFaqDto {
   @MaxLength(500)
   question?: string;
 
-  @ApiPropertyOptional({ description: '답변 (영어)' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(5000)
-  answer?: string;
-
   @ApiPropertyOptional({ description: '질문 (한국어)' })
   @IsOptional()
   @IsString()
   @MaxLength(500)
   questionKo?: string;
-
-  @ApiPropertyOptional({ description: '답변 (한국어)' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(5000)
-  answerKo?: string;
 
   @ApiPropertyOptional({ description: '태그' })
   @IsOptional()
@@ -118,23 +95,11 @@ export class ApproveFaqDto {
   @MaxLength(500)
   question?: string;
 
-  @ApiPropertyOptional({ description: '승인 시 답변 수정 (영어)' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(5000)
-  answer?: string;
-
   @ApiPropertyOptional({ description: '승인 시 질문 수정 (한국어)' })
   @IsOptional()
   @IsString()
   @MaxLength(500)
   questionKo?: string;
-
-  @ApiPropertyOptional({ description: '승인 시 답변 수정 (한국어)' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(5000)
-  answerKo?: string;
 }
 
 export class RejectFaqDto {

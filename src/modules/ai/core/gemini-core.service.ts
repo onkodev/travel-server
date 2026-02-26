@@ -40,7 +40,7 @@ export class GeminiCoreService {
     }
 
     const model = options?.model || GeminiCoreService.DEFAULT_MODEL;
-    const apiUrl = `${GeminiCoreService.API_BASE}/${model}:generateContent?key=${this.apiKey}`;
+    const apiUrl = `${GeminiCoreService.API_BASE}/${model}:generateContent`;
 
     const generationConfig: Record<string, unknown> = {
       temperature: options?.temperature ?? 0.7,
@@ -69,7 +69,10 @@ export class GeminiCoreService {
       try {
         const response = await fetch(apiUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': this.apiKey,
+          },
           body: JSON.stringify(body),
           signal: options?.signal,
         });

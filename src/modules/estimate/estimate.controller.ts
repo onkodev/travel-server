@@ -83,7 +83,6 @@ export class EstimateController {
     type: EstimateListResponseDto,
   })
   async getEstimates(@Query() query: EstimateListQueryDto) {
-    console.log('[SORT] query.sortBy=', query.sortBy, 'query.sortOrder=', query.sortOrder);
     return this.estimateService.getEstimates({
       page: query.page,
       limit: query.limit,

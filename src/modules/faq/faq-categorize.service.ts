@@ -139,9 +139,7 @@ export class FaqCategorizeService {
         select: {
           id: true,
           question: true,
-          answer: true,
           questionKo: true,
-          answerKo: true,
         },
       });
 
@@ -168,9 +166,7 @@ export class FaqCategorizeService {
       select: {
         id: true,
         question: true,
-        answer: true,
         questionKo: true,
-        answerKo: true,
       },
       orderBy: { id: 'asc' },
     });
@@ -218,9 +214,7 @@ export class FaqCategorizeService {
     faqs: Array<{
       id: number;
       question: string;
-      answer: string;
       questionKo: string | null;
-      answerKo: string | null;
     }>,
   ): Promise<Array<{ id: number; category: string }>> {
     const categories = [
@@ -255,7 +249,14 @@ export class FaqCategorizeService {
       .replace(/```json?\n?/g, '')
       .replace(/```/g, '')
       .trim();
-    const parsed: Array<{ id: number; category: string }> = JSON.parse(jsonStr);
+
+    let parsed: Array<{ id: number; category: string }>;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (e) {
+      this.logger.error(`카테고리 분류 JSON 파싱 실패: ${jsonStr.substring(0, 200)}`, e);
+      return [];
+    }
 
     const validSet = new Set(FaqCategorizeService.VALID_CATEGORIES);
 

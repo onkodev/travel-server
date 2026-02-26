@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
+import { formatDateKST } from '../../common/utils';
 
 @Injectable()
 export class EstimateSchedulerService {
@@ -18,10 +19,7 @@ export class EstimateSchedulerService {
     this.logger.log('견적 상태 자동 업데이트 시작...');
 
     // KST 기준 날짜를 UTC로 변환하여 비교
-    const now = new Date();
-    const kstDateStr = now.toLocaleDateString('en-CA', {
-      timeZone: 'Asia/Seoul',
-    });
+    const kstDateStr = formatDateKST();
     const today = new Date(kstDateStr + 'T00:00:00Z');
 
     try {

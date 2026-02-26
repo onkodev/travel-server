@@ -2,7 +2,6 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GmailService, GmailThread, GmailMessage } from './gmail.service';
-import { FaqAiService, ExtractedFaqItem } from '../ai/services/faq-ai.service';
 import { FaqEmbeddingService } from '../faq/faq-embedding.service';
 import { EmailEmbeddingService } from '../email-rag/email-embedding.service';
 
@@ -11,7 +10,6 @@ interface SyncProgress {
   target: number;
   fetched: number;
   processed: number;
-  extracted: number;
   skipped: number;
   failed: number;
   startedAt: string;
@@ -41,7 +39,6 @@ export class GmailSyncService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private gmailService: GmailService,
-    private faqAiService: FaqAiService,
     private faqEmbeddingService: FaqEmbeddingService,
     private emailEmbeddingService: EmailEmbeddingService,
   ) {}
@@ -93,15 +90,13 @@ export class GmailSyncService implements OnModuleInit {
       }
 
       // 실제 DB 카운트로 덮어쓰기 (러닝 카운터는 부정확할 수 있음)
-      const [actualProcessed, actualExtracted] = await Promise.all([
-        this.prisma.emailThread.count({ where: { isProcessed: true } }),
-        this.prisma.faq.count({ where: { source: 'gmail' } }),
-      ]);
+      const actualProcessed = await this.prisma.emailThread.count({
+        where: { isProcessed: true },
+      });
 
       return {
         ...syncState,
         totalProcessed: actualProcessed,
-        totalExtracted: actualExtracted,
       };
     }
 
@@ -217,7 +212,6 @@ export class GmailSyncService implements OnModuleInit {
         target: targetCount || 0, // 0 = 전체
         fetched: 0,
         processed: 0,
-        extracted: 0,
         skipped: 0,
         failed: 0,
         startedAt: new Date().toISOString(),
@@ -286,7 +280,6 @@ export class GmailSyncService implements OnModuleInit {
       target: targetCount,
       fetched: 0,
       processed: 0,
-      extracted: 0,
       skipped: 0,
       failed: 0,
       startedAt: new Date().toISOString(),
@@ -372,19 +365,11 @@ export class GmailSyncService implements OnModuleInit {
           for (const result of results) {
             if (result.skipped) progress.skipped++;
             else if (result.failed) progress.failed++;
-            else {
-              progress.processed++;
-              progress.extracted += result.extractedCount;
-            }
+            else progress.processed++;
           }
 
           // 매 배치마다 progress 저장 (UI 실시간 반영)
           await this.updateProgress(accountEmail, progress);
-
-          // Gemini API 레이트 리밋 방지 (배치 간 딜레이)
-          if (i + PROCESS_CONCURRENCY < threads.length) {
-            await this.delay(2000);
-          }
         }
 
         // 페이지 완료 — pageToken 저장 (서버 재시작 시 이어서 가능)
@@ -397,7 +382,7 @@ export class GmailSyncService implements OnModuleInit {
         });
 
         this.logger.log(
-          `페이지 처리 완료: ${progress.processed} 처리, ${progress.extracted} FAQ, ${progress.skipped} 건너뜀`,
+          `페이지 처리 완료: ${progress.processed} 처리, ${progress.skipped} 건너뜀`,
         );
 
         if (!nextPageToken || threads.length === 0) break;
@@ -408,7 +393,7 @@ export class GmailSyncService implements OnModuleInit {
 
       if (this.shouldStop) {
         this.logger.warn(
-          `동기화 중지됨: ${progress.processed} 처리, ${progress.extracted} FAQ 추출 (중간 저장됨, 다음 실행 시 이어서 가능)`,
+          `동기화 중지됨: ${progress.processed} 처리 (중간 저장됨, 다음 실행 시 이어서 가능)`,
         );
         await this.prisma.gmailSyncState.update({
           where: { accountEmail },
@@ -416,7 +401,6 @@ export class GmailSyncService implements OnModuleInit {
             syncStatus: 'idle',
             nextPageToken: nextPageToken || null,
             totalProcessed: { increment: progress.processed },
-            totalExtracted: { increment: progress.extracted },
             syncProgress: {
               ...progress,
               status: 'completed',
@@ -433,7 +417,7 @@ export class GmailSyncService implements OnModuleInit {
       }
 
       this.logger.log(
-        `Gmail 처리 완료: ${progress.processed} 처리, ${progress.extracted} FAQ 추출, ${progress.skipped} 건너뜀`,
+        `Gmail 처리 완료: ${progress.processed} 처리, ${progress.skipped} 건너뜀`,
       );
 
       // DB에 있지만 미처리된 스레드 처리
@@ -455,14 +439,13 @@ export class GmailSyncService implements OnModuleInit {
           nextPageToken: nextPageToken || null,
           fullScanCompleted: isFullScanDone ? true : undefined,
           totalProcessed: { increment: progress.processed },
-          totalExtracted: { increment: progress.extracted },
           syncProgress: completedProgress as unknown as Prisma.InputJsonValue,
           lastError: null,
         },
       });
 
       this.logger.log(
-        `동기화 완료: ${progress.processed} 처리, ${progress.extracted} FAQ 추출, ${progress.skipped} 건너뜀` +
+        `동기화 완료: ${progress.processed} 처리, ${progress.skipped} 건너뜀` +
           (isFullScanDone
             ? ' (전체 스캔 완료!)'
             : ' (이어서 가져올 이메일 있음)'),
@@ -521,9 +504,8 @@ export class GmailSyncService implements OnModuleInit {
 
   private async processThread(
     thread: GmailThread,
-    accountEmail: string,
+    _accountEmail: string,
   ): Promise<{
-    extractedCount: number;
     skipped: boolean;
     failed: boolean;
   }> {
@@ -533,7 +515,7 @@ export class GmailSyncService implements OnModuleInit {
     });
 
     if (existing?.isProcessed) {
-      return { extractedCount: 0, skipped: true, failed: false };
+      return { skipped: true, failed: false };
     }
 
     // 기존 레코드가 있으면 원자적으로 isProcessed를 선점 (TOCTOU 방지)
@@ -543,26 +525,22 @@ export class GmailSyncService implements OnModuleInit {
         data: { isProcessed: true },
       });
       if (claimed.count === 0) {
-        // 다른 워커가 이미 처리 중
-        return { extractedCount: 0, skipped: true, failed: false };
+        return { skipped: true, failed: false };
       }
-      // 처리 후 isProcessed는 아래에서 다시 업데이트됨 (extractedFaqCount 포함)
     }
 
-    // 고객 문의 + 답변이 모두 있는지 확인 (한쪽만 있으면 FAQ 추출 불가)
-    const emailLower = accountEmail.toLowerCase();
-    const hasCustomerMsg = thread.messages.some(
-      (msg) => !msg.from.toLowerCase().includes(emailLower),
-    );
-    const hasStaffReply = thread.messages.some((msg) =>
-      msg.from.toLowerCase().includes(emailLower),
-    );
-
-    if (!hasCustomerMsg || !hasStaffReply) {
-      // 문의+답변 쌍이 없음 → 저장만 하고 건너뜀
+    // 스레드 저장/업데이트
+    try {
       await this.prisma.emailThread.upsert({
         where: { gmailThreadId: thread.id },
-        update: { isProcessed: true, extractedFaqCount: 0 },
+        update: {
+          subject: thread.subject,
+          fromEmail: thread.from,
+          lastMessageAt: this.safeDate(thread.lastMessageAt),
+          messageCount: thread.messageCount,
+          rawData: JSON.parse(JSON.stringify(thread.messages)),
+          isProcessed: true,
+        },
         create: {
           gmailThreadId: thread.id,
           subject: thread.subject,
@@ -571,128 +549,14 @@ export class GmailSyncService implements OnModuleInit {
           messageCount: thread.messageCount,
           rawData: JSON.parse(JSON.stringify(thread.messages)),
           isProcessed: true,
-          extractedFaqCount: 0,
         },
-      });
-      return { extractedCount: 0, skipped: true, failed: false };
-    }
-
-    // 스레드 저장/업데이트
-    const emailThread = await this.prisma.emailThread.upsert({
-      where: { gmailThreadId: thread.id },
-      update: {
-        subject: thread.subject,
-        fromEmail: thread.from,
-        lastMessageAt: this.safeDate(thread.lastMessageAt),
-        messageCount: thread.messageCount,
-        rawData: JSON.parse(JSON.stringify(thread.messages)),
-      },
-      create: {
-        gmailThreadId: thread.id,
-        subject: thread.subject,
-        fromEmail: thread.from,
-        lastMessageAt: this.safeDate(thread.lastMessageAt),
-        messageCount: thread.messageCount,
-        rawData: JSON.parse(JSON.stringify(thread.messages)),
-      },
-    });
-
-    // 이메일 본문 합치기 (최대 길이 제한)
-    const emailBody = thread.messages
-      .map((msg) => `[From: ${msg.from}]\n[Date: ${msg.date}]\n${msg.body}`)
-      .join('\n\n---\n\n')
-      .substring(0, 10000);
-
-    // AI로 FAQ 추출
-    let extractedFaqs: ExtractedFaqItem[] = [];
-    try {
-      extractedFaqs = await this.faqAiService.extractFaqFromEmail({
-        subject: thread.subject,
-        emailBody,
       });
     } catch (error) {
-      this.logger.error(`스레드 ${thread.id} FAQ 추출 실패:`, error);
-
-      await this.prisma.emailThread.update({
-        where: { id: emailThread.id },
-        data: {
-          isProcessed: true,
-          processingError:
-            error instanceof Error ? error.message : 'AI extraction failed',
-        },
-      });
-
-      return { extractedCount: 0, skipped: false, failed: true };
+      this.logger.error(`스레드 ${thread.id} 저장 실패:`, error);
+      return { skipped: false, failed: true };
     }
 
-    // 추출된 FAQ를 DB에 저장 (status: pending) — 중복 체크 후 일괄 삽입
-    const nonDuplicateFaqs: ExtractedFaqItem[] = [];
-    if (extractedFaqs.length > 0) {
-      // 중복 체크: similarity >= 0.9 인 기존 FAQ가 있으면 skip
-      for (const faq of extractedFaqs) {
-        try {
-          const { hasDuplicate } =
-            await this.faqEmbeddingService.checkDuplicates(faq.question, 0.9);
-          if (hasDuplicate) {
-            this.logger.debug(
-              `중복 FAQ 건너뜀: "${faq.question.substring(0, 50)}..."`,
-            );
-            continue;
-          }
-        } catch {
-          // 중복 체크 실패 시 FAQ는 그대로 저장
-        }
-        nonDuplicateFaqs.push(faq);
-      }
-
-      if (nonDuplicateFaqs.length < extractedFaqs.length) {
-        this.logger.log(
-          `중복 제거: ${extractedFaqs.length}건 중 ${extractedFaqs.length - nonDuplicateFaqs.length}건 건너뜀`,
-        );
-      }
-
-      if (nonDuplicateFaqs.length > 0) {
-        await this.prisma.faq.createMany({
-          data: nonDuplicateFaqs.map((faq) => ({
-            question: faq.question,
-            answer: '-',
-            questionKo: faq.questionKo || null,
-            answerKo: '-',
-            reference: `[AI 추출 답변]\n${faq.answer}${faq.answerKo ? `\n\n[한국어]\n${faq.answerKo}` : ''}`,
-            tags: faq.tags || [],
-            category: faq.category || null,
-            source: 'gmail',
-            sourceEmailId: thread.id,
-            sourceEmailSubject: thread.subject,
-            confidence: faq.confidence,
-            sourceContext:
-              faq.questionSource || faq.answerSource
-                ? {
-                    questionSource: faq.questionSource || '',
-                    answerSource: faq.answerSource || '',
-                  }
-                : undefined,
-            status: 'pending',
-          })),
-        });
-      }
-    }
-
-    // 스레드 처리 완료 표시
-    const savedCount = nonDuplicateFaqs.length;
-    await this.prisma.emailThread.update({
-      where: { id: emailThread.id },
-      data: {
-        isProcessed: true,
-        extractedFaqCount: savedCount,
-      },
-    });
-
-    return {
-      extractedCount: savedCount,
-      skipped: false,
-      failed: false,
-    };
+    return { skipped: false, failed: false };
   }
 
   // ============================================================================
@@ -751,7 +615,7 @@ export class GmailSyncService implements OnModuleInit {
   }
 
   /**
-   * DB에 저장되었지만 미처리된 스레드를 FAQ 추출 처리
+   * DB에 저장되었지만 미처리된 스레드 처리
    */
   private async processUnprocessedFromDb(
     accountEmail: string,
@@ -764,7 +628,7 @@ export class GmailSyncService implements OnModuleInit {
     if (unprocessed.length === 0) return;
 
     this.logger.log(
-      `DB 미처리 스레드 ${unprocessed.length}건 발견, FAQ 추출 시작`,
+      `DB 미처리 스레드 ${unprocessed.length}건 발견, 처리 시작`,
     );
 
     const CONCURRENCY = 3;
@@ -789,10 +653,7 @@ export class GmailSyncService implements OnModuleInit {
       for (const result of results) {
         if (result.skipped) progress.skipped++;
         else if (result.failed) progress.failed++;
-        else {
-          progress.processed++;
-          progress.extracted += result.extractedCount;
-        }
+        else progress.processed++;
       }
 
       await this.updateProgress(accountEmail, progress);
@@ -854,7 +715,7 @@ export class GmailSyncService implements OnModuleInit {
           type,
           fetched: progress.fetched,
           processed: progress.processed,
-          extracted: progress.extracted,
+          extracted: 0,
           skipped: progress.skipped,
           failed: progress.failed,
           startedAt: new Date(progress.startedAt),

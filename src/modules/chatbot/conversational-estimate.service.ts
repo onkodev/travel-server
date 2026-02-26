@@ -13,12 +13,33 @@ import {
 } from '../ai/services/itinerary-ai.service';
 import { TravelAssistantService } from '../ai/services/travel-assistant.service';
 import { ItemService } from '../item/item.service';
-import { normalizeImages } from '../../common/utils';
-import { EstimateItem } from '../../common/types';
+import { formatDateISO, buildItemInfo } from '../../common/utils';
+import { EstimateItem, EstimateStatusAi } from '../../common/types';
 
-// Re-export for backward compatibility
-export type { EstimateItem };
-export type { ModificationIntent };
+/**
+ * 이름 유사도 비교 (공백/대소문자 무시, 부분 매칭 지원)
+ */
+function fuzzyNameMatch(requested: string, candidate: string): boolean {
+  const reqLower = requested.toLowerCase();
+  const candLower = candidate.toLowerCase();
+  if (candLower.includes(reqLower) || reqLower.includes(candLower)) return true;
+
+  const reqNoSpace = reqLower.replace(/\s+/g, '');
+  const candNoSpace = candLower.replace(/\s+/g, '');
+  return candNoSpace.includes(reqNoSpace) || reqNoSpace.includes(candNoSpace);
+}
+
+/**
+ * EstimateItem의 모든 이름 필드에 대해 fuzzyNameMatch 수행
+ */
+function matchItemByName(
+  item: { itemName?: string; name?: string; itemInfo?: { nameEng?: string; nameKor?: string } },
+  searchName: string,
+): boolean {
+  const names = [item.itemName, item.name, item.itemInfo?.nameEng, item.itemInfo?.nameKor]
+    .filter(Boolean) as string[];
+  return names.some((n) => fuzzyNameMatch(searchName, n));
+}
 
 interface FlowWithEstimate {
   sessionId: string;
@@ -67,7 +88,7 @@ export class ConversationalEstimateService {
     });
 
     if (!estimate) {
-      throw new BadRequestException('Estimate not found.');
+      throw new NotFoundException('Estimate not found.');
     }
 
     const items = (estimate.items as unknown as EstimateItem[]) || [];
@@ -165,7 +186,7 @@ export class ConversationalEstimateService {
       }));
 
     if (!estimate) {
-      throw new BadRequestException('Estimate not found.');
+      throw new NotFoundException('Estimate not found.');
     }
 
     // flow에 estimate를 추가하여 핸들러에 전달
@@ -219,7 +240,7 @@ export class ConversationalEstimateService {
     });
 
     if (!estimate) {
-      throw new BadRequestException('Estimate not found.');
+      throw new NotFoundException('Estimate not found.');
     }
 
     const flowWithEstimate = { ...flow, estimate };
@@ -279,7 +300,7 @@ export class ConversationalEstimateService {
     // 견적 상태를 pending으로 변경 (전문가 검토 대기)
     await this.prisma.estimate.update({
       where: { id: flow.estimateId },
-      data: { statusAi: 'pending' },
+      data: { statusAi: EstimateStatusAi.PENDING },
     });
 
     return {
@@ -352,7 +373,7 @@ export class ConversationalEstimateService {
     let candidateItems = await this.itemService.findSimilarItems({
       interests,
       region: flow.region || undefined,
-      type: 'place',
+      category: 'place',
       excludeIds: existingItemIds,
       limit: 30,
     });
@@ -364,7 +385,7 @@ export class ConversationalEstimateService {
       );
       const moreItems = await this.itemService.findSimilarItems({
         interests,
-        type: 'place',
+        category: 'place',
         excludeIds: [...existingItemIds, ...candidateItems.map((c) => c.id)],
         limit: 30 - candidateItems.length,
       });
@@ -411,7 +432,7 @@ export class ConversationalEstimateService {
 
         return {
           id: `ai-day${dayNumber}-${idx + 1}`,
-          category: dbItem.type || 'place',
+          category: dbItem.category || 'place',
           itemId: dbItem.id,
           itemName: dbItem.nameEng,
           name: dbItem.nameEng,
@@ -419,12 +440,7 @@ export class ConversationalEstimateService {
           dayNumber,
           orderIndex: idx,
           note: selection.reason,
-          itemInfo: {
-            nameKor: dbItem.nameKor,
-            nameEng: dbItem.nameEng,
-            descriptionEng: dbItem.descriptionEng || undefined,
-            images: normalizeImages(dbItem.images),
-          },
+          itemInfo: buildItemInfo(dbItem),
         };
       })
       .filter(Boolean) as EstimateItem[];
@@ -502,7 +518,7 @@ export class ConversationalEstimateService {
       const exactMatch = await this.itemService.findSimilarItems({
         query: intent.itemName,
         region: flow.region || undefined,
-        type: 'place',
+        category: 'place',
         limit: 5,
       });
 
@@ -532,24 +548,10 @@ export class ConversationalEstimateService {
         return aDiff - bDiff;
       });
 
-      // 공백 제거 버전도 비교 (e.g. "노량진 수산시장" vs "노량진수산시장")
-      const requestedNoSpace = requestedLower.replace(/\s+/g, '');
-      const foundItem = sortedResults.find((item) => {
-        const nameEng = (item.nameEng || '').toLowerCase();
-        const nameKor = (item.nameKor || '').toLowerCase();
-        const nameEngNoSpace = nameEng.replace(/\s+/g, '');
-        const nameKorNoSpace = nameKor.replace(/\s+/g, '');
-        return (
-          nameEng.includes(requestedLower) ||
-          requestedLower.includes(nameEng) ||
-          nameKor.includes(requestedLower) ||
-          requestedLower.includes(nameKor) ||
-          nameEngNoSpace.includes(requestedNoSpace) ||
-          requestedNoSpace.includes(nameEngNoSpace) ||
-          nameKorNoSpace.includes(requestedNoSpace) ||
-          requestedNoSpace.includes(nameKorNoSpace)
-        );
-      });
+      const foundItem = sortedResults.find((item) =>
+        fuzzyNameMatch(requestedLower, item.nameEng || '') ||
+        fuzzyNameMatch(requestedLower, item.nameKor || ''),
+      );
 
       if (foundItem) {
         this.logger.log(
@@ -568,7 +570,7 @@ export class ConversationalEstimateService {
       categories: intent.category ? [intent.category] : interests,
       interests,
       region: flow.region || undefined,
-      type: 'place',
+      category: 'place',
       excludeIds: existingItemIds,
       limit: 15,
     });
@@ -633,56 +635,15 @@ export class ConversationalEstimateService {
       );
     }
 
-    // 요청한 이름과 다른 아이템을 선택한 경우 처리
-    const requestedName = (intent.itemName || '').toLowerCase();
-    const selectedName = (selectedDbItem.nameEng || '').toLowerCase();
-    const selectedNameKor = (selectedDbItem.nameKor || '').toLowerCase();
-
-    // 일반적인 장소 타입 단어 (이것들만으로는 매칭 불가)
-    const genericWords = [
-      'palace',
-      'temple',
-      'market',
-      'park',
-      'tower',
-      'village',
-      'museum',
-      'beach',
-      'mountain',
-      'restaurant',
-      'cafe',
-      'hotel',
-      'street',
-      'station',
-    ];
-
-    // 핵심 단어 추출 (일반 단어 제외, 3자 이상)
-    const requestedWords = requestedName
-      .split(/\s+/)
-      .filter((w) => w.length > 2 && !genericWords.includes(w));
-    const selectedWords = selectedName
-      .split(/\s+/)
-      .filter((w) => w.length > 2 && !genericWords.includes(w));
-
-    // 핵심 단어가 있으면 그 중 하나가 반드시 매칭되어야 함
-    const hasCoreWordMatch =
-      requestedWords.length === 0 ||
-      requestedWords.some(
-        (rw) =>
-          selectedName.includes(rw) ||
-          selectedNameKor.includes(rw) ||
-          selectedWords.some((sw) => sw.includes(rw) || rw.includes(sw)),
-      );
-
+    // 요청한 이름과 선택된 아이템의 유사도 검증
+    const requestedName = intent.itemName || '';
     const isExactMatch =
-      hasCoreWordMatch ||
-      selectedName.includes(requestedName) ||
-      requestedName.includes(selectedName) ||
-      selectedNameKor.includes(requestedName) ||
-      requestedName.includes(selectedNameKor);
+      fuzzyNameMatch(requestedName, selectedDbItem.nameEng || '') ||
+      fuzzyNameMatch(requestedName, selectedDbItem.nameKor || '') ||
+      this.hasCoreWordOverlap(requestedName, selectedDbItem.nameEng || '', selectedDbItem.nameKor || '');
 
     this.logger.log(
-      `Name match check: requested="${requestedName}" (core: ${requestedWords.join(',')}), selected="${selectedName}" (core: ${selectedWords.join(',')}), hasCoreMatch=${hasCoreWordMatch}, isMatch=${isExactMatch}`,
+      `Name match check: requested="${requestedName}", selected="${selectedDbItem.nameEng}", isMatch=${isExactMatch}`,
     );
 
     // 정확히 일치하지 않고 사용자가 특정 장소명을 요청한 경우 → TBD로 저장
@@ -714,7 +675,7 @@ export class ConversationalEstimateService {
     items: EstimateItem[],
     dbItem: {
       id: number;
-      type?: string;
+      category?: string;
       nameEng: string;
       nameKor: string;
       descriptionEng?: string | null;
@@ -736,7 +697,7 @@ export class ConversationalEstimateService {
 
     const newItem: EstimateItem = {
       id: `ai-added-${Date.now()}`,
-      category: dbItem.type || 'place',
+      category: dbItem.category || 'place',
       itemId: dbItem.id,
       itemName: dbItem.nameEng,
       name: dbItem.nameEng,
@@ -744,12 +705,7 @@ export class ConversationalEstimateService {
       dayNumber: targetDay,
       orderIndex: maxOrder + 1,
       note: reason,
-      itemInfo: {
-        nameKor: dbItem.nameKor,
-        nameEng: dbItem.nameEng,
-        descriptionEng: dbItem.descriptionEng || undefined,
-        images: normalizeImages(dbItem.images),
-      },
+      itemInfo: buildItemInfo(dbItem),
     };
 
     const updatedItems = [...items, newItem];
@@ -842,27 +798,8 @@ export class ConversationalEstimateService {
     let removedCount = 0;
 
     if (intent.itemName) {
-      // 이름으로 제거 (itemInfo.nameEng/nameKor 포함, 공백 무시 비교)
-      const itemNameLower = intent.itemName.toLowerCase();
-      const itemNameNoSpace = itemNameLower.replace(/\s+/g, '');
       updatedItems = items.filter((i) => {
-        const names = [
-          i.itemName,
-          i.name,
-          i.itemInfo?.nameEng,
-          i.itemInfo?.nameKor,
-        ]
-          .filter(Boolean)
-          .map((n) => (n as string).toLowerCase());
-        const shouldRemove = names.some((n) => {
-          const nNoSpace = n.replace(/\s+/g, '');
-          return (
-            n.includes(itemNameLower) ||
-            itemNameLower.includes(n) ||
-            nNoSpace.includes(itemNameNoSpace) ||
-            itemNameNoSpace.includes(nNoSpace)
-          );
-        });
+        const shouldRemove = matchItemByName(i, intent.itemName!);
         if (shouldRemove) removedCount++;
         return !shouldRemove;
       });
@@ -932,28 +869,7 @@ export class ConversationalEstimateService {
       };
     }
 
-    // 교체할 아이템 찾기 (itemInfo.nameEng/nameKor 포함, 공백 무시 비교)
-    const itemNameLower = intent.itemName.toLowerCase();
-    const itemNameNoSpace = itemNameLower.replace(/\s+/g, '');
-    const itemIndex = items.findIndex((i) => {
-      const names = [
-        i.itemName,
-        i.name,
-        i.itemInfo?.nameEng,
-        i.itemInfo?.nameKor,
-      ]
-        .filter(Boolean)
-        .map((n) => (n as string).toLowerCase());
-      return names.some((n) => {
-        const nNoSpace = n.replace(/\s+/g, '');
-        return (
-          n.includes(itemNameLower) ||
-          itemNameLower.includes(n) ||
-          nNoSpace.includes(itemNameNoSpace) ||
-          itemNameNoSpace.includes(nNoSpace)
-        );
-      });
-    });
+    const itemIndex = items.findIndex((i) => matchItemByName(i, intent.itemName!));
 
     if (itemIndex === -1) {
       return {
@@ -978,7 +894,7 @@ export class ConversationalEstimateService {
       categories: intent.category ? [intent.category] : undefined,
       interests,
       region: flow.region || undefined,
-      type: 'place',
+      category: 'place',
       excludeIds: existingItemIds,
       limit: 15,
     });
@@ -1034,12 +950,7 @@ export class ConversationalEstimateService {
       name: selectedDbItem.nameEng,
       nameEng: selectedDbItem.nameEng,
       note: selection.reason,
-      itemInfo: {
-        nameKor: selectedDbItem.nameKor,
-        nameEng: selectedDbItem.nameEng,
-        descriptionEng: selectedDbItem.descriptionEng || undefined,
-        images: normalizeImages(selectedDbItem.images),
-      },
+      itemInfo: buildItemInfo(selectedDbItem),
     };
 
     await this.prisma.estimate.update({
@@ -1053,6 +964,27 @@ export class ConversationalEstimateService {
       botMessage: `I've replaced "${itemToReplace.itemName || itemToReplace.name}" with "${selectedDbItem.nameEng}". ${selection.reason}`,
       intent,
     };
+  }
+
+  /**
+   * 핵심 단어 겹침 검사 (일반 장소 타입 단어 제외)
+   */
+  private hasCoreWordOverlap(requested: string, nameEng: string, nameKor: string): boolean {
+    const genericWords = new Set([
+      'palace', 'temple', 'market', 'park', 'tower', 'village',
+      'museum', 'beach', 'mountain', 'restaurant', 'cafe', 'hotel', 'street', 'station',
+    ]);
+    const reqWords = requested.toLowerCase().split(/\s+/).filter((w) => w.length > 2 && !genericWords.has(w));
+    if (reqWords.length === 0) return true;
+
+    const selName = nameEng.toLowerCase();
+    const selNameKor = nameKor.toLowerCase();
+    const selWords = selName.split(/\s+/).filter((w) => w.length > 2 && !genericWords.has(w));
+
+    return reqWords.some((rw) =>
+      selName.includes(rw) || selNameKor.includes(rw) ||
+      selWords.some((sw) => sw.includes(rw) || rw.includes(sw)),
+    );
   }
 
   private getPositiveFeedbackResponse(): string {
@@ -1113,8 +1045,8 @@ export class ConversationalEstimateService {
       const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + flow.duration - 1);
       context.tripDates = {
-        start: startDate.toISOString().split('T')[0],
-        end: endDate.toISOString().split('T')[0],
+        start: formatDateISO(startDate),
+        end: formatDateISO(endDate),
       };
     }
     if (flow.region) {

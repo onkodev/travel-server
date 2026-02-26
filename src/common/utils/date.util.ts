@@ -17,6 +17,42 @@ export function toDateTime(dateStr: string | null | undefined): Date | null {
 }
 
 /**
+ * 한국어 날짜 문자열 반환 (예: "2026. 2. 26.")
+ * - toLocaleString('ko-KR') 패턴 통일
+ */
+export function formatDateKR(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleDateString('ko-KR');
+}
+
+/**
+ * 한국어 날짜+시간 문자열 반환 (예: "2026. 2. 26. 오후 3:00:00")
+ * - toLocaleString('ko-KR') 패턴 통일
+ */
+export function formatDateTimeKR(date?: Date | string): string {
+  const d = date ? (typeof date === 'string' ? new Date(date) : date) : new Date();
+  return d.toLocaleString('ko-KR');
+}
+
+/**
+ * KST 기준 YYYY-MM-DD 문자열 반환
+ * - toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }) 패턴 통일
+ */
+export function formatDateKST(date?: Date): string {
+  const d = date ?? new Date();
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
+}
+
+/**
+ * ISO 날짜 문자열 반환 (YYYY-MM-DD)
+ * - toISOString().split('T')[0] 패턴 통일
+ */
+export function formatDateISO(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toISOString().split('T')[0];
+}
+
+/**
  * 객체에서 특정 키들을 제외한 새 객체 반환
  */
 export function omit<T extends Record<string, unknown>, K extends keyof T>(

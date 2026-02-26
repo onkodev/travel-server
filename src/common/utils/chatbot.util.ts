@@ -1,6 +1,8 @@
 /**
  * 챗봇 서비스 공통 유틸리티
  */
+import { normalizeImages } from './image.util';
+import type { EstimateItemInfo } from '../types';
 
 // ============================================================================
 // 인원 계산
@@ -158,6 +160,35 @@ export function resolveFlowLabels(flow: {
     interestLabels: resolveInterestLabels(flow.interests),
     attractionLabels: flow.attractions || [],
   };
+}
+
+// ============================================================================
+// 아이템 정보 빌더
+// ============================================================================
+
+/**
+ * DB 아이템 레코드에서 EstimateItemInfo 생성
+ * ai-estimate, conversational-estimate 등에서 중복 제거용
+ */
+export function buildItemInfo(dbItem: {
+  nameKor?: string | null;
+  nameEng?: string | null;
+  descriptionEng?: string | null;
+  images?: unknown;
+  lat?: unknown;
+  lng?: unknown;
+  addressEnglish?: string | null;
+}): EstimateItemInfo {
+  const info: EstimateItemInfo = {
+    nameKor: dbItem.nameKor || undefined,
+    nameEng: dbItem.nameEng || undefined,
+    descriptionEng: dbItem.descriptionEng || undefined,
+    images: normalizeImages(dbItem.images),
+  };
+  if (dbItem.lat != null) info.lat = Number(dbItem.lat);
+  if (dbItem.lng != null) info.lng = Number(dbItem.lng);
+  if (dbItem.addressEnglish) info.addressEnglish = dbItem.addressEnglish;
+  return info;
 }
 
 // ============================================================================
