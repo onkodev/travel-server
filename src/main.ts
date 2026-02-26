@@ -5,6 +5,7 @@ import compression from 'compression';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters';
+import { NoCacheInterceptor } from './common/interceptors/no-cache.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -13,15 +14,6 @@ async function bootstrap() {
 
   // ETag 비활성화 (정렬 등 query param 변경 시 304 캐시 방지)
   app.getHttpAdapter().getInstance().set('etag', false);
-
-  // 전역 캐시 방지 미들웨어 (CDN 노드 및 브라우저 캐시 무효화)
-  app.use((req, res, next) => {
-    res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.header('Pragma', 'no-cache');
-    res.header('Expires', '0');
-    res.header('Surrogate-Control', 'no-store');
-    next();
-  });
 
   // 보안 헤더 (XSS, Clickjacking 등 방어)
   app.use(helmet());
@@ -103,6 +95,9 @@ async function bootstrap() {
 
   // Global exception filter
   app.useGlobalFilters(new GlobalExceptionFilter());
+
+  // Global HTTP Cache Preventation for Authorized/Admin requests
+  app.useGlobalInterceptors(new NoCacheInterceptor());
 
   // Validation pipe
   app.useGlobalPipes(
