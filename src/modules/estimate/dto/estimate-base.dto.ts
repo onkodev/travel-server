@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsArray, IsBoolean } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsOptional, IsArray, IsBoolean, IsString } from 'class-validator';
 
 /**
  * 견적 공통 필드 Base DTO
@@ -80,15 +81,15 @@ export class BaseEstimateDto {
   statusAi?: string;
 
   // 여행 정보
-  @ApiPropertyOptional({ description: '여행 시작일' })
+  @ApiPropertyOptional({ description: '여행 시작일', example: '2026-08-04' })
   @IsOptional()
-  @IsString()
-  startDate?: string;
+  @Transform(({ value }) => (value ? new Date(value) : null))
+  startDate?: Date;
 
-  @ApiPropertyOptional({ description: '여행 종료일' })
+  @ApiPropertyOptional({ description: '여행 종료일', example: '2026-08-10' })
   @IsOptional()
-  @IsString()
-  endDate?: string;
+  @Transform(({ value }) => (value ? new Date(value) : null))
+  endDate?: Date;
 
   @ApiPropertyOptional({ description: '투어 타입' })
   @IsOptional()
