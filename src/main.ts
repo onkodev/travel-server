@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import compression from 'compression';
+import express from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters';
@@ -14,6 +15,10 @@ async function bootstrap() {
 
   // ETag 비활성화 (정렬 등 query param 변경 시 304 캐시 방지)
   app.getHttpAdapter().getInstance().set('etag', false);
+
+  // Request body size limit 설정 (기본 100KB → 10MB)
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
   // 보안 헤더 (XSS, Clickjacking 등 방어)
   app.use(helmet());
