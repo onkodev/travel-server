@@ -295,6 +295,71 @@ export class TourApiService {
     return { items: mappedItems };
   }
 
+  // 한국어 상세정보(overview) 가져오기
+  private async fetchDetailOverview(
+    contentId: string,
+    contentTypeId: string,
+  ): Promise<{ overviewKor: string; overviewEng: string }> {
+    let overviewKor = '';
+    let overviewEng = '';
+
+    try {
+      // 한국어 overview
+      const korParams = this.getCommonParams({
+        contentId,
+        contentTypeId,
+        overviewYN: 'Y',
+        defaultYN: 'Y',
+      });
+      const korRes = await fetch(
+        `${this.baseUrlKor}/detailCommon2?${korParams}`,
+      );
+      if (korRes.ok) {
+        const korData = await korRes.json();
+        const korItem = Array.isArray(
+          korData?.response?.body?.items?.item,
+        )
+          ? korData.response.body.items.item[0]
+          : korData?.response?.body?.items?.item;
+        overviewKor = korItem?.overview || '';
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to fetch Korean overview for ${contentId}:`, error);
+    }
+
+    try {
+      // 영어 overview
+      const engParams = this.getCommonParams({
+        contentId,
+        contentTypeId,
+        overviewYN: 'Y',
+        defaultYN: 'Y',
+      });
+      const engRes = await fetch(
+        `${this.baseUrlEng}/detailCommon2?${engParams}`,
+      );
+      if (engRes.ok) {
+        const engData = await engRes.json();
+        const engItem = Array.isArray(
+          engData?.response?.body?.items?.item,
+        )
+          ? engData.response.body.items.item[0]
+          : engData?.response?.body?.items?.item;
+        overviewEng = engItem?.overview || '';
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to fetch English overview for ${contentId}:`, error);
+    }
+
+    // HTML 태그 제거
+    const stripHtml = (str: string) => str.replace(/<[^>]*>/g, '').trim();
+
+    return {
+      overviewKor: stripHtml(overviewKor),
+      overviewEng: stripHtml(overviewEng),
+    };
+  }
+
   // Tour API에서 아이템 추가
   async addItem(contentId: string, itemData: TourAPISearchItem) {
     // 이미 존재하는지 확인
@@ -310,21 +375,24 @@ export class TourApiService {
       };
     }
 
-    // 썸네일을 S3에 업로드
-    let s3ImageUrl: string | null = null;
-    if (itemData.thumbnail) {
-      this.logger.debug(
-        `Uploading thumbnail for ${contentId}: ${itemData.thumbnail}`,
-      );
-      s3ImageUrl = await this.fileUploadService.uploadFromUrl(
-        itemData.thumbnail,
-        contentId,
-        'items',
-      );
-      this.logger.debug(`S3 URL result: ${s3ImageUrl || 'failed'}`);
-    } else {
-      this.logger.debug(`No thumbnail for ${contentId}`);
-    }
+    // 썸네일 업로드 + 상세 설명 가져오기 병렬 실행
+    const [s3ImageUrl, detail] = await Promise.all([
+      itemData.thumbnail
+        ? (async () => {
+            this.logger.debug(
+              `Uploading thumbnail for ${contentId}: ${itemData.thumbnail}`,
+            );
+            const url = await this.fileUploadService.uploadFromUrl(
+              itemData.thumbnail!,
+              contentId,
+              'items',
+            );
+            this.logger.debug(`S3 URL result: ${url || 'failed'}`);
+            return url;
+          })()
+        : Promise.resolve(null),
+      this.fetchDetailOverview(contentId, itemData.contentTypeId),
+    ]);
 
     // 새 아이템 생성
     const newItem = await this.prisma.item.create({
@@ -333,6 +401,8 @@ export class TourApiService {
         nameKor: itemData.title,
         nameEng: itemData.titleEng || itemData.title,
         category: itemData.category,
+        description: detail.overviewKor,
+        descriptionEng: detail.overviewEng || null,
         address: itemData.address,
         addressEnglish: itemData.addressEng,
         lat: itemData.lat,
@@ -343,7 +413,7 @@ export class TourApiService {
 
     return {
       success: true,
-      item: { ...itemData, id: newItem.id },
+      item: { ...itemData, id: newItem.id, description: detail.overviewKor, descriptionEng: detail.overviewEng },
       isNew: true,
     };
   }
