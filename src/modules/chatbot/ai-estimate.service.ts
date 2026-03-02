@@ -169,7 +169,7 @@ export class AiEstimateService {
     private emailRagService: EmailRagService,
     private placeMatcher: PlaceMatcherService,
     private emailEmbeddingService: EmailEmbeddingService,
-  ) {}
+  ) { }
 
   /**
    * AiGenerationConfig 로드 (인메모리 캐시, 5분 TTL)
@@ -231,9 +231,9 @@ export class AiEstimateService {
     // === Email RAG 시도 (실패해도 진행, timeout 시 Gemini fetch도 취소) ===
     let ragDraft:
       | (DraftResult & {
-          searchQuery: string;
-          pipelineLog: import('../email-rag/email-rag.service').PipelineLog;
-        })
+        searchQuery: string;
+        pipelineLog: import('../email-rag/email-rag.service').PipelineLog;
+      })
       | null = null;
     const abortController = new AbortController();
     let ragTimeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -305,10 +305,10 @@ export class AiEstimateService {
         source: 'tbd',
         ragSearch: ragSearchQuery
           ? {
-              query: ragSearchQuery,
-              resultsCount: 0,
-              sources: [],
-            }
+            query: ragSearchQuery,
+            resultsCount: 0,
+            sources: [],
+          }
           : null,
         itemMatching: {
           totalDraftItems: 0,
@@ -350,10 +350,10 @@ export class AiEstimateService {
       source: generationSource,
       ragSearch: ragSearchQuery
         ? {
-            query: ragSearchQuery,
-            resultsCount: ragSources.length,
-            sources: ragSources,
-          }
+          query: ragSearchQuery,
+          resultsCount: ragSources.length,
+          sources: ragSources,
+        }
         : null,
       itemMatching: {
         totalDraftItems,
@@ -432,14 +432,14 @@ export class AiEstimateService {
       note: item.note,
       itemInfo: item.itemInfo
         ? {
-            nameKor: item.itemInfo.nameKor,
-            nameEng: item.itemInfo.nameEng,
-            descriptionEng: item.itemInfo.descriptionEng,
-            images: extractImageUrls(item.itemInfo.images),
-            lat: item.itemInfo.lat,
-            lng: item.itemInfo.lng,
-            addressEnglish: item.itemInfo.addressEnglish,
-          }
+          nameKor: item.itemInfo.nameKor,
+          nameEng: item.itemInfo.nameEng,
+          descriptionEng: item.itemInfo.descriptionEng,
+          images: extractImageUrls(item.itemInfo.images),
+          lat: item.itemInfo.lat,
+          lng: item.itemInfo.lng,
+          addressEnglish: item.itemInfo.addressEnglish,
+        }
         : undefined,
     }));
   }
@@ -562,11 +562,11 @@ export class AiEstimateService {
 
     this.logger.log(
       `[convertRagDraftToItems] ${draft.items.length} draft items → ` +
-        `geminiId: ${matchedItems.filter((m) => m.tier === 'geminiId').length}, ` +
-        `exact: ${matchedItems.filter((m) => m.tier === 'exact').length}, ` +
-        `partial: ${matchedItems.filter((m) => m.tier === 'partial').length}, ` +
-        `fuzzy: ${matchedItems.filter((m) => m.tier === 'fuzzy').length}, ` +
-        `tbd: ${tbdItems.length} → 후처리 후: ${items.length}개`,
+      `geminiId: ${matchedItems.filter((m) => m.tier === 'geminiId').length}, ` +
+      `exact: ${matchedItems.filter((m) => m.tier === 'exact').length}, ` +
+      `partial: ${matchedItems.filter((m) => m.tier === 'partial').length}, ` +
+      `fuzzy: ${matchedItems.filter((m) => m.tier === 'fuzzy').length}, ` +
+      `tbd: ${tbdItems.length} → 후처리 후: ${items.length}개`,
     );
 
     return { items, matchedItems, tbdItems };
@@ -739,13 +739,13 @@ export class AiEstimateService {
     // attractions 이름으로 Item 조회 (요청 지역 필터 포함)
     const regionFilter = flow.region
       ? {
-          region: {
-            in: [
-              flow.region,
-              this.REGION_MAP[flow.region] || flow.region,
-            ].filter(Boolean),
-          },
-        }
+        region: {
+          in: [
+            flow.region,
+            this.REGION_MAP[flow.region] || flow.region,
+          ].filter(Boolean),
+        },
+      }
       : {};
     const attractionItems = await this.prisma.item.findMany({
       where: {
@@ -858,7 +858,7 @@ export class AiEstimateService {
     const avgRagSimilarity =
       topSources.length > 0
         ? topSources.reduce((sum, s) => sum + s.similarity, 0) /
-          topSources.length
+        topSources.length
         : 0;
 
     // interestCoverage: 사용자 관심사가 장소에 반영된 비율
@@ -982,7 +982,7 @@ export class AiEstimateService {
 
     // 제목 생성
     const customerName = flow.customerName || 'Guest';
-    const title = `AI Quote - ${customerName} (${region} ${duration}D)`;
+    const title = `${customerName} (${region} ${duration}D)`;
 
     // 내부 메모 생성 (관리자용)
     const internalMemo = this.buildInternalMemo(flow, extra);
@@ -1008,9 +1008,9 @@ export class AiEstimateService {
         startDate: flow.travelDate,
         endDate: flow.travelDate
           ? new Date(
-              new Date(flow.travelDate).getTime() +
-                (duration - 1) * 24 * 60 * 60 * 1000,
-            )
+            new Date(flow.travelDate).getTime() +
+            (duration - 1) * 24 * 60 * 60 * 1000,
+          )
           : null,
         customerName: flow.customerName,
         customerEmail: flow.customerEmail,
