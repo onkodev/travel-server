@@ -114,6 +114,21 @@ export class AnalyzeEstimateResponseDto {
   specialNeeds: string[];
 }
 
+export class ClassifyItemDto {
+  @ApiProperty({ description: '한글 이름' })
+  @IsString()
+  nameKor: string;
+
+  @ApiProperty({ description: '영문 이름' })
+  @IsString()
+  nameEng: string;
+
+  @ApiPropertyOptional({ description: '아이템 설명' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
 export class GenerateTimelineV2Dto {
   @ApiProperty({ description: '일차 번호' })
   @IsNumber()

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FileUploadService } from '../file-upload/file-upload.service';
+import { ItemAiService } from './services/item-ai.service';
 
 export interface TourAPISearchItem {
   contentId: string;
@@ -60,6 +61,7 @@ export class TourApiService {
     private configService: ConfigService,
     private prisma: PrismaService,
     private fileUploadService: FileUploadService,
+    private itemAiService: ItemAiService,
   ) {
     this.apiKey = this.configService.get<string>('TOUR_API_KEY') || '';
   }
@@ -375,8 +377,8 @@ export class TourApiService {
       };
     }
 
-    // 썸네일 업로드 + 상세 설명 가져오기 병렬 실행
-    const [s3ImageUrl, detail] = await Promise.all([
+    // 썸네일 업로드 + 상세 설명 + 카테고리 분류 병렬 실행
+    const [s3ImageUrl, detail, classifyResult] = await Promise.all([
       itemData.thumbnail
         ? (async () => {
             this.logger.debug(
@@ -392,6 +394,10 @@ export class TourApiService {
           })()
         : Promise.resolve(null),
       this.fetchDetailOverview(contentId, itemData.contentTypeId),
+      this.itemAiService.classifyItem({
+        nameKor: itemData.title,
+        nameEng: itemData.titleEng || '',
+      }).catch(() => null),
     ]);
 
     // 새 아이템 생성
@@ -408,6 +414,7 @@ export class TourApiService {
         lat: itemData.lat,
         lng: itemData.lng,
         images: s3ImageUrl ? [{ type: 'thumbnail', url: s3ImageUrl }] : [],
+        ...(classifyResult?.categories?.length && { categories: classifyResult.categories }),
       },
     });
 

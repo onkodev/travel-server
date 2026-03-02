@@ -20,6 +20,7 @@ import {
   TourApiSearchQueryDto,
   TourApiSearchDto,
   GenerateItemContentV2Dto,
+  ClassifyItemDto,
   AnalyzeEstimateV2Dto,
   GenerateTimelineV2Dto,
 } from './dto';
@@ -150,6 +151,30 @@ export class AiController {
       keyword: '',
       description: '',
       descriptionEng: '',
+    };
+  }
+
+  @Post('classify-item')
+  @ApiOperation({
+    summary: '아이템 분류',
+    description: 'AI가 아이템 타입과 카테고리 태그를 자동 분류합니다.',
+  })
+  @ApiResponse({ status: 200, description: '분류 성공' })
+  async classifyItem(@Body() body: ClassifyItemDto) {
+    const result = await this.itemAiService.classifyItem({
+      nameKor: body.nameKor,
+      nameEng: body.nameEng,
+      description: body.description,
+    });
+
+    if (result) {
+      return { success: true, ...result };
+    }
+
+    return {
+      success: false,
+      suggestedType: '',
+      categories: [],
     };
   }
 
