@@ -110,6 +110,18 @@ export class RejectFaqDto {
   reason?: string;
 }
 
+export class TranslateFaqDto {
+  @ApiProperty({ description: '번역할 텍스트' })
+  @IsString()
+  @MaxLength(2000)
+  text: string;
+
+  @ApiProperty({ description: '번역 대상 언어 (en 또는 ko)', example: 'en' })
+  @IsString()
+  @IsIn(['en', 'ko'])
+  targetLanguage: 'en' | 'ko';
+}
+
 export class BulkActionDto {
   @ApiProperty({ description: 'FAQ ID 목록' })
   @IsArray()

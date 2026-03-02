@@ -46,6 +46,7 @@ import {
   CheckDuplicateDto,
   ScanDuplicatesDto,
   AutoReviewFaqsDto,
+  TranslateFaqDto,
 } from './dto';
 
 @ApiTags('FAQ')
@@ -123,6 +124,12 @@ export class FaqController {
   @ApiParam({ name: 'id', description: 'FAQ ID' })
   async getDirectFaqAnswer(@Param('id', ParseIntPipe) id: number) {
     return this.faqChatService.getDirectFaqAnswer(id);
+  }
+
+  @Post('translate')
+  @ApiOperation({ summary: 'FAQ 텍스트 번역 (한↔영)' })
+  async translateText(@Body() body: TranslateFaqDto) {
+    return this.faqService.translateText(body.text, body.targetLanguage);
   }
 
   @Post('remove-duplicates')

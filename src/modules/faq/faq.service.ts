@@ -138,6 +138,30 @@ export class FaqService {
     }
   }
 
+  /**
+   * 텍스트 번역 (한↔영)
+   */
+  async translateText(
+    text: string,
+    targetLanguage: 'en' | 'ko',
+  ): Promise<{ translation: string }> {
+    const langLabel = targetLanguage === 'ko' ? 'Korean' : 'English';
+
+    const prompt = `Translate the following text to ${langLabel}.
+Keep travel industry terminology consistent. Preserve proper nouns as-is.
+Return ONLY the translated text, nothing else.
+
+Text: ${text}`;
+
+    const result = await this.geminiCore.callGemini(prompt, {
+      temperature: 0.2,
+      maxOutputTokens: 1024,
+      disableThinking: true,
+    });
+
+    return { translation: result.trim() };
+  }
+
   async createFaq(data: {
     question: string;
     questionKo?: string;
