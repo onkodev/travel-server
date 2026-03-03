@@ -91,9 +91,6 @@ export class FaqChatService {
     }>;
     chatLogId?: number;
   }> {
-    // 0. FaqChatConfig 로드
-    const chatConfig = await this.aiPromptService.getFaqChatConfig();
-
     // 1. 임베딩 1회 생성 → FAQ 검색 + 투어 검색 + 의도 분류에 재사용
     const queryEmbedding =
       await this.embeddingService.generateEmbedding(message);
@@ -238,7 +235,7 @@ export class FaqChatService {
         PromptKey.FAQ_NO_MATCH_RESPONSE,
         {},
       );
-      answer = chatConfig.noMatchResponse || noMatchBuilt.text;
+      answer = noMatchBuilt.text;
       const relevantSuggestions = suggestions.filter(
         (f) => f.similarity >= FAQ_SIMILARITY.SUGGESTION_THRESHOLD,
       );

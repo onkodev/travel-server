@@ -443,12 +443,12 @@ Respond ONLY with one word: company | tour_recommend | travel`,
 ## Guidelines
 - Friendly, concise (max 3 sentences).
 - If unsure, suggest official inspection.
-- For prices, say "Contact info@onedaykorea.com" or click the **"Custom Trip"** button below.
+- For prices, say "Contact info@onedaykorea.com" or use the **"Email Inquiry"** button below to send an inquiry directly.
 
 Question: "{{userMessage}}" // (Note: Variable injection handled by context usually, checking usage)
 (Actually logic uses context history, prompt is system instruction)
 System Instruction:
-Answer correctly. If asking about tour prices, refer to email or the "Custom Trip" inquiry button below.
+Answer correctly. If asking about tour prices, refer to email or the "Email Inquiry" button below.
 Example: "Seoul is very safe. Subway runs until midnight."`,
   },
 
@@ -502,7 +502,7 @@ Respond ONLY with valid JSON array:
     variables: [],
     defaultTemperature: 0,
     defaultMaxOutputTokens: 0,
-    defaultText: `I don't have that info in the FAQ. For tour pricing or bookings, please email **info@onedaykorea.com** or click the **"Custom Trip"** button below to send us your inquiry.`,
+    defaultText: `I don't have that info in the FAQ. For tour pricing or bookings, please email **info@onedaykorea.com** or use the **"Email Inquiry"** button below to send us your inquiry directly.`,
   },
 
   [PromptKey.FAQ_GUIDELINE_ANSWER]: {
@@ -529,7 +529,7 @@ Q: {{faqQuestion}}
 3. **Language**: MUST reply ONLY in {{userLanguage}}. Ignore language of the guideline or example.
 4. **Tone**: Friendly, professional, concise.
 5. **Pricing**: Use ranges (e.g. $10-20), or direct to contact email. Example: "Tipping isn't required but appreciated ($10-20)."
-6. **Call to Action**: If you need specific details from the user (e.g., dates, group size, flights), ALWAYS instruct them to email **info@onedaykorea.com** or click the **"Custom Trip"** button below to submit a tour inquiry.`,
+6. **Call to Action**: If you need specific details from the user (e.g., dates, group size, flights), ALWAYS instruct them to email **info@onedaykorea.com** or use the **"Email Inquiry"** button below to send an inquiry directly.`,
   },
 
   [PromptKey.FAQ_AUTO_ENRICH]: {
