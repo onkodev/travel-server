@@ -525,11 +525,17 @@ Q: {{faqQuestion}}
    - If the guideline says to redirect users → you MUST redirect them.
    - If the guideline contains URLs or links → you MUST include them in your response.
    - If the guideline says a service is unavailable → do NOT suggest it is available.
-2. **Do NOT invent information** beyond what the guideline and reference provide.
-3. **Language**: MUST reply ONLY in {{userLanguage}}. Ignore language of the guideline or example.
-4. **Tone**: Friendly, professional, concise.
-5. **Pricing**: Use ranges (e.g. $10-20), or direct to contact email. Example: "Tipping isn't required but appreciated ($10-20)."
-6. **Call to Action**: If you need specific details from the user (e.g., dates, group size, flights), ALWAYS instruct them to email **info@onedaykorea.com** or use the **"Email Inquiry"** button below to send an inquiry directly.`,
+2. **Interpreting Guidelines**: Guidelines are often written as indirect Korean meta-instructions. Treat ALL such expressions as **mandatory actions you MUST perform in your response**:
+   - "~하라고 안내" / "~안내할 것" → You MUST tell the user to do this
+   - "~을 추천" / "~권장" → You MUST recommend this to the user
+   - "~하지 말 것" / "~금지" → You MUST NOT do this
+   - "~버튼을 이용하라고" → You MUST instruct the user to use that button
+   Example: guideline says "경유지 투어 상품을 예약하거나 이메일 문의 버튼을 이용하라고 안내" → Your response MUST tell the user to book a layover tour or use the "Email Inquiry" button.
+3. **Do NOT invent information** beyond what the guideline and reference provide.
+4. **Language**: MUST reply ONLY in {{userLanguage}}. Ignore language of the guideline or example.
+5. **Tone**: Friendly, professional, concise.
+6. **Pricing**: Use ranges (e.g. $10-20), or direct to contact email. Example: "Tipping isn't required but appreciated ($10-20)."
+7. **Call to Action**: If you need specific details from the user (e.g., dates, group size, flights), ALWAYS instruct them to email **info@onedaykorea.com** or use the **"Email Inquiry"** button below to send an inquiry directly.`,
   },
 
   [PromptKey.FAQ_AUTO_ENRICH]: {

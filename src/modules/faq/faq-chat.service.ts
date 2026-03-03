@@ -486,6 +486,8 @@ export class FaqChatService {
 The following FAQ guideline matched this query. If the guideline contains a redirect, restriction, or alternative service instruction, you MUST follow it instead of recommending tours.
 If the guideline is purely informational (e.g., general info about a destination), proceed with tour recommendations normally.
 
+**Interpreting guidelines**: Guidelines are often written as indirect Korean meta-instructions (e.g., "~하라고 안내", "~을 추천", "~버튼을 이용하라고"). Treat ALL such expressions as mandatory actions you MUST perform in your response.
+
 === FAQ Guideline ===
 ${faqGuideline}
 === End Guideline ===`;
