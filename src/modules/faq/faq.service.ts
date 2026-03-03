@@ -60,6 +60,8 @@ export class FaqService {
         where.OR = [
           { question: { contains: search, mode: 'insensitive' } },
           { questionKo: { contains: search, mode: 'insensitive' } },
+          { guideline: { contains: search, mode: 'insensitive' } },
+          { reference: { contains: search, mode: 'insensitive' } },
           { tags: { has: search.toLowerCase() } },
         ];
       }
