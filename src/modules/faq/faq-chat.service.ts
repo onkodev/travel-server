@@ -41,6 +41,10 @@ const INTENT_REFERENCES: Record<string, string[]> = {
     'How does the subway system work in Seoul?',
     'What Korean food should I try?',
     'Do I need a visa to visit Korea?',
+    'Tell me about Jeju Island',
+    'What is there to do in Busan?',
+    'What is Gyeongju known for?',
+    'Tell me about Korean culture and traditions',
   ],
 };
 
