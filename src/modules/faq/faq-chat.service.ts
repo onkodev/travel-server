@@ -158,25 +158,8 @@ export class FaqChatService {
         reviewCount: t.reviewCount,
       }));
 
-    if (intent === 'tour_recommend') {
-      if (relatedTours.length > 0) {
-        responseTier = 'tour_recommend';
-        answer = await this.generateTourRecommendationAnswer(
-          message,
-          relatedTours,
-          history,
-        );
-        tourRecommendations = mapTours(relatedTours);
-      } else {
-        responseTier = 'general';
-        answer = await this.generateGeneralTravelAnswer(message, history);
-      }
-    } else if (
-      intent === 'company' &&
-      topFaq &&
-      topSimilarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD
-    ) {
-      // 멀티 FAQ 컨텍스트 → 관련 FAQ들의 guideline을 모두 LLM에 전달
+    // 고유사도 FAQ 매칭 → intent와 무관하게 가이드라인 기반 답변 (최우선)
+    if (topFaq && topSimilarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD) {
       responseTier = 'rag';
       ragContextFaqs = suggestions
         .filter((f) => f.similarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD)
@@ -200,6 +183,19 @@ export class FaqChatService {
           this.answerCache.set(cacheKey, answer);
         }
       }
+    } else if (intent === 'tour_recommend') {
+      if (relatedTours.length > 0) {
+        responseTier = 'tour_recommend';
+        answer = await this.generateTourRecommendationAnswer(
+          message,
+          relatedTours,
+          history,
+        );
+        tourRecommendations = mapTours(relatedTours);
+      } else {
+        responseTier = 'general';
+        answer = await this.generateGeneralTravelAnswer(message, history);
+      }
     } else if (intent === 'company') {
       // 유사도 낮음 → no_match + 제안 질문
       responseTier = 'no_match';
@@ -222,8 +218,9 @@ export class FaqChatService {
       answer = await this.generateGeneralTravelAnswer(message, history);
     }
 
-    // 2.5. 투어 추천 보충 (company 인텐트는 제외, 관련 투어가 있을 때만)
+    // 2.5. 투어 추천 보충 (rag/company 인텐트는 제외, 관련 투어가 있을 때만)
     if (
+      responseTier !== 'rag' &&
       intent !== 'company' &&
       (!tourRecommendations || tourRecommendations.length === 0)
     ) {
@@ -507,10 +504,11 @@ export class FaqChatService {
     }
 
     const faqQuestion = faqs.map((f) => f.question).join(' | ');
+    const userLanguage = /[\uAC00-\uD7AF]/.test(message) ? 'Korean' : 'English';
 
     const built = await this.aiPromptService.buildPrompt(
       PromptKey.FAQ_GUIDELINE_ANSWER,
-      { faqQuestion, faqGuideline },
+      { faqQuestion, faqGuideline, userLanguage },
     );
 
     return this.geminiCore.callGemini(message, {
