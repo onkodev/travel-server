@@ -827,12 +827,13 @@ export class GmailSyncService implements OnModuleInit {
     if (!state?.autoSyncEnabled) return;
 
     const intervalHours = state.autoSyncInterval;
+    const intervalMs = intervalHours * 60 * 60 * 1000;
 
+    // nextAutoSyncAt이 미래면 해당 시간까지 대기
     if (state.nextAutoSyncAt) {
       const msUntilNext =
         new Date(state.nextAutoSyncAt).getTime() - Date.now();
       if (msUntilNext > 0) {
-        // 예정 시간까지 남은 시간만큼 대기
         this.scheduleNextSync(msUntilNext / (60 * 60 * 1000));
         this.logger.log(
           `자동 동기화 복구: ${Math.round(msUntilNext / 60000)}분 후 실행 예정`,
@@ -841,8 +842,21 @@ export class GmailSyncService implements OnModuleInit {
       }
     }
 
-    // 예정 시간이 이미 지났으면 즉시 실행 후 재스케줄
-    this.logger.log('자동 동기화: 예정 시간 초과, 즉시 실행');
+    // 마지막 동기화로부터 interval이 실제로 경과했는지 확인
+    if (state.lastSyncAt) {
+      const elapsed = Date.now() - new Date(state.lastSyncAt).getTime();
+      if (elapsed < intervalMs) {
+        const remainMs = intervalMs - elapsed;
+        this.scheduleNextSync(remainMs / (60 * 60 * 1000));
+        this.logger.log(
+          `자동 동기화: 마지막 동기화로부터 ${Math.round(elapsed / 60000)}분 경과, ${Math.round(remainMs / 60000)}분 후 실행 예정`,
+        );
+        return;
+      }
+    }
+
+    // interval 경과 확인 후 즉시 실행
+    this.logger.log('자동 동기화: interval 경과, 즉시 실행');
     this.runAutoSync(intervalHours);
   }
 
