@@ -357,13 +357,14 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
     return this.searchSimilarByVector(embedding, limit, minSimilarity);
   }
 
-  /** 미리 생성된 임베딩 벡터로 유사 FAQ 검색 */
+  /** 미리 생성된 임베딩 벡터로 유사 FAQ 검색 (CTE + HNSW 인덱스 활용) */
   async searchSimilarByVector(
     embedding: number[],
     limit = 5,
     minSimilarity: number = FAQ_SIMILARITY.MIN_SEARCH,
   ) {
     const vectorStr = `[${embedding.join(',')}]`;
+    const candidateLimit = limit * 5;
 
     const results = await this.prisma.$queryRawUnsafe<
       Array<{
@@ -375,18 +376,25 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
         similarity: number;
       }>
     >(
-      `SELECT f.id, f.question, f.tags, f.guideline, f.reference,
-              MAX(1 - (qe.embedding <=> $1::vector)) AS similarity
-       FROM faq_question_embeddings qe
-       JOIN faqs f ON f.id = qe.faq_id
+      `WITH candidates AS (
+         SELECT faq_id, 1 - (embedding <=> $1::vector) AS similarity
+         FROM faq_question_embeddings
+         ORDER BY embedding <=> $1::vector
+         LIMIT $4
+       )
+       SELECT f.id, f.question, f.tags, f.guideline, f.reference,
+              MAX(c.similarity) AS similarity
+       FROM candidates c
+       JOIN faqs f ON f.id = c.faq_id
        WHERE f.status = 'approved'
        GROUP BY f.id, f.question, f.tags, f.guideline, f.reference
-       HAVING MAX(1 - (qe.embedding <=> $1::vector)) >= $3
-       ORDER BY MAX(qe.embedding <=> $1::vector) ASC
+       HAVING MAX(c.similarity) >= $3
+       ORDER BY MAX(c.similarity) DESC
        LIMIT $2`,
       vectorStr,
       limit,
       minSimilarity,
+      candidateLimit,
     );
 
     return results.map((r) => ({
@@ -429,13 +437,19 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
         similarity: number;
       }>
     >(
-      `SELECT f.id, f.question, f.question_ko, f.status,
-              MAX(1 - (qe.embedding <=> $1::vector)) AS similarity
-       FROM faq_question_embeddings qe
-       JOIN faqs f ON f.id = qe.faq_id
+      `WITH candidates AS (
+         SELECT faq_id, 1 - (embedding <=> $1::vector) AS similarity
+         FROM faq_question_embeddings
+         ORDER BY embedding <=> $1::vector
+         LIMIT 25
+       )
+       SELECT f.id, f.question, f.question_ko, f.status,
+              MAX(c.similarity) AS similarity
+       FROM candidates c
+       JOIN faqs f ON f.id = c.faq_id
        WHERE f.status IN ('pending', 'approved')
        GROUP BY f.id, f.question, f.question_ko, f.status
-       ORDER BY MAX(qe.embedding <=> $1::vector) ASC
+       ORDER BY MAX(c.similarity) DESC
        LIMIT 5`,
       vectorStr,
     );
