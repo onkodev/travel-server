@@ -5,6 +5,15 @@ import { EmbeddingService } from '../ai/core/embedding.service';
 import { GeminiCoreService } from '../ai/core/gemini-core.service';
 import { FAQ_SIMILARITY, FAQ_BATCH } from './faq.constants';
 
+export interface FaqSearchHit {
+  id: number;
+  question: string;
+  tags: string[];
+  guideline: string | null;
+  reference: string | null;
+  similarity: number;
+}
+
 @Injectable()
 export class FaqEmbeddingService {
   private readonly logger = new Logger(FaqEmbeddingService.name);
@@ -159,8 +168,7 @@ export class FaqEmbeddingService {
 
       // 대안 질문이 없거나 강제 재생성 시 LLM으로 생성
       for (const faq of faqs) {
-        const needsAltGen =
-          regenerateAlts || !faq.alternativeQuestions.length;
+        const needsAltGen = regenerateAlts || !faq.alternativeQuestions.length;
         if (needsAltGen) {
           try {
             const alts = await this.generateAlternativeQuestions(
@@ -175,10 +183,7 @@ export class FaqEmbeddingService {
               faq.alternativeQuestions = alts;
             }
           } catch (error) {
-            this.logger.warn(
-              `FAQ #${faq.id} 대안 질문 생성 실패:`,
-              error,
-            );
+            this.logger.warn(`FAQ #${faq.id} 대안 질문 생성 실패:`, error);
           }
         }
       }
@@ -297,7 +302,7 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
         .replace(/```json?\n?/g, '')
         .replace(/```/g, '')
         .trim();
-      const parsed = JSON.parse(jsonStr);
+      const parsed: unknown = JSON.parse(jsonStr);
       if (Array.isArray(parsed)) {
         return parsed.filter((q: unknown) => typeof q === 'string');
       }
@@ -354,50 +359,124 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
   ) {
     const embedding = await this.embeddingService.generateEmbedding(query);
     if (!embedding) return [];
-    return this.searchSimilarByVector(embedding, limit, minSimilarity);
+    return this.searchSimilarByVector(embedding, limit, minSimilarity, query);
   }
 
-  /** 미리 생성된 임베딩 벡터로 유사 FAQ 검색 (CTE + HNSW 인덱스 활용) */
+  /** 미리 생성된 임베딩 벡터로 유사 FAQ 검색 (하이브리드: Vector + BM25 + Title Boost + RRF) */
   async searchSimilarByVector(
-    embedding: number[],
+    embedding: number[] | null,
     limit = 5,
     minSimilarity: number = FAQ_SIMILARITY.MIN_SEARCH,
+    query?: string,
   ) {
+    if (!embedding) return [] as FaqSearchHit[];
     const vectorStr = `[${embedding.join(',')}]`;
     const candidateLimit = limit * 5;
 
-    const results = await this.prisma.$queryRawUnsafe<
-      Array<{
-        id: number;
-        question: string;
-        tags: string[];
-        guideline: string | null;
-        reference: string | null;
-        similarity: number;
-      }>
-    >(
-      `WITH candidates AS (
-         SELECT faq_id, 1 - (embedding <=> $1::vector) AS similarity
-         FROM faq_question_embeddings
-         ORDER BY embedding <=> $1::vector
-         LIMIT $4
-       )
-       SELECT f.id, f.question, f.tags, f.guideline, f.reference,
-              MAX(c.similarity) AS similarity
-       FROM candidates c
-       JOIN faqs f ON f.id = c.faq_id
-       WHERE f.status = 'approved'
-       GROUP BY f.id, f.question, f.tags, f.guideline, f.reference
-       HAVING MAX(c.similarity) >= $3
-       ORDER BY MAX(c.similarity) DESC
-       LIMIT $2`,
-      vectorStr,
-      limit,
-      minSimilarity,
-      candidateLimit,
-    );
+    // 영문 텍스트 포함 → 하이브리드 검색, 비영문 → 벡터 전용 + Title Boost
+    const useHybrid = !!query && /[a-zA-Z]{2,}/.test(query);
 
-    return results.map((r) => ({
+    type RawRow = {
+      id: number;
+      question: string;
+      tags: string[];
+      guideline: string | null;
+      reference: string | null;
+      similarity: number;
+    };
+
+    let results: RawRow[];
+
+    if (useHybrid) {
+      results = await this.prisma.$queryRawUnsafe<RawRow[]>(
+        `WITH vector_candidates AS (
+           SELECT faq_id, variant, 1 - (embedding <=> $1::vector) AS similarity
+           FROM faq_question_embeddings
+           ORDER BY embedding <=> $1::vector
+           LIMIT $4
+         ),
+         bm25_candidates AS (
+           SELECT faq_id, variant,
+                  ts_rank(to_tsvector('english', question), plainto_tsquery('english', $5)) AS bm25_score
+           FROM faq_question_embeddings
+           WHERE to_tsvector('english', question) @@ plainto_tsquery('english', $5)
+         ),
+         all_faq_ids AS (
+           SELECT faq_id FROM vector_candidates
+           UNION
+           SELECT faq_id FROM bm25_candidates
+         ),
+         faq_scores AS (
+           SELECT a.faq_id,
+                  COALESCE(MAX(
+                    CASE WHEN vc.variant IN ('primary', 'primary_ko')
+                         THEN vc.similarity * 1.10
+                         ELSE vc.similarity END
+                  ), 0) AS boosted_vec_sim,
+                  COALESCE(MAX(bc.bm25_score), 0) AS max_bm25
+           FROM all_faq_ids a
+           LEFT JOIN vector_candidates vc ON vc.faq_id = a.faq_id
+           LEFT JOIN bm25_candidates bc ON bc.faq_id = a.faq_id
+           GROUP BY a.faq_id
+         ),
+         ranked AS (
+           SELECT *,
+                  ROW_NUMBER() OVER (ORDER BY boosted_vec_sim DESC) AS rank_vec,
+                  ROW_NUMBER() OVER (ORDER BY max_bm25 DESC) AS rank_bm25
+           FROM faq_scores
+         ),
+         rrf_scored AS (
+           SELECT *,
+                  0.7 / (60 + rank_vec) + 0.3 / (60 + rank_bm25) AS hybrid_score
+           FROM ranked
+         )
+         SELECT f.id, f.question, f.tags, f.guideline, f.reference,
+                r.boosted_vec_sim AS similarity
+         FROM rrf_scored r
+         JOIN faqs f ON f.id = r.faq_id
+         WHERE f.status = 'approved'
+           AND r.boosted_vec_sim >= $3
+         ORDER BY r.hybrid_score DESC
+         LIMIT $2`,
+        vectorStr,
+        limit,
+        minSimilarity,
+        candidateLimit,
+        query,
+      );
+    } else {
+      // 비영문(한국어 등) 쿼리: 벡터 전용 + Title Boost (BM25 스킵)
+      results = await this.prisma.$queryRawUnsafe<RawRow[]>(
+        `WITH candidates AS (
+           SELECT faq_id, variant, 1 - (embedding <=> $1::vector) AS similarity
+           FROM faq_question_embeddings
+           ORDER BY embedding <=> $1::vector
+           LIMIT $4
+         ),
+         faq_scores AS (
+           SELECT faq_id,
+                  MAX(CASE WHEN variant IN ('primary', 'primary_ko')
+                           THEN similarity * 1.10
+                           ELSE similarity END) AS boosted_sim
+           FROM candidates
+           GROUP BY faq_id
+         )
+         SELECT f.id, f.question, f.tags, f.guideline, f.reference,
+                fs.boosted_sim AS similarity
+         FROM faq_scores fs
+         JOIN faqs f ON f.id = fs.faq_id
+         WHERE f.status = 'approved'
+           AND fs.boosted_sim >= $3
+         ORDER BY fs.boosted_sim DESC
+         LIMIT $2`,
+        vectorStr,
+        limit,
+        minSimilarity,
+        candidateLimit,
+      );
+    }
+
+    return results.map<FaqSearchHit>((r) => ({
       id: r.id,
       question: r.question,
       tags: r.tags,

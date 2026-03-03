@@ -6,8 +6,8 @@
  * 유사도 임계값 (cosine similarity thresholds)
  */
 export const FAQ_SIMILARITY = {
-  /** FAQ 직접 답변 임계값 */
-  DIRECT_THRESHOLD: 0.7,
+  /** FAQ 직접 답변 임계값 (title boost 10%와 결합 → raw 0.60도 RAG 트리거) */
+  DIRECT_THRESHOLD: 0.65,
   /** 제안 질문 최소 유사도 */
   SUGGESTION_THRESHOLD: 0.45,
   /** 소스 필터 최소 유사도 (chatWithFaq, regenerateAnswer) */

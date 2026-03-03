@@ -96,20 +96,23 @@ export class FaqChatService {
 
     const [intent, suggestions, relatedTours] = await Promise.all([
       this.classifyIntent(message, queryEmbedding),
-      queryEmbedding
-        ? this.faqEmbeddingService.searchSimilarByVector(
-            queryEmbedding,
-            3,
-            FAQ_SIMILARITY.SUGGESTION_THRESHOLD,
-          )
-        : Promise.resolve([]),
+      this.faqEmbeddingService.searchSimilarByVector(
+        queryEmbedding,
+        5,
+        FAQ_SIMILARITY.SUGGESTION_THRESHOLD,
+        message,
+      ),
       this.searchOdkToursByVector(queryEmbedding, 5),
     ]);
-    const topFaq = suggestions.length > 0 && suggestions[0].similarity >= FAQ_SIMILARITY.MIN_SEARCH ? suggestions[0] : null;
+    const topFaq =
+      suggestions.length > 0 &&
+      suggestions[0].similarity >= FAQ_SIMILARITY.MIN_SEARCH
+        ? suggestions[0]
+        : null;
     const topSimilarity = topFaq?.similarity ?? 0;
 
     this.logger.debug(
-      `Intent: ${intent}, topSim: ${topSimilarity.toFixed(2)} for: "${message.substring(0, 50)}..."`,
+      `Intent: ${intent}, topSim: ${topSimilarity.toFixed(2)}, hits: ${suggestions.length} for: "${message.substring(0, 50)}..."`,
     );
 
     // 2. 하이브리드 분기
@@ -135,6 +138,9 @@ export class FaqChatService {
           reviewCount: number | null;
         }>
       | undefined;
+
+    // 멀티 FAQ 컨텍스트 추적 (rag 분기에서 설정)
+    let ragContextFaqs: typeof suggestions = [];
 
     // 투어 매핑 헬퍼
     const mapTours = (tours: typeof relatedTours) =>
@@ -170,17 +176,26 @@ export class FaqChatService {
       topFaq &&
       topSimilarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD
     ) {
-      // 단일 FAQ 매칭 → 가이드라인 기반 답변 생성 (고유사도 시 캐시 활용)
+      // 멀티 FAQ 컨텍스트 → 관련 FAQ들의 guideline을 모두 LLM에 전달
       responseTier = 'rag';
-      const cacheKey = `faq:${topFaq.id}`;
+      ragContextFaqs = suggestions
+        .filter((f) => f.similarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD)
+        .slice(0, 3);
+
+      const cacheKey = `faq:${ragContextFaqs
+        .map((f) => f.id)
+        .sort((a, b) => a - b)
+        .join(',')}`;
       const cached =
-        topSimilarity >= 0.95
-          ? this.answerCache.get<string>(cacheKey)
-          : null;
+        topSimilarity >= 0.95 ? this.answerCache.get<string>(cacheKey) : null;
       if (cached) {
         answer = cached;
       } else {
-        answer = await this.generateGuidelineAnswer(message, topFaq, history);
+        answer = await this.generateGuidelineAnswer(
+          message,
+          ragContextFaqs,
+          history,
+        );
         if (topSimilarity >= 0.95) {
           this.answerCache.set(cacheKey, answer);
         }
@@ -217,10 +232,20 @@ export class FaqChatService {
       }
     }
 
-    // 3. 매칭된 FAQ 정보
+    // 3. 매칭된 FAQ 정보 (멀티 FAQ 컨텍스트 반영)
     const noMatch = responseTier === 'no_match';
-    const matchedFaqIds = topFaq ? [topFaq.id] : [];
-    const matchedSimilarities = topFaq ? [topFaq.similarity] : [];
+    const matchedFaqIds =
+      ragContextFaqs.length > 0
+        ? ragContextFaqs.map((f) => f.id)
+        : topFaq
+          ? [topFaq.id]
+          : [];
+    const matchedSimilarities =
+      ragContextFaqs.length > 0
+        ? ragContextFaqs.map((f) => f.similarity)
+        : topFaq
+          ? [topFaq.similarity]
+          : [];
 
     // 4. 로그 저장 (동기 — chatLogId 반환 필요)
     let chatLogId: number | undefined;
@@ -256,9 +281,13 @@ export class FaqChatService {
     return {
       answer,
       sources:
-        topFaq && topFaq.similarity >= FAQ_SIMILARITY.SOURCE_FILTER
-          ? [{ question: topFaq.question, id: topFaq.id }]
-          : undefined,
+        ragContextFaqs.length > 0
+          ? ragContextFaqs
+              .filter((f) => f.similarity >= FAQ_SIMILARITY.SOURCE_FILTER)
+              .map((f) => ({ question: f.question, id: f.id }))
+          : topFaq && topFaq.similarity >= FAQ_SIMILARITY.SOURCE_FILTER
+            ? [{ question: topFaq.question, id: topFaq.id }]
+            : undefined,
       noMatch,
       responseTier,
       suggestedQuestions,
@@ -343,10 +372,7 @@ export class FaqChatService {
     return dot / (Math.sqrt(normA) * Math.sqrt(normB));
   }
 
-  private async searchOdkToursByVector(
-    embedding: number[] | null,
-    limit = 5,
-  ) {
+  private async searchOdkToursByVector(embedding: number[] | null, limit = 5) {
     if (!embedding) return [];
 
     const vectorStr = `[${embedding.join(',')}]`;
@@ -447,26 +473,44 @@ export class FaqChatService {
 
   private async generateGuidelineAnswer(
     message: string,
-    faq: {
+    faqs: Array<{
       question: string;
       guideline?: string | null;
       reference?: string | null;
-    },
+    }>,
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
   ): Promise<string> {
-    const parts: string[] = [];
-    if (faq.guideline)
-      parts.push(`=== Guideline ===\n${faq.guideline}\n=== End Guideline ===`);
-    if (faq.reference)
-      parts.push(`=== Reference ===\n${faq.reference}\n=== End Reference ===`);
-    const faqGuideline = parts.length > 0 ? `\n${parts.join('\n')}` : '';
+    let faqGuideline = '';
+
+    if (faqs.length === 1) {
+      // 단일 FAQ — 기존 포맷 유지
+      const faq = faqs[0];
+      const parts: string[] = [];
+      if (faq.guideline)
+        parts.push(
+          `=== Guideline ===\n${faq.guideline}\n=== End Guideline ===`,
+        );
+      if (faq.reference)
+        parts.push(
+          `=== Reference ===\n${faq.reference}\n=== End Reference ===`,
+        );
+      faqGuideline = parts.length > 0 ? `\n${parts.join('\n')}` : '';
+    } else if (faqs.length > 1) {
+      // 멀티 FAQ — 각 FAQ 섹션을 번호 매겨 구분
+      const sections = faqs.map((faq, i) => {
+        const parts: string[] = [`[FAQ ${i + 1}] ${faq.question}`];
+        if (faq.guideline) parts.push(`Guideline: ${faq.guideline}`);
+        if (faq.reference) parts.push(`Reference: ${faq.reference}`);
+        return parts.join('\n');
+      });
+      faqGuideline = `\n=== Related FAQ Context (${faqs.length} FAQs) ===\n${sections.join('\n---\n')}\n=== End FAQ Context ===`;
+    }
+
+    const faqQuestion = faqs.map((f) => f.question).join(' | ');
 
     const built = await this.aiPromptService.buildPrompt(
       PromptKey.FAQ_GUIDELINE_ANSWER,
-      {
-        faqQuestion: faq.question,
-        faqGuideline,
-      },
+      { faqQuestion, faqGuideline },
     );
 
     return this.geminiCore.callGemini(message, {
@@ -508,7 +552,7 @@ export class FaqChatService {
     }
 
     const nextFaq = remaining[0];
-    const answer = await this.generateGuidelineAnswer(log.message, nextFaq);
+    const answer = await this.generateGuidelineAnswer(log.message, [nextFaq]);
 
     const newMatchedFaqIds = [...excludeIds, nextFaq.id];
     const newMatchedSimilarities = [nextFaq.similarity];
@@ -575,7 +619,7 @@ export class FaqChatService {
       .catch((err) => this.logger.error('FAQ viewCount 증가 실패:', err));
 
     // guideline 기반 AI 답변 생성
-    const answer = await this.generateGuidelineAnswer(faq.question, faq);
+    const answer = await this.generateGuidelineAnswer(faq.question, [faq]);
     return { question: faq.question, answer };
   }
 
