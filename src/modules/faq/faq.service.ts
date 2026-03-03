@@ -10,6 +10,7 @@ import { MemoryCache } from '../../common/utils';
 import { CACHE_TTL } from '../../common/constants/cache';
 import { FAQ_BATCH } from './faq.constants';
 import { FaqEmbeddingService } from './faq-embedding.service';
+import { FaqChatService } from './faq-chat.service';
 import { GeminiCoreService } from '../ai/core/gemini-core.service';
 import { FaqCategorizeService } from './faq-categorize.service';
 import { AiPromptService } from '../ai-prompt/ai-prompt.service';
@@ -23,9 +24,16 @@ export class FaqService {
   constructor(
     private prisma: PrismaService,
     private faqEmbeddingService: FaqEmbeddingService,
+    private faqChatService: FaqChatService,
     private geminiCore: GeminiCoreService,
     private aiPromptService: AiPromptService,
   ) {}
+
+  /** FAQ 목록 캐시 + 챗봇 답변 캐시 동시 초기화 */
+  private clearCaches(): void {
+    this.cache.clear();
+    this.faqChatService.clearAnswerCache();
+  }
 
   // ============================================================================
   // FAQ CRUD
@@ -220,7 +228,7 @@ Text: ${text}`;
       }
     }
 
-    this.cache.clear();
+    this.clearCaches();
     return faq;
   }
 
@@ -270,13 +278,13 @@ Text: ${text}`;
       }
     }
 
-    this.cache.clear();
+    this.clearCaches();
     return faq;
   }
 
   async deleteFaq(id: number) {
     const result = await this.prisma.faq.delete({ where: { id } });
-    this.cache.clear();
+    this.clearCaches();
     return result;
   }
 
@@ -312,7 +320,7 @@ Text: ${text}`;
       this.logger.error(`임베딩 생성 실패 (FAQ #${faq.id}):`, error);
     }
 
-    this.cache.clear();
+    this.clearCaches();
     return faq;
   }
 
@@ -329,7 +337,7 @@ Text: ${text}`;
       await this.faqEmbeddingService.cleanupEmailRawData(faq.sourceEmailId);
     }
 
-    this.cache.clear();
+    this.clearCaches();
     return faq;
   }
 
@@ -384,7 +392,7 @@ Text: ${text}`;
       return result;
     });
 
-    this.cache.clear();
+    this.clearCaches();
     return result;
   }
 
@@ -510,7 +518,7 @@ Text: ${text}`;
     const totalDeleted = lowQualityDeleted + exactDuplicatesDeleted;
     const remainingCount = await this.prisma.faq.count();
 
-    this.cache.clear();
+    this.clearCaches();
 
     this.logger.log(
       `중복 제거 완료: 저품질 ${lowQualityDeleted}건 + 중복 ${exactDuplicatesDeleted}건 = 총 ${totalDeleted}건 삭제, 남은 FAQ: ${remainingCount}건`,

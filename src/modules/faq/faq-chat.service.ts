@@ -55,6 +55,11 @@ export class FaqChatService {
   /** 고유사도 FAQ 답변 캐시 (faqId → answer, 30분 TTL) */
   private readonly answerCache = new MemoryCache(30 * 60 * 1000, 100);
 
+  /** FAQ 수정 시 외부에서 답변 캐시 무효화 */
+  clearAnswerCache(): void {
+    this.answerCache.clear();
+  }
+
   constructor(
     private prisma: PrismaService,
     private embeddingService: EmbeddingService,
