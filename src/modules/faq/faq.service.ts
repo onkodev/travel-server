@@ -228,9 +228,35 @@ Text: ${text}`;
       data,
     });
 
-    // approved 상태에서 question/questionKo 변경 시 임베딩 재생성
-    if (faq.status === 'approved' && (data.question || data.questionKo)) {
+    // approved 상태에서 임베딩 관련 필드 변경 시 재임베딩
+    const embeddingFields = [
+      'question',
+      'questionKo',
+      'guideline',
+      'reference',
+      'tags',
+    ] as const;
+    const hasEmbeddingChange = embeddingFields.some(
+      (field) => data[field] !== undefined,
+    );
+
+    if (faq.status === 'approved' && hasEmbeddingChange) {
       try {
+        // question 변경 시 대안 질문도 재생성
+        if (data.question) {
+          const alts =
+            await this.faqEmbeddingService.generateAlternativeQuestions(
+              faq.question,
+              faq.guideline,
+            );
+          if (alts.length > 0) {
+            await this.prisma.faq.update({
+              where: { id: faq.id },
+              data: { alternativeQuestions: alts },
+            });
+          }
+        }
+
         await this.faqEmbeddingService.generateAndSaveEmbedding(
           faq.id,
           faq.question,

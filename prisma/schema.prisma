@@ -7,7 +7,7 @@ datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
   directUrl  = env("DIRECT_URL")
-  extensions = [uuid_ossp(map: "uuid-ossp", schema: "extensions"), vector, pg_trgm(schema: "extensions")]
+  extensions = [pg_trgm(schema: "extensions"), uuid_ossp(map: "uuid-ossp", schema: "extensions"), vector]
 }
 
 model Estimate {
@@ -38,10 +38,9 @@ model Estimate {
   adjustmentReason  String?                @map("adjustment_reason")
   totalAmount       Decimal?               @default(0) @map("total_amount") @db.Decimal(12, 2)
   currency          String?                @default("USD") @db.VarChar(3)
-  displayOptions    Json?                  @default("{\"place\": true, \"price\": true, \"contents\": true, \"accommodation\": true, \"transportation\": true, \"restaurant\": true}") @map("display_options")
+  displayOptions    Json?                  @default("{\"place\": true, \"price\": true, \"contents\": true, \"restaurant\": true, \"accommodation\": true, \"transportation\": true}") @map("display_options")
   comment           String?
   timeline          Json?
-  dayNotes          Json?                  @map("day_notes")
   requestContent    String?                @map("request_content")
   revisionHistory   Json?                  @default("[]") @map("revision_history")
   isPinned          Boolean?               @default(false) @map("is_pinned")
@@ -64,6 +63,7 @@ model Estimate {
   revisionRequested Boolean                @default(false) @map("revision_requested")
   aiMetadata        Json?                  @map("ai_metadata")
   embedding         Unsupported("vector")? @map("embedding")
+  dayNotes          Json?                  @map("day_notes")
 
   @@index([chatSessionId], map: "idx_estimates_chat_session")
   @@index([createdAt(sort: Desc)], map: "idx_estimates_created_at")
@@ -88,7 +88,6 @@ model Estimate {
 
 model Item {
   id               Int       @id @default(autoincrement())
-  category         String    @db.VarChar(50)
   nameKor          String    @map("name_kor") @db.VarChar(255)
   nameEng          String    @map("name_eng") @db.VarChar(255)
   description      String    @default("")
@@ -111,6 +110,7 @@ model Item {
   descriptionEng   String?   @map("description_eng")
   metadata         Json?
   aiEnabled        Boolean   @default(true) @map("ai_enabled")
+  category         String?   @db.VarChar(50)
 
   @@index([createdAt(sort: Desc)], map: "idx_items_created_at")
   @@index([nameEng(ops: raw("gin_trgm_ops"))], map: "idx_items_name_eng_trgm", type: Gin)
@@ -335,8 +335,8 @@ model ChatbotFlow {
   guestEmail      String?          @map("guest_email")
   guestName       String?          @map("guest_name")
   infoMismatch    Boolean          @default(false) @map("info_mismatch")
-  visitor         VisitorSession?  @relation(fields: [visitorId], references: [id])
   messages        ChatbotMessage[]
+  visitor         VisitorSession?  @relation(fields: [visitorId], references: [id])
 
   @@index([sessionId], map: "idx_chat_sessions_session_id")
   @@index([userId], map: "idx_chat_sessions_user_id")
@@ -469,25 +469,29 @@ model Contact {
 }
 
 model Faq {
-  id                 Int                    @id @default(autoincrement())
-  question           String
-  status             String                 @default("pending") @db.VarChar(20)
-  source             String                 @default("manual") @db.VarChar(20)
-  sourceEmailId      String?                @map("source_email_id")
-  sourceEmailSubject String?                @map("source_email_subject")
-  tags               String[]
-  viewCount          Int                    @default(0) @map("view_count")
-  helpfulCount       Int                    @default(0) @map("helpful_count")
-  notHelpfulCount    Int                    @default(0) @map("not_helpful_count")
-  approvedAt         DateTime?              @map("approved_at") @db.Timestamptz(6)
-  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  sourceContext      Json?                  @map("source_context")
-  embedding          Unsupported("vector")? @map("embedding")
-  questionKo         String?                @map("question_ko")
-  category           String?                @db.VarChar(30)
-  guideline          String?
-  reference          String?
+  id                    Int                    @id @default(autoincrement())
+  question              String
+  status                String                 @default("pending") @db.VarChar(20)
+  source                String                 @default("manual") @db.VarChar(20)
+  sourceEmailId         String?                @map("source_email_id")
+  sourceEmailSubject    String?                @map("source_email_subject")
+  tags                  String[]
+  viewCount             Int                    @default(0) @map("view_count")
+  helpfulCount          Int                    @default(0) @map("helpful_count")
+  notHelpfulCount       Int                    @default(0) @map("not_helpful_count")
+  approvedAt            DateTime?              @map("approved_at") @db.Timestamptz(6)
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sourceContext         Json?                  @map("source_context")
+  embedding             Unsupported("vector")? @map("embedding")
+  questionKo            String?                @map("question_ko")
+  category              String?                @db.VarChar(30)
+  guideline             String?
+  reference             String?
+  alternativeQuestions  String[]               @default([]) @map("alternative_questions")
+  embeddedAt            DateTime?              @map("embedded_at") @db.Timestamptz(6)
+  embeddingText         String?                @map("embedding_text")
+  questionEmbeddings    FaqQuestionEmbedding[]
 
   @@index([status], map: "idx_faqs_status")
   @@index([source], map: "idx_faqs_source")
@@ -557,21 +561,20 @@ model GmailSyncHistory {
 }
 
 model EmailThread {
-  id                Int       @id @default(autoincrement())
-  gmailThreadId     String    @unique @map("gmail_thread_id")
+  id                Int                    @id @default(autoincrement())
+  gmailThreadId     String                 @unique @map("gmail_thread_id")
   subject           String?
-  fromEmail         String?   @map("from_email") @db.VarChar(255)
-  lastMessageAt     DateTime? @map("last_message_at") @db.Timestamptz(6)
-  messageCount      Int       @default(0) @map("message_count")
-  isProcessed       Boolean   @default(false) @map("is_processed")
-  extractedFaqCount Int       @default(0) @map("extracted_faq_count")
-  processingError   String?   @map("processing_error")
-  rawData           Json?     @map("raw_data")
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  embedding      Unsupported("vector")? @map("embedding")
-  excludeFromRag Boolean                @default(false) @map("exclude_from_rag")
+  fromEmail         String?                @map("from_email") @db.VarChar(255)
+  lastMessageAt     DateTime?              @map("last_message_at") @db.Timestamptz(6)
+  messageCount      Int                    @default(0) @map("message_count")
+  isProcessed       Boolean                @default(false) @map("is_processed")
+  extractedFaqCount Int                    @default(0) @map("extracted_faq_count")
+  processingError   String?                @map("processing_error")
+  rawData           Json?                  @map("raw_data")
+  createdAt         DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  embedding         Unsupported("vector")? @map("embedding")
+  excludeFromRag    Boolean                @default(false) @map("exclude_from_rag")
 
   @@index([isProcessed], map: "idx_email_threads_is_processed")
   @@index([createdAt(sort: Desc)], map: "idx_email_threads_created_at")
@@ -580,28 +583,28 @@ model EmailThread {
 
 model AiGenerationConfig {
   id                     Int      @id @default(1)
-  aiEnabled              Boolean  @default(true) @map("ai_enabled")
-  geminiModel            String   @default("gemini-2.5-flash") @map("gemini_model") @db.VarChar(50)
   ragSearchLimit         Int      @default(5) @map("rag_search_limit")
-  ragEstimateLimit       Int      @default(3) @map("rag_estimate_limit")
   ragSimilarityMin       Float    @default(0.3) @map("rag_similarity_min")
   ragTimeout             Int      @default(25000) @map("rag_timeout")
   geminiTemperature      Float    @default(0.7) @map("gemini_temperature")
   geminiMaxTokens        Int      @default(4096) @map("gemini_max_tokens")
   placesPerDay           Int      @default(4) @map("places_per_day")
   customPromptAddon      String?  @map("custom_prompt_addon")
+  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   fuzzyMatchThreshold    Float    @default(0.3) @map("fuzzy_match_threshold")
   directThreshold        Float    @default(0.7) @map("direct_threshold")
   ragThreshold           Float    @default(0.5) @map("rag_threshold")
   noMatchResponse        String?  @map("no_match_response")
-  topFaqCount            Int      @default(4) @map("top_faq_count")
-  estimateValidityDays   Int      @default(10) @map("estimate_validity_days")
+  aiEnabled              Boolean  @default(true) @map("ai_enabled")
+  geminiModel            String   @default("gemini-2.5-flash") @map("gemini_model") @db.VarChar(50)
   aiEstimateValidityDays Int      @default(2) @map("ai_estimate_validity_days")
+  estimateValidityDays   Int      @default(10) @map("estimate_validity_days")
+  topFaqCount            Int      @default(4) @map("top_faq_count")
   faqAnswerStyle         String   @default("balanced") @map("faq_answer_style") @db.VarChar(20)
   faqAnswerLength        String   @default("standard") @map("faq_answer_length") @db.VarChar(20)
   faqCustomInstructions  String?  @map("faq_custom_instructions")
+  ragEstimateLimit       Int      @default(3) @map("rag_estimate_limit")
   includeTbdItems        Boolean  @default(true) @map("include_tbd_items")
-  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("ai_generation_configs")
 }
@@ -618,15 +621,15 @@ model OdkTourList {
   region       String?                @db.VarChar(100)
   duration     String?                @db.VarChar(50)
   tags         String[]               @default([])
-  sortOrder    Int                    @default(0) @map("sort_order")
   embedding    Unsupported("vector")? @map("embedding")
-  rating       Float?
-  reviewCount  Int?                   @default(0) @map("review_count")
-  category     String?                @db.VarChar(100)
-  lastSyncedAt DateTime?              @map("last_synced_at") @db.Timestamptz(6)
   isActive     Boolean                @default(true) @map("is_active")
   createdAt    DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sortOrder    Int                    @default(0) @map("sort_order")
+  category     String?                @db.VarChar(100)
+  lastSyncedAt DateTime?              @map("last_synced_at") @db.Timestamptz(6)
+  rating       Float?
+  reviewCount  Int?                   @default(0) @map("review_count")
 
   @@index([isActive], map: "idx_odk_tours_active")
   @@index([region], map: "idx_odk_tours_region")
@@ -649,4 +652,18 @@ model AiPromptTemplate {
 
   @@index([category], map: "idx_ai_prompt_templates_category")
   @@map("ai_prompt_templates")
+}
+
+model FaqQuestionEmbedding {
+  id        BigInt                 @id @default(autoincrement())
+  faqId     Int                    @map("faq_id")
+  variant   String                 @db.VarChar(20)
+  question  String
+  embedding Unsupported("vector")? @map("embedding")
+  createdAt DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  faq       Faq                    @relation(fields: [faqId], references: [id], onDelete: Cascade)
+
+  @@unique([faqId, variant], map: "idx_faq_qe_faq_variant")
+  @@index([faqId], map: "idx_faq_qe_faq_id")
+  @@map("faq_question_embeddings")
 }

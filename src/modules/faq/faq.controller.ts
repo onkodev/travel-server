@@ -160,6 +160,12 @@ export class FaqController {
     );
   }
 
+  @Get('embedding-status')
+  @ApiOperation({ summary: 'FAQ 임베딩 상태 (관리자)' })
+  async getEmbeddingStatus() {
+    return this.faqEmbeddingService.getEmbeddingStatus();
+  }
+
   @Get('stats')
   @ApiOperation({ summary: 'FAQ 통계' })
   async getStats() {
@@ -296,8 +302,16 @@ export class FaqController {
   }
 
   @Post('regenerate-embeddings')
-  @ApiOperation({ summary: '승인된 FAQ 전체 임베딩 재생성 (한국어 포함)' })
-  async regenerateEmbeddings() {
-    return this.faqEmbeddingService.regenerateAllEmbeddings();
+  @ApiOperation({
+    summary: '승인된 FAQ 전체 임베딩 재생성 (enriched text 기반)',
+    description:
+      '대안 질문 자동 생성 + enriched text 임베딩. regenerate=true로 대안 질문 강제 재생성.',
+  })
+  async regenerateEmbeddings(
+    @Query('regenerate') regenerate?: string,
+  ) {
+    return this.faqEmbeddingService.regenerateAllEmbeddings({
+      regenerateAlternatives: regenerate === 'true',
+    });
   }
 }

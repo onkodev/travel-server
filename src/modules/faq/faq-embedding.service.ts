@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { EmbeddingService } from '../ai/core/embedding.service';
+import { GeminiCoreService } from '../ai/core/gemini-core.service';
 import { FAQ_SIMILARITY, FAQ_BATCH } from './faq.constants';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class FaqEmbeddingService {
   constructor(
     private prisma: PrismaService,
     private embeddingService: EmbeddingService,
+    private geminiCore: GeminiCoreService,
   ) {}
 
   // ============================================================================
@@ -23,19 +25,81 @@ export class FaqEmbeddingService {
     questionKo?: string | null,
   ): Promise<void> {
     try {
-      const text = this.embeddingService.buildFaqText(question, questionKo);
-      const embedding = await this.embeddingService.generateEmbedding(text);
+      const faq = await this.prisma.faq.findUnique({
+        where: { id: faqId },
+        select: { alternativeQuestions: true },
+      });
 
-      if (!embedding) {
-        this.logger.warn(`FAQ #${faqId} 임베딩 생성 실패 (null 반환)`);
-        return;
+      // variant 배열 구성
+      const variants: Array<{ variant: string; text: string }> = [
+        { variant: 'primary', text: question },
+      ];
+
+      if (questionKo) {
+        variants.push({ variant: 'primary_ko', text: questionKo });
       }
 
-      await this.prisma.$executeRawUnsafe(
-        `UPDATE faqs SET embedding = $1::vector WHERE id = $2`,
-        `[${embedding.join(',')}]`,
-        faqId,
-      );
+      const alts = faq?.alternativeQuestions || [];
+      alts.forEach((alt, i) => {
+        variants.push({ variant: `alternative_${i}`, text: alt });
+      });
+
+      // 각 variant에 대해 개별 임베딩 생성 (순차 처리, rate limit 안전)
+      let primaryEmbedding: number[] | null = null;
+      const validVariants: string[] = [];
+
+      for (const { variant, text } of variants) {
+        const embedding = await this.embeddingService.generateEmbedding(text);
+        if (!embedding) {
+          this.logger.warn(
+            `FAQ #${faqId} variant "${variant}" 임베딩 생성 실패`,
+          );
+          continue;
+        }
+
+        const vectorStr = `[${embedding.join(',')}]`;
+
+        await this.prisma.$executeRawUnsafe(
+          `INSERT INTO faq_question_embeddings (faq_id, variant, question, embedding)
+           VALUES ($1, $2, $3, $4::vector)
+           ON CONFLICT (faq_id, variant) DO UPDATE
+           SET question = EXCLUDED.question, embedding = EXCLUDED.embedding, created_at = NOW()`,
+          faqId,
+          variant,
+          text,
+          vectorStr,
+        );
+
+        validVariants.push(variant);
+
+        if (variant === 'primary') {
+          primaryEmbedding = embedding;
+        }
+      }
+
+      // faqs.embedding = primary 임베딩 (scanDuplicates 호환용 유지)
+      if (primaryEmbedding) {
+        const primaryText = this.embeddingService.buildFaqText(
+          question,
+          questionKo,
+        );
+        await this.prisma.$executeRawUnsafe(
+          `UPDATE faqs SET embedding = $1::vector, embedded_at = NOW(), embedding_text = $3 WHERE id = $2`,
+          `[${primaryEmbedding.join(',')}]`,
+          faqId,
+          primaryText,
+        );
+      }
+
+      // stale variants 삭제 (variant 수가 줄어든 경우)
+      if (validVariants.length > 0) {
+        await this.prisma.$executeRawUnsafe(
+          `DELETE FROM faq_question_embeddings
+           WHERE faq_id = $1 AND variant != ALL($2::varchar[])`,
+          faqId,
+          validVariants,
+        );
+      }
     } catch (error) {
       this.logger.error(`FAQ #${faqId} 임베딩 저장 실패:`, error);
     }
@@ -60,11 +124,15 @@ export class FaqEmbeddingService {
     }
   }
 
-  async regenerateAllEmbeddings(): Promise<{
+  async regenerateAllEmbeddings(options?: {
+    regenerateAlternatives?: boolean;
+  }): Promise<{
     total: number;
     success: number;
     failed: number;
+    message: string;
   }> {
+    const regenerateAlts = options?.regenerateAlternatives ?? false;
     let success = 0;
     let failed = 0;
     let offset = 0;
@@ -77,6 +145,10 @@ export class FaqEmbeddingService {
           id: true,
           question: true,
           questionKo: true,
+          alternativeQuestions: true,
+          guideline: true,
+          reference: true,
+          tags: true,
         },
         skip: offset,
         take: FAQ_BATCH.EMBEDDING,
@@ -85,6 +157,32 @@ export class FaqEmbeddingService {
 
       if (faqs.length === 0) break;
 
+      // 대안 질문이 없거나 강제 재생성 시 LLM으로 생성
+      for (const faq of faqs) {
+        const needsAltGen =
+          regenerateAlts || !faq.alternativeQuestions.length;
+        if (needsAltGen) {
+          try {
+            const alts = await this.generateAlternativeQuestions(
+              faq.question,
+              faq.guideline,
+            );
+            if (alts.length > 0) {
+              await this.prisma.faq.update({
+                where: { id: faq.id },
+                data: { alternativeQuestions: alts },
+              });
+              faq.alternativeQuestions = alts;
+            }
+          } catch (error) {
+            this.logger.warn(
+              `FAQ #${faq.id} 대안 질문 생성 실패:`,
+              error,
+            );
+          }
+        }
+      }
+
       total += faqs.length;
       const result = await this.processEmbeddingBatch(faqs);
       success += result.success;
@@ -92,10 +190,11 @@ export class FaqEmbeddingService {
       offset += FAQ_BATCH.EMBEDDING;
     }
 
+    const message = `${total}개 FAQ 임베딩 완료 (${failed}개 실패)`;
     this.logger.log(
       `임베딩 전체 재생성: ${total}건 중 성공 ${success}, 실패 ${failed}`,
     );
-    return { total, success, failed };
+    return { total, success, failed, message };
   }
 
   /**
@@ -110,9 +209,13 @@ export class FaqEmbeddingService {
     const unembedded = await this.prisma.$queryRawUnsafe<
       Array<{ id: number; question: string; question_ko: string | null }>
     >(
-      `SELECT id, question, question_ko FROM faqs
-       WHERE status = 'approved' AND embedding IS NULL
-       ORDER BY id ASC`,
+      `SELECT f.id, f.question, f.question_ko FROM faqs f
+       WHERE f.status = 'approved'
+         AND NOT EXISTS (
+           SELECT 1 FROM faq_question_embeddings qe
+           WHERE qe.faq_id = f.id AND qe.variant = 'primary'
+         )
+       ORDER BY f.id ASC`,
     );
 
     if (unembedded.length === 0) {
@@ -163,6 +266,84 @@ export class FaqEmbeddingService {
   }
 
   // ============================================================================
+  // Alternative Questions Generation
+  // ============================================================================
+
+  async generateAlternativeQuestions(
+    question: string,
+    guideline?: string | null,
+  ): Promise<string[]> {
+    const contextPart = guideline
+      ? `\nContext (if available): "${guideline}"`
+      : '';
+
+    const prompt = `Given the following FAQ question, generate 5-8 alternative ways a customer might ask the same question.
+Consider different phrasings, synonyms, and varying levels of formality.
+Include both direct and indirect ways of asking.
+
+FAQ Question: "${question}"${contextPart}
+
+Return ONLY a JSON array of strings, no explanation.
+Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
+
+    const result = await this.geminiCore.callGemini(prompt, {
+      temperature: 0.7,
+      maxOutputTokens: 1024,
+      disableThinking: true,
+    });
+
+    try {
+      const jsonStr = result
+        .replace(/```json?\n?/g, '')
+        .replace(/```/g, '')
+        .trim();
+      const parsed = JSON.parse(jsonStr);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((q: unknown) => typeof q === 'string');
+      }
+    } catch {
+      this.logger.warn(`대안 질문 JSON 파싱 실패: ${result.slice(0, 200)}`);
+    }
+    return [];
+  }
+
+  // ============================================================================
+  // Embedding Status
+  // ============================================================================
+
+  async getEmbeddingStatus(): Promise<{
+    totalFaqs: number;
+    embeddedFaqs: number;
+    unembeddedFaqs: number;
+    lastEmbeddedAt: string | null;
+  }> {
+    const stats = await this.prisma.$queryRawUnsafe<
+      Array<{
+        total_faqs: bigint;
+        embedded_faqs: bigint;
+        last_embedded_at: Date | null;
+      }>
+    >(
+      `SELECT
+        COUNT(*) FILTER (WHERE status = 'approved') as total_faqs,
+        COUNT(*) FILTER (WHERE status = 'approved' AND embedded_at IS NOT NULL) as embedded_faqs,
+        MAX(embedded_at) as last_embedded_at
+      FROM faqs`,
+    );
+
+    const row = stats[0];
+    const totalFaqs = Number(row.total_faqs);
+    const embeddedFaqs = Number(row.embedded_faqs);
+
+    return {
+      totalFaqs,
+      embeddedFaqs,
+      unembeddedFaqs: totalFaqs - embeddedFaqs,
+      lastEmbeddedAt: row.last_embedded_at?.toISOString() || null,
+    };
+  }
+
+  // ============================================================================
   // Similarity Search
   // ============================================================================
 
@@ -189,12 +370,14 @@ export class FaqEmbeddingService {
         similarity: number;
       }>
     >(
-      `SELECT id, question, tags, guideline, reference,
-              1 - (embedding <=> $1::vector) as similarity
-       FROM faqs
-       WHERE status = 'approved' AND embedding IS NOT NULL
-         AND (1 - (embedding <=> $1::vector)) >= $3
-       ORDER BY embedding <=> $1::vector
+      `SELECT f.id, f.question, f.tags, f.guideline, f.reference,
+              MAX(1 - (qe.embedding <=> $1::vector)) AS similarity
+       FROM faq_question_embeddings qe
+       JOIN faqs f ON f.id = qe.faq_id
+       WHERE f.status = 'approved'
+       GROUP BY f.id, f.question, f.tags, f.guideline, f.reference
+       HAVING MAX(1 - (qe.embedding <=> $1::vector)) >= $3
+       ORDER BY MAX(qe.embedding <=> $1::vector) ASC
        LIMIT $2`,
       vectorStr,
       limit,
@@ -241,12 +424,13 @@ export class FaqEmbeddingService {
         similarity: number;
       }>
     >(
-      `SELECT id, question, question_ko, status,
-              1 - (embedding <=> $1::vector) as similarity
-       FROM faqs
-       WHERE status IN ('pending', 'approved')
-         AND embedding IS NOT NULL
-       ORDER BY embedding <=> $1::vector
+      `SELECT f.id, f.question, f.question_ko, f.status,
+              MAX(1 - (qe.embedding <=> $1::vector)) AS similarity
+       FROM faq_question_embeddings qe
+       JOIN faqs f ON f.id = qe.faq_id
+       WHERE f.status IN ('pending', 'approved')
+       GROUP BY f.id, f.question, f.question_ko, f.status
+       ORDER BY MAX(qe.embedding <=> $1::vector) ASC
        LIMIT 5`,
       vectorStr,
     );
