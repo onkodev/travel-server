@@ -86,6 +86,12 @@ export class UpdateFaqDto {
   @IsString()
   @MaxLength(10000)
   reference?: string;
+
+  @ApiPropertyOptional({ description: '대안 질문 목록' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  alternativeQuestions?: string[];
 }
 
 export class ApproveFaqDto {

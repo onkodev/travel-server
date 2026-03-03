@@ -235,6 +235,7 @@ Text: ${text}`;
       'guideline',
       'reference',
       'tags',
+      'alternativeQuestions',
     ] as const;
     const hasEmbeddingChange = embeddingFields.some(
       (field) => data[field] !== undefined,

@@ -234,6 +234,8 @@ export class FaqController {
     if (body.category !== undefined) data.category = body.category;
     if (body.guideline !== undefined) data.guideline = body.guideline;
     if (body.reference !== undefined) data.reference = body.reference;
+    if (body.alternativeQuestions !== undefined)
+      data.alternativeQuestions = body.alternativeQuestions;
     return this.faqService.updateFaq(id, data);
   }
 
