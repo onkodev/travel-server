@@ -167,32 +167,37 @@ export class FaqChatService {
     const hasFaqMatch =
       topFaq && topSimilarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD;
 
-    if (intent === 'tour_recommend' && hasFaqMatch) {
-      // 2차 판별: tour_recommend + FAQ 고유사도 충돌
-      // 유사도 ≥ 0.85 → FAQ가 질문과 정확히 매칭 → 가이드라인 우선 (RAG)
-      // 유사도 < 0.85 → 관련 FAQ가 있지만 투어 추천이 본래 의도 → tour_recommend
-      if (topSimilarity >= FAQ_SIMILARITY.FAQ_OVERRIDE_THRESHOLD) {
-        responseTier = 'rag';
-        ragContextFaqs = suggestions
-          .filter(
-            (f) =>
-              f.similarity >= FAQ_SIMILARITY.FAQ_OVERRIDE_THRESHOLD,
-          )
-          .slice(0, 3);
+    if (intent === 'tour_recommend') {
+      // FAQ 가이드라인이 있으면 투어 추천에 정책 컨텍스트로 전달
+      // → LLM이 가이드라인 vs 투어 추천을 자연스럽게 판단
+      const faqGuideline =
+        hasFaqMatch && topFaq!.guideline ? topFaq!.guideline : null;
 
-        answer = await this.generateGuidelineAnswer(
-          message,
-          ragContextFaqs,
-          history,
-        );
-      } else if (relatedTours.length > 0) {
-        responseTier = 'tour_recommend';
+      if (relatedTours.length > 0 || faqGuideline) {
         answer = await this.generateTourRecommendationAnswer(
           message,
           relatedTours,
           history,
+          faqGuideline,
         );
-        tourRecommendations = mapTours(relatedTours);
+
+        // FAQ 가이드라인이 투어 추천을 오버라이드했는지 판별:
+        // 가이드라인의 외부 URL이 답변에 포함되면 정책이 적용된 것
+        const guidelineUrls =
+          faqGuideline?.match(/https?:\/\/[^\s)]+/g) || [];
+        const policyApplied = guidelineUrls.some(
+          (url) =>
+            !url.includes('onedaykorea.com') && answer.includes(url),
+        );
+
+        if (policyApplied) {
+          responseTier = 'rag';
+          ragContextFaqs = [topFaq!];
+        } else {
+          responseTier = 'tour_recommend';
+          tourRecommendations =
+            relatedTours.length > 0 ? mapTours(relatedTours) : undefined;
+        }
       } else {
         responseTier = 'general';
         answer = await this.generateGeneralTravelAnswer(message, history);
@@ -221,19 +226,6 @@ export class FaqChatService {
         if (topSimilarity >= 0.95) {
           this.answerCache.set(cacheKey, answer);
         }
-      }
-    } else if (intent === 'tour_recommend') {
-      if (relatedTours.length > 0) {
-        responseTier = 'tour_recommend';
-        answer = await this.generateTourRecommendationAnswer(
-          message,
-          relatedTours,
-          history,
-        );
-        tourRecommendations = mapTours(relatedTours);
-      } else {
-        responseTier = 'general';
-        answer = await this.generateGeneralTravelAnswer(message, history);
       }
     } else if (intent === 'company') {
       // 유사도 낮음 → no_match + 제안 질문
@@ -467,6 +459,7 @@ export class FaqChatService {
       reviewCount?: number | null;
     }>,
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+    faqGuideline?: string | null,
   ): Promise<string> {
     const tourInfo = tours
       .map(
@@ -480,10 +473,22 @@ export class FaqChatService {
       { tourInfo },
     );
 
+    // FAQ 가이드라인이 있으면 정책 컨텍스트로 시스템 프롬프트에 추가
+    let systemPrompt = built.text;
+    if (faqGuideline) {
+      systemPrompt += `\n\n## Company Policy (MUST follow if applicable)
+The following FAQ guideline matched this query. If the guideline contains a redirect, restriction, or alternative service instruction, you MUST follow it instead of recommending tours.
+If the guideline is purely informational (e.g., general info about a destination), proceed with tour recommendations normally.
+
+=== FAQ Guideline ===
+${faqGuideline}
+=== End Guideline ===`;
+    }
+
     return this.geminiCore.callGemini(message, {
       temperature: built.temperature,
       maxOutputTokens: built.maxOutputTokens,
-      systemPrompt: built.text,
+      systemPrompt,
       history: toGeminiHistory(history),
       disableThinking: true,
     });
