@@ -8,6 +8,7 @@ import { FAQ_SIMILARITY, FAQ_BATCH } from './faq.constants';
 export interface FaqSearchHit {
   id: number;
   question: string;
+  category: string | null;
   tags: string[];
   guideline: string | null;
   reference: string | null;
@@ -379,6 +380,7 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
     type RawRow = {
       id: number;
       question: string;
+      category: string | null;
       tags: string[];
       guideline: string | null;
       reference: string | null;
@@ -430,7 +432,7 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
                   0.7 / (60 + rank_vec) + 0.3 / (60 + rank_bm25) AS hybrid_score
            FROM ranked
          )
-         SELECT f.id, f.question, f.tags, f.guideline, f.reference,
+         SELECT f.id, f.question, f.category, f.tags, f.guideline, f.reference,
                 r.boosted_vec_sim AS similarity
          FROM rrf_scored r
          JOIN faqs f ON f.id = r.faq_id
@@ -461,7 +463,7 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
            FROM candidates
            GROUP BY faq_id
          )
-         SELECT f.id, f.question, f.tags, f.guideline, f.reference,
+         SELECT f.id, f.question, f.category, f.tags, f.guideline, f.reference,
                 fs.boosted_sim AS similarity
          FROM faq_scores fs
          JOIN faqs f ON f.id = fs.faq_id
@@ -479,6 +481,7 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
     return results.map<FaqSearchHit>((r) => ({
       id: r.id,
       question: r.question,
+      category: r.category,
       tags: r.tags,
       guideline: r.guideline,
       reference: r.reference,

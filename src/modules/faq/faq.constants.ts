@@ -8,6 +8,8 @@
 export const FAQ_SIMILARITY = {
   /** FAQ 직접 답변 임계값 (title boost 10%와 결합 → raw 0.60도 RAG 트리거) */
   DIRECT_THRESHOLD: 0.65,
+  /** tour_recommend 충돌 시 FAQ 가이드라인 우선 임계값 (이 이상이면 투어추천 대신 RAG) */
+  FAQ_OVERRIDE_THRESHOLD: 0.85,
   /** 제안 질문 최소 유사도 */
   SUGGESTION_THRESHOLD: 0.45,
   /** 소스 필터 최소 유사도 (chatWithFaq, regenerateAnswer) */

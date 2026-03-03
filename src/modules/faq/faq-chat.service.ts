@@ -6,7 +6,7 @@ import { AiPromptService } from '../ai-prompt/ai-prompt.service';
 import { PromptKey } from '../ai-prompt/prompt-registry';
 import { FaqEmbeddingService } from './faq-embedding.service';
 import { FAQ_SIMILARITY, toGeminiHistory } from './faq.constants';
-import { MemoryCache } from '../../common/utils';
+import { MemoryCache, formatUrlsAsMarkdown } from '../../common/utils';
 
 /** 인텐트별 레퍼런스 문장 (임베딩 기반 분류용) */
 const INTENT_REFERENCES: Record<string, string[]> = {
@@ -114,6 +114,11 @@ export class FaqChatService {
     this.logger.debug(
       `Intent: ${intent}, topSim: ${topSimilarity.toFixed(2)}, hits: ${suggestions.length} for: "${message.substring(0, 50)}..."`,
     );
+    if (suggestions.length > 0) {
+      this.logger.debug(
+        `Top FAQs: ${suggestions.slice(0, 3).map((f) => `#${f.id}[${f.category}] "${f.question.substring(0, 40)}" sim=${f.similarity.toFixed(3)}`).join(' | ')}`,
+      );
+    }
 
     // 2. 하이브리드 분기
     let answer: string;
@@ -158,8 +163,42 @@ export class FaqChatService {
         reviewCount: t.reviewCount,
       }));
 
-    // 고유사도 FAQ 매칭 → intent와 무관하게 가이드라인 기반 답변 (최우선)
-    if (topFaq && topSimilarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD) {
+    // ── 듀얼 스코어 매트릭스: (intent × FAQ 유사도) 조합으로 분기 결정 ──
+    const hasFaqMatch =
+      topFaq && topSimilarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD;
+
+    if (intent === 'tour_recommend' && hasFaqMatch) {
+      // 2차 판별: tour_recommend + FAQ 고유사도 충돌
+      // 유사도 ≥ 0.85 → FAQ가 질문과 정확히 매칭 → 가이드라인 우선 (RAG)
+      // 유사도 < 0.85 → 관련 FAQ가 있지만 투어 추천이 본래 의도 → tour_recommend
+      if (topSimilarity >= FAQ_SIMILARITY.FAQ_OVERRIDE_THRESHOLD) {
+        responseTier = 'rag';
+        ragContextFaqs = suggestions
+          .filter(
+            (f) =>
+              f.similarity >= FAQ_SIMILARITY.FAQ_OVERRIDE_THRESHOLD,
+          )
+          .slice(0, 3);
+
+        answer = await this.generateGuidelineAnswer(
+          message,
+          ragContextFaqs,
+          history,
+        );
+      } else if (relatedTours.length > 0) {
+        responseTier = 'tour_recommend';
+        answer = await this.generateTourRecommendationAnswer(
+          message,
+          relatedTours,
+          history,
+        );
+        tourRecommendations = mapTours(relatedTours);
+      } else {
+        responseTier = 'general';
+        answer = await this.generateGeneralTravelAnswer(message, history);
+      }
+    } else if (hasFaqMatch) {
+      // FAQ 고유사도 매칭 (company/travel intent)
       responseTier = 'rag';
       ragContextFaqs = suggestions
         .filter((f) => f.similarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD)
@@ -276,7 +315,7 @@ export class FaqChatService {
     }
 
     return {
-      answer,
+      answer: formatUrlsAsMarkdown(answer),
       sources:
         ragContextFaqs.length > 0
           ? ragContextFaqs
@@ -580,7 +619,7 @@ export class FaqChatService {
     );
 
     return {
-      answer,
+      answer: formatUrlsAsMarkdown(answer),
       sources:
         nextFaq.similarity >= 0.4
           ? [{ question: nextFaq.question, id: nextFaq.id }]
@@ -618,7 +657,7 @@ export class FaqChatService {
 
     // guideline 기반 AI 답변 생성
     const answer = await this.generateGuidelineAnswer(faq.question, [faq]);
-    return { question: faq.question, answer };
+    return { question: faq.question, answer: formatUrlsAsMarkdown(answer) };
   }
 
   /**

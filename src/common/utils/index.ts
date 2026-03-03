@@ -10,3 +10,4 @@ export * from './supabase-error.util';
 export * from './html.util';
 export * from './transform';
 export { jsonCast } from './json-cast';
+export * from './markdown.util';
