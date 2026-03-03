@@ -40,10 +40,10 @@ export class FaqChatLogQueryDto extends PaginationQueryDto {
 
   @ApiPropertyOptional({
     description: '응답 유형',
-    enum: ['direct', 'rag', 'no_match'],
+    enum: ['direct', 'rag', 'general', 'tour_recommend', 'no_match'],
   })
   @IsOptional()
-  @IsIn(['direct', 'rag', 'no_match'])
+  @IsIn(['direct', 'rag', 'general', 'tour_recommend', 'no_match'])
   responseTier?: string;
 
   @ApiPropertyOptional({ description: '방문자 ID (UUID)' })
