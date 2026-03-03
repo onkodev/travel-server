@@ -7,7 +7,7 @@ export const CACHE_TTL = {
   PROFILE: 2 * 60 * 1000, // 2분
   DASHBOARD: 2 * 60 * 1000, // 2분
   TOUR: 10 * 60 * 1000, // 10분
-  EMBEDDING: 5 * 60 * 1000, // 5분
+  EMBEDDING: 30 * 60 * 1000, // 30분 (임베딩은 동일 텍스트에 대해 결정적)
   AI_CONFIG: 30 * 60 * 1000, // 30분
   ITEM: 60 * 60 * 1000, // 1시간
   FAQ_STATS: 60 * 1000, // 1분

@@ -353,11 +353,16 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
     minSimilarity: number = FAQ_SIMILARITY.MIN_SEARCH,
   ) {
     const embedding = await this.embeddingService.generateEmbedding(query);
+    if (!embedding) return [];
+    return this.searchSimilarByVector(embedding, limit, minSimilarity);
+  }
 
-    if (!embedding) {
-      return [];
-    }
-
+  /** 미리 생성된 임베딩 벡터로 유사 FAQ 검색 */
+  async searchSimilarByVector(
+    embedding: number[],
+    limit = 5,
+    minSimilarity: number = FAQ_SIMILARITY.MIN_SEARCH,
+  ) {
     const vectorStr = `[${embedding.join(',')}]`;
 
     const results = await this.prisma.$queryRawUnsafe<

@@ -6,10 +6,50 @@ import { AiPromptService } from '../ai-prompt/ai-prompt.service';
 import { PromptKey } from '../ai-prompt/prompt-registry';
 import { FaqEmbeddingService } from './faq-embedding.service';
 import { FAQ_SIMILARITY, toGeminiHistory } from './faq.constants';
+import { MemoryCache } from '../../common/utils';
+
+/** 인텐트별 레퍼런스 문장 (임베딩 기반 분류용) */
+const INTENT_REFERENCES: Record<string, string[]> = {
+  company: [
+    'What is your refund policy?',
+    'How do I cancel my booking?',
+    'Do you offer group discounts?',
+    'What payment methods do you accept?',
+    'How can I contact customer support?',
+    'Is there a minimum number of people required?',
+    'Can I change my reservation date?',
+    'What is included in the tour price?',
+    'Do you provide pickup service?',
+    'What are your operating hours?',
+  ],
+  tour_recommend: [
+    'Recommend a tour for me',
+    'What are the best day trips from Seoul?',
+    'I want to visit Jeju Island, which tour should I take?',
+    'Show me popular tours',
+    'What tours do you have for families with kids?',
+    'I am looking for a food tour in Seoul',
+    'Which tour is best for first-time visitors?',
+    'Suggest an adventure tour in Korea',
+  ],
+  travel: [
+    'What is the best time to visit Korea?',
+    'How do I get from Incheon airport to Seoul?',
+    'What should I pack for a trip to Korea?',
+    'Is Korea safe for solo travelers?',
+    'What are the must-see places in Seoul?',
+    'How does the subway system work in Seoul?',
+    'What Korean food should I try?',
+    'Do I need a visa to visit Korea?',
+  ],
+};
 
 @Injectable()
 export class FaqChatService {
   private readonly logger = new Logger(FaqChatService.name);
+  private intentEmbeddings: Map<string, number[][]> | null = null;
+  /** 고유사도 FAQ 답변 캐시 (faqId → answer, 30분 TTL) */
+  private readonly answerCache = new MemoryCache(30 * 60 * 1000, 100);
 
   constructor(
     private prisma: PrismaService,
@@ -50,16 +90,20 @@ export class FaqChatService {
     // 0. FaqChatConfig 로드
     const chatConfig = await this.aiPromptService.getFaqChatConfig();
 
-    // 1. 의도 분류 + 유사 FAQ 검색 + 제안 질문 + 투어 검색 (병렬)
-    const tourSearchQuery = this.buildTourSearchQuery(message, history);
+    // 1. 임베딩 1회 생성 → FAQ 검색 + 투어 검색 + 의도 분류에 재사용
+    const queryEmbedding =
+      await this.embeddingService.generateEmbedding(message);
+
     const [intent, suggestions, relatedTours] = await Promise.all([
-      this.classifyIntent(message),
-      this.faqEmbeddingService.searchSimilar(
-        message,
-        3,
-        FAQ_SIMILARITY.SUGGESTION_THRESHOLD,
-      ),
-      this.searchOdkTours(tourSearchQuery, 5),
+      this.classifyIntent(message, queryEmbedding),
+      queryEmbedding
+        ? this.faqEmbeddingService.searchSimilarByVector(
+            queryEmbedding,
+            3,
+            FAQ_SIMILARITY.SUGGESTION_THRESHOLD,
+          )
+        : Promise.resolve([]),
+      this.searchOdkToursByVector(queryEmbedding, 5),
     ]);
     const topFaq = suggestions.length > 0 && suggestions[0].similarity >= FAQ_SIMILARITY.MIN_SEARCH ? suggestions[0] : null;
     const topSimilarity = topFaq?.similarity ?? 0;
@@ -126,9 +170,21 @@ export class FaqChatService {
       topFaq &&
       topSimilarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD
     ) {
-      // 단일 FAQ 매칭 → 가이드라인 기반 답변 생성
+      // 단일 FAQ 매칭 → 가이드라인 기반 답변 생성 (고유사도 시 캐시 활용)
       responseTier = 'rag';
-      answer = await this.generateGuidelineAnswer(message, topFaq, history);
+      const cacheKey = `faq:${topFaq.id}`;
+      const cached =
+        topSimilarity >= 0.95
+          ? this.answerCache.get<string>(cacheKey)
+          : null;
+      if (cached) {
+        answer = cached;
+      } else {
+        answer = await this.generateGuidelineAnswer(message, topFaq, history);
+        if (topSimilarity >= 0.95) {
+          this.answerCache.set(cacheKey, answer);
+        }
+      }
     } else if (intent === 'company') {
       // 유사도 낮음 → no_match + 제안 질문
       responseTier = 'no_match';
@@ -212,25 +268,59 @@ export class FaqChatService {
   }
 
   /**
-   * 의도 분류: company / tour_recommend / travel
+   * 인텐트별 레퍼런스 임베딩 초기화 (lazy, 1회만 실행)
+   */
+  private async ensureIntentEmbeddings(): Promise<void> {
+    if (this.intentEmbeddings) return;
+
+    const map = new Map<string, number[][]>();
+
+    for (const [intent, sentences] of Object.entries(INTENT_REFERENCES)) {
+      const vectors: number[][] = [];
+      for (const sentence of sentences) {
+        const vec = await this.embeddingService.generateEmbedding(sentence);
+        if (vec) vectors.push(vec);
+      }
+      map.set(intent, vectors);
+    }
+
+    this.intentEmbeddings = map;
+    this.logger.log(
+      `인텐트 레퍼런스 임베딩 초기화 완료: ${[...map.entries()].map(([k, v]) => `${k}=${v.length}`).join(', ')}`,
+    );
+  }
+
+  /**
+   * 의도 분류: 임베딩 cosine similarity 기반 (LLM 호출 없음)
    */
   private async classifyIntent(
     message: string,
+    queryEmbedding: number[] | null,
   ): Promise<'company' | 'tour_recommend' | 'travel'> {
-    const built = await this.aiPromptService.buildPrompt(
-      PromptKey.FAQ_CLASSIFY_INTENT,
-      { message },
-    );
+    if (!queryEmbedding) return 'travel';
 
     try {
-      const result = await this.geminiCore.callGemini(built.text, {
-        temperature: built.temperature,
-        maxOutputTokens: built.maxOutputTokens,
-        disableThinking: true,
-      });
-      const intent = result.trim().toLowerCase();
-      if (intent === 'company') return 'company';
-      if (intent === 'tour_recommend') return 'tour_recommend';
+      await this.ensureIntentEmbeddings();
+
+      let bestIntent = 'travel';
+      let bestScore = -1;
+
+      for (const [intent, vectors] of this.intentEmbeddings!) {
+        for (const refVec of vectors) {
+          const score = this.cosineSimilarity(queryEmbedding, refVec);
+          if (score > bestScore) {
+            bestScore = score;
+            bestIntent = intent;
+          }
+        }
+      }
+
+      this.logger.debug(
+        `Intent classified: ${bestIntent} (score: ${bestScore.toFixed(3)}) for: "${message.substring(0, 50)}"`,
+      );
+
+      if (bestIntent === 'company') return 'company';
+      if (bestIntent === 'tour_recommend') return 'tour_recommend';
       return 'travel';
     } catch (error) {
       this.logger.error(
@@ -241,24 +331,22 @@ export class FaqChatService {
     }
   }
 
-  private buildTourSearchQuery(
-    message: string,
-    history?: Array<{ role: 'user' | 'assistant'; content: string }>,
-  ): string {
-    if (!history || history.length === 0) return message;
-
-    const recentUserMessages = history
-      .filter((h) => h.role === 'user')
-      .slice(-3)
-      .map((h) => h.content.substring(0, 100));
-
-    if (recentUserMessages.length === 0) return message;
-
-    return `${message} Context: ${recentUserMessages.join(' ')}`;
+  private cosineSimilarity(a: number[], b: number[]): number {
+    let dot = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
   }
 
-  private async searchOdkTours(message: string, limit = 5) {
-    const embedding = await this.embeddingService.generateEmbedding(message);
+  private async searchOdkToursByVector(
+    embedding: number[] | null,
+    limit = 5,
+  ) {
     if (!embedding) return [];
 
     const vectorStr = `[${embedding.join(',')}]`;
