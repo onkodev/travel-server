@@ -135,17 +135,23 @@ export class EmailService {
     message: string;
   }): Promise<boolean> {
     const adminEmail =
-      this.configService.get<string>('ADMIN_EMAIL') || 'admin@tumakr.com';
+      this.configService.get<string>('ADMIN_EMAIL') || 'info@onedaykorea.com';
 
     try {
       const { contactId, name, email, message } = params;
       const adminUrl =
         this.configService.get<string>('CLIENT_URL') || 'http://localhost:3000';
 
+      // info@ 메일도 함께 수신 (admin과 중복이면 제외)
+      const recipients = [adminEmail];
+      if (this.replyToEmail && this.replyToEmail !== adminEmail) {
+        recipients.push(this.replyToEmail);
+      }
+
       const command = new SendEmailCommand({
         Source: `Tumakr System <${this.fromEmail}>`,
         Destination: {
-          ToAddresses: [adminEmail],
+          ToAddresses: recipients,
         },
         ReplyToAddresses: [this.replyToEmail],
         Message: {

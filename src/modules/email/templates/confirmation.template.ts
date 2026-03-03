@@ -49,7 +49,7 @@ export function confirmationTemplate(params: {
               <div style="margin-bottom: 24px;">
                 <p style="margin: 0 0 8px; color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Your Message:</p>
                 <div style="background-color: #f9fafb; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb;">
-                  <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.6; font-style: italic;">${message.length > 200 ? message.substring(0, 200) + '...' : message}</p>
+                  <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.7; white-space: pre-wrap;">${message}</p>
                 </div>
               </div>
 
