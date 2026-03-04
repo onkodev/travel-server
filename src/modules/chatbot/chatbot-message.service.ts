@@ -95,7 +95,7 @@ export class ChatbotMessageService {
     data: {
       role: 'bot' | 'user' | 'admin';
       content: string;
-      messageType?: 'text' | 'options' | 'form' | 'estimate' | 'quickReply';
+      messageType?: 'text' | 'options' | 'form' | 'estimate' | 'quickReply' | 'faqResponse';
       options?: unknown;
     },
   ) {
@@ -122,7 +122,7 @@ export class ChatbotMessageService {
     messages: Array<{
       role: 'bot' | 'user' | 'admin';
       content: string;
-      messageType?: 'text' | 'options' | 'form' | 'estimate' | 'quickReply';
+      messageType?: 'text' | 'options' | 'form' | 'estimate' | 'quickReply' | 'faqResponse';
       options?: unknown;
     }>,
   ) {

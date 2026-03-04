@@ -14,9 +14,11 @@ import { ItemModule } from '../item/item.module';
 import { EmailModule } from '../email/email.module';
 import { EmailRagModule } from '../email-rag/email-rag.module';
 import { SupabaseModule } from '../../supabase/supabase.module';
+import { FaqModule } from '../faq/faq.module';
 
 @Module({
   imports: [
+    FaqModule,
     EstimateModule,
     NotificationModule,
     AiModule,

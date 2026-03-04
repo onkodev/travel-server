@@ -41,12 +41,12 @@ export class SaveMessageDto {
 
   @ApiPropertyOptional({
     description: '메시지 타입',
-    enum: ['text', 'options', 'form', 'estimate', 'quickReply'],
+    enum: ['text', 'options', 'form', 'estimate', 'quickReply', 'faqResponse'],
   })
   @IsOptional()
   @IsString()
-  @IsIn(['text', 'options', 'form', 'estimate', 'quickReply'])
-  messageType?: 'text' | 'options' | 'form' | 'estimate' | 'quickReply';
+  @IsIn(['text', 'options', 'form', 'estimate', 'quickReply', 'faqResponse'])
+  messageType?: 'text' | 'options' | 'form' | 'estimate' | 'quickReply' | 'faqResponse';
 
   @ApiPropertyOptional({ description: '선택지 옵션 또는 견적 데이터' })
   @IsOptional()

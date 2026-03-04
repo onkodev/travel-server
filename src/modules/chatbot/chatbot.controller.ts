@@ -8,8 +8,10 @@ import {
   Param,
   ParseIntPipe,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -26,6 +28,8 @@ import { ChatbotCompletionService } from './chatbot-completion.service';
 import { ChatbotAnalyticsService } from './chatbot-analytics.service';
 import { AiEstimateService } from './ai-estimate.service';
 import { ConversationalEstimateService } from './conversational-estimate.service';
+import { FaqChatService } from '../faq/faq-chat.service';
+import { extractIpAddress } from '../../common/utils/request.util';
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -59,6 +63,7 @@ import {
   AdminFlowQueryDto,
   UpdateGenerationConfigDto,
 } from './dto';
+import { FaqChatDto } from '../faq/dto/faq-chat.dto';
 import { StepResponseDto, FlowStartResponseDto } from './dto/step-response.dto';
 import { ChatbotFlowDto } from './dto/chatbot-flow.dto';
 import { ErrorResponseDto } from '../../common/dto';
@@ -73,6 +78,7 @@ export class ChatbotController {
     private chatbotAnalyticsService: ChatbotAnalyticsService,
     private aiEstimateService: AiEstimateService,
     private conversationalEstimateService: ConversationalEstimateService,
+    private faqChatService: FaqChatService,
     private prisma: PrismaService,
   ) {}
 
@@ -631,6 +637,65 @@ export class ChatbotController {
     );
   }
 
+  // ============ FAQ Chat (서버 자동 저장) ============
+
+  @Post(':sessionId/faq-chat')
+  @Public()
+  @Throttle({ default: { limit: 15, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'FAQ 채팅 (메시지 자동 저장)',
+    description:
+      'FAQ 질문에 AI가 답변하고, 사용자/봇 메시지를 chat_messages에 자동 저장합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({ status: 201, description: 'FAQ 응답 성공' })
+  @ApiResponse({
+    status: 404,
+    description: '세션 없음',
+    type: ErrorResponseDto,
+  })
+  async faqChat(
+    @Param('sessionId') sessionId: string,
+    @Body() dto: FaqChatDto,
+    @Req() req: Request,
+  ) {
+    // 1. 사용자 메시지 저장
+    await this.chatbotMessageService.saveMessage(sessionId, {
+      role: 'user',
+      content: dto.message,
+    });
+
+    // 2. FAQ 서비스 호출
+    const result = await this.faqChatService.chatWithFaq(
+      dto.message,
+      dto.history,
+      {
+        ipAddress: extractIpAddress(req),
+        visitorId: dto.visitorId,
+      },
+    );
+
+    // 3. 봇 응답 저장
+    await this.chatbotMessageService.saveMessage(sessionId, {
+      role: 'bot',
+      content: result.answer,
+      messageType: 'faqResponse',
+      options: {
+        faqMeta: {
+          responseTier: result.responseTier,
+          sources: result.sources,
+          noMatch: result.noMatch,
+          suggestedQuestions: result.suggestedQuestions,
+          tourRecommendations: result.tourRecommendations,
+          chatLogId: result.chatLogId,
+        },
+      },
+    });
+
+    // 4. 기존 응답 포맷 그대로 반환
+    return result;
+  }
+
   // ============ 메시지 API ============
 
   @Post(':sessionId/messages')
@@ -881,11 +946,26 @@ export class ChatbotController {
     @Body() dto: TravelChatDto,
     @CurrentUser('id') userId?: string,
   ): Promise<TravelChatResponseDto> {
-    return this.conversationalEstimateService.chat(
+    // 1. 사용자 메시지 저장
+    await this.chatbotMessageService.saveMessage(sessionId, {
+      role: 'user',
+      content: dto.message,
+    });
+
+    // 2. AI 응답 생성
+    const result = await this.conversationalEstimateService.chat(
       sessionId,
       dto.message,
       userId,
     );
+
+    // 3. 봇 응답 저장
+    await this.chatbotMessageService.saveMessage(sessionId, {
+      role: 'bot',
+      content: result.response,
+    });
+
+    return result;
   }
 
   @Post(':sessionId/itinerary/regenerate-day/:dayNumber')
