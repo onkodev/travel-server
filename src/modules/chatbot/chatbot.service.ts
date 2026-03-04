@@ -321,22 +321,8 @@ export class ChatbotService {
   async updateStep3Sub(sessionId: string, dto: UpdateStep3SubDto) {
     const flow = await this.getFlow(sessionId);
 
-    // 서브 관심사가 선택된 메인 관심사에 속하는지 검증
+    // interestSub에서 interestMain 자동 추론
     const selectedMains = flow.interestMain || [];
-    if (selectedMains.length > 0) {
-      const invalidSubs = dto.interestSub.filter((sub) => {
-        const subData = INTEREST_SUB[sub as keyof typeof INTEREST_SUB];
-        return !subData || !selectedMains.includes(subData.main);
-      });
-
-      if (invalidSubs.length > 0) {
-        throw new BadRequestException(
-          `Invalid sub-interests for selected main categories: ${invalidSubs.join(', ')}`,
-        );
-      }
-    }
-
-    // 기존 interestMain 유지 + interestSub에서 추가 추론
     const inferredMains = new Set<string>(selectedMains);
     dto.interestSub.forEach((sub) => {
       const subData = INTEREST_SUB[sub as keyof typeof INTEREST_SUB];
