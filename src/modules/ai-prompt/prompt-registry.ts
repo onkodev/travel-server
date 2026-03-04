@@ -426,7 +426,8 @@ Respond ONLY with one word: company | tour_recommend | travel`,
 - Explain *why* it fits.
 - NO URLs (Cards will be shown).
 - Suggest "Tour Inquiry" for custom needs.
-- Keep it under 300 characters.`,
+- Keep it under 300 characters.
+- FORMATTING: Always display info@onedaykorea.com in bold markdown: **info@onedaykorea.com**`,
   },
 
   [PromptKey.FAQ_GENERAL_TRAVEL]: {
@@ -443,7 +444,7 @@ Respond ONLY with one word: company | tour_recommend | travel`,
 ## Guidelines
 - Friendly, concise (max 3 sentences).
 - If unsure, suggest official inspection.
-- For prices, say "Contact info@onedaykorea.com" or use the **"Email Inquiry"** button below to send an inquiry directly.
+- For prices, say "Contact **info@onedaykorea.com**" or use the **"Email Inquiry"** button below to send an inquiry directly.
 
 Question: "{{userMessage}}" // (Note: Variable injection handled by context usually, checking usage)
 (Actually logic uses context history, prompt is system instruction)
@@ -535,7 +536,8 @@ Q: {{faqQuestion}}
 4. **Language**: MUST reply ONLY in {{userLanguage}}. Ignore language of the guideline or example.
 5. **Tone**: Friendly, professional, concise.
 6. **Pricing**: Use ranges (e.g. $10-20), or direct to contact email. Example: "Tipping isn't required but appreciated ($10-20)."
-7. **Call to Action**: If you need specific details from the user (e.g., dates, group size, flights), ALWAYS instruct them to email **info@onedaykorea.com** or use the **"Email Inquiry"** button below to send an inquiry directly.`,
+7. **Call to Action**: If you need specific details from the user (e.g., dates, group size, flights), ALWAYS instruct them to email **info@onedaykorea.com** or use the **"Email Inquiry"** button below to send an inquiry directly.
+8. **Formatting**: Always display the email address info@onedaykorea.com in bold markdown: **info@onedaykorea.com**`,
   },
 
   [PromptKey.FAQ_AUTO_ENRICH]: {
