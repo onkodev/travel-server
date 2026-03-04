@@ -87,6 +87,13 @@ export class ChatbotMessageService {
         }
       }
     }
+
+    // 메시지 저장 시 세션 updatedAt 갱신 (Prisma @updatedAt 자동 처리)
+    // 위 title 자동설정에서 이미 update된 경우에도 중복 호출은 무해함
+    await this.prisma.chatbotFlow.update({
+      where: { sessionId },
+      data: { updatedAt: new Date() },
+    });
   }
 
   // 메시지 저장
