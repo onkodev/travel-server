@@ -6,7 +6,7 @@ import { AiPromptService } from '../ai-prompt/ai-prompt.service';
 import { PromptKey } from '../ai-prompt/prompt-registry';
 import { FaqEmbeddingService } from './faq-embedding.service';
 import { FAQ_SIMILARITY, toGeminiHistory } from './faq.constants';
-import { MemoryCache, formatUrlsAsMarkdown } from '../../common/utils';
+import { MemoryCache, formatUrlsAsMarkdown, stripMarkdownLinks } from '../../common/utils';
 
 /** 인텐트별 레퍼런스 문장 (임베딩 기반 분류용) */
 const INTENT_REFERENCES: Record<string, string[]> = {
@@ -313,7 +313,7 @@ export class FaqChatService {
     }
 
     return {
-      answer: formatUrlsAsMarkdown(answer),
+      answer: formatUrlsAsMarkdown(stripMarkdownLinks(answer)),
       sources:
         ragContextFaqs.length > 0
           ? ragContextFaqs
@@ -632,7 +632,7 @@ ${faqGuideline}
     );
 
     return {
-      answer: formatUrlsAsMarkdown(answer),
+      answer: formatUrlsAsMarkdown(stripMarkdownLinks(answer)),
       sources:
         nextFaq.similarity >= 0.4
           ? [{ question: nextFaq.question, id: nextFaq.id }]
@@ -670,7 +670,7 @@ ${faqGuideline}
 
     // guideline 기반 AI 답변 생성
     const answer = await this.generateGuidelineAnswer(faq.question, [faq]);
-    return { question: faq.question, answer: formatUrlsAsMarkdown(answer) };
+    return { question: faq.question, answer: formatUrlsAsMarkdown(stripMarkdownLinks(answer)) };
   }
 
   /**

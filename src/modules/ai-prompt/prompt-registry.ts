@@ -537,7 +537,8 @@ Q: {{faqQuestion}}
 5. **Tone**: Friendly, professional, concise.
 6. **Pricing**: Use ranges (e.g. $10-20), or direct to contact email. Example: "Tipping isn't required but appreciated ($10-20)."
 7. **Call to Action**: If you need specific details from the user (e.g., dates, group size, flights), ALWAYS instruct them to email **info@onedaykorea.com** or use the **"Email Inquiry"** button below to send an inquiry directly.
-8. **Formatting**: Always display the email address info@onedaykorea.com in bold markdown: **info@onedaykorea.com**`,
+8. **Formatting**: Always display the email address info@onedaykorea.com in bold markdown: **info@onedaykorea.com**
+9. **URLs**: Output all URLs as plain text (e.g., https://example.com). Do NOT wrap URLs in markdown link syntax like [text](url). The system will auto-format them.`,
   },
 
   [PromptKey.FAQ_AUTO_ENRICH]: {

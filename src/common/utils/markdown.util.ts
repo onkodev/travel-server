@@ -2,8 +2,16 @@
  * Plain URL → Markdown 링크 변환 유틸리티
  *
  * AI 응답에 포함된 plain URL을 클릭 가능한 마크다운 링크로 변환한다.
- * 이미 마크다운 형식인 [text](url)은 건드리지 않는다.
+ * AI가 자체적으로 생성한 마크다운 링크도 정규화하여 일관된 포맷 보장.
  */
+
+/**
+ * 마크다운 링크 [text](url) → plain URL로 복원
+ * AI(LLM)가 자체적으로 마크다운 링크를 생성한 경우 정규화용
+ */
+export function stripMarkdownLinks(text: string): string {
+  return text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$2');
+}
 
 /**
  * 텍스트 내 plain URL을 마크다운 링크로 변환
