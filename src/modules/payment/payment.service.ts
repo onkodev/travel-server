@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
@@ -21,7 +22,95 @@ const VALID_PAYMENT_STATUSES = [
 
 @Injectable()
 export class PaymentService {
+  private readonly logger = new Logger(PaymentService.name);
+
   constructor(private prisma: PrismaService) {}
+
+  /** PayPal REST API로 주문 정보를 조회하여 실제 캡처 금액을 검증 */
+  private async verifyPayPalOrder(
+    paypalOrderId: string,
+    expectedAmount: number,
+    expectedCurrency: string,
+  ): Promise<void> {
+    const clientId = process.env.PAYPAL_CLIENT_ID;
+    const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      this.logger.warn(
+        'PAYPAL_CLIENT_ID 또는 PAYPAL_CLIENT_SECRET이 설정되지 않아 금액 검증을 건너뜁니다',
+      );
+      return;
+    }
+
+    const baseUrl =
+      process.env.PAYPAL_MODE === 'live'
+        ? 'https://api-m.paypal.com'
+        : 'https://api-m.sandbox.paypal.com';
+
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
+      'base64',
+    );
+
+    const response = await fetch(
+      `${baseUrl}/v2/checkout/orders/${paypalOrderId}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error(
+        `PayPal 주문 조회 실패: ${response.status} ${errorText}`,
+      );
+      throw new BadRequestException(
+        'PayPal 주문을 확인할 수 없습니다. 잠시 후 다시 시도해주세요.',
+      );
+    }
+
+    const order = await response.json();
+
+    // 주문 상태 확인 — COMPLETED여야 캡처 완료
+    if (order.status !== 'COMPLETED') {
+      throw new BadRequestException(
+        `PayPal 주문 상태가 유효하지 않습니다: ${order.status}`,
+      );
+    }
+
+    // 실제 캡처된 금액 확인
+    const capturedAmount =
+      order.purchase_units?.[0]?.payments?.captures?.[0]?.amount;
+
+    if (!capturedAmount) {
+      throw new BadRequestException(
+        'PayPal 캡처 정보를 찾을 수 없습니다',
+      );
+    }
+
+    const actualAmount = parseFloat(capturedAmount.value);
+    const actualCurrency = capturedAmount.currency_code;
+
+    if (actualCurrency !== expectedCurrency) {
+      this.logger.error(
+        `통화 불일치: expected=${expectedCurrency}, actual=${actualCurrency}`,
+      );
+      throw new BadRequestException('결제 통화가 일치하지 않습니다');
+    }
+
+    // 부동소수점 오차를 고려하여 0.01 이내 차이 허용
+    if (Math.abs(actualAmount - expectedAmount) > 0.01) {
+      this.logger.error(
+        `금액 불일치: expected=${expectedAmount}, actual=${actualAmount}`,
+      );
+      throw new BadRequestException(
+        '결제 금액이 요청 금액과 일치하지 않습니다',
+      );
+    }
+  }
 
   // 결제 목록 조회
   async getPayments(params: {
@@ -297,7 +386,16 @@ export class PaymentService {
       throw new BadRequestException('이미 결제가 완료된 견적서입니다');
     }
 
-    // 3. Payment 생성
+    // 3. PayPal 주문 금액 검증 — 클라이언트 조작 방지
+    const expectedAmount = Number(estimate.payableAmount);
+    const expectedCurrency = estimate.currency || 'USD';
+    await this.verifyPayPalOrder(
+      data.paypalOrderId,
+      expectedAmount,
+      expectedCurrency,
+    );
+
+    // 4. Payment 생성
     const payment = await this.prisma.payment.create({
       data: {
         estimateId: estimate.id,
