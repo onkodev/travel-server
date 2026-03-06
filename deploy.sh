@@ -40,6 +40,15 @@ rsync -avz \
   ./dist/ \
   $EC2_USER@$EC2_HOST:$DIST_DIR/
 
+echo "=== 4-1. Prisma 스키마 동기화 ==="
+rsync -avz \
+  -e "$RSYNC_SSH" \
+  ./prisma/schema.prisma \
+  $EC2_USER@$EC2_HOST:$REMOTE_DIR/prisma/schema.prisma
+
+echo "=== 4-2. Prisma Client 재생성 ==="
+$SSH $EC2_USER@$EC2_HOST "cd $REMOTE_DIR && npx prisma generate"
+
 echo "=== 5. PM2 재시작 ==="
 $SSH $EC2_USER@$EC2_HOST "cd $REMOTE_DIR && pm2 reload ecosystem.config.js"
 
