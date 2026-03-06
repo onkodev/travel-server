@@ -251,6 +251,118 @@ export class PaymentService {
     });
   }
 
+  // 견적서 공개 결제 생성 (비회원 PayPal 결제)
+  async createEstimatePayment(data: {
+    shareHash: string;
+    paypalOrderId: string;
+    paypalCaptureId: string;
+    payerEmail?: string;
+  }) {
+    // 1. shareHash → Estimate 조회
+    const estimate = await this.prisma.estimate.findUnique({
+      where: { shareHash: data.shareHash },
+      select: {
+        id: true,
+        title: true,
+        payableAmount: true,
+        currency: true,
+        validDate: true,
+      },
+    });
+
+    if (!estimate) {
+      throw new NotFoundException('견적서를 찾을 수 없습니다');
+    }
+
+    if (
+      !estimate.payableAmount ||
+      Number(estimate.payableAmount) <= 0
+    ) {
+      throw new BadRequestException(
+        '결제 가능 금액이 설정되지 않았습니다',
+      );
+    }
+
+    // 유효기간 확인
+    if (estimate.validDate && new Date(estimate.validDate) < new Date()) {
+      throw new BadRequestException('만료된 견적서입니다');
+    }
+
+    // 2. 중복 결제 방지
+    const existingPayment = await this.prisma.payment.findFirst({
+      where: { estimateId: estimate.id, status: 'completed' },
+    });
+
+    if (existingPayment) {
+      throw new BadRequestException('이미 결제가 완료된 견적서입니다');
+    }
+
+    // 3. Payment 생성
+    const payment = await this.prisma.payment.create({
+      data: {
+        estimateId: estimate.id,
+        amount: estimate.payableAmount,
+        currency: estimate.currency || 'USD',
+        paymentMethod: 'paypal',
+        status: 'completed',
+        paypalOrderId: data.paypalOrderId,
+        paypalCaptureId: data.paypalCaptureId,
+        payerEmail: data.payerEmail,
+        paidAt: new Date(),
+      },
+    });
+
+    return convertDecimalFields(payment);
+  }
+
+  // 견적서 결제 상태 조회 (공개)
+  async getPaymentByShareHash(shareHash: string) {
+    const estimate = await this.prisma.estimate.findUnique({
+      where: { shareHash },
+      select: { id: true },
+    });
+
+    if (!estimate) {
+      throw new NotFoundException('견적서를 찾을 수 없습니다');
+    }
+
+    const payment = await this.prisma.payment.findFirst({
+      where: { estimateId: estimate.id, status: 'completed' },
+      select: {
+        id: true,
+        status: true,
+        amount: true,
+        currency: true,
+        paidAt: true,
+        payerEmail: true,
+      },
+    });
+
+    return payment ? convertDecimalFields(payment) : null;
+  }
+
+  // 견적서 ID로 결제 상세 조회 (어드민용)
+  async getPaymentByEstimateId(estimateId: number) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { estimateId, status: 'completed' },
+      select: {
+        id: true,
+        status: true,
+        amount: true,
+        currency: true,
+        paymentMethod: true,
+        paypalOrderId: true,
+        paypalCaptureId: true,
+        payerEmail: true,
+        payerId: true,
+        paidAt: true,
+        createdAt: true,
+      },
+    });
+
+    return payment ? convertDecimalFields(payment) : null;
+  }
+
   // 결제 삭제
   async deletePayment(id: number) {
     return this.prisma.payment.delete({

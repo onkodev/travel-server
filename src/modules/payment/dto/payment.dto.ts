@@ -173,3 +173,22 @@ export class PaymentStatsDto {
   @ApiProperty({ description: '대기 중인 결제 수' })
   pending: number;
 }
+
+export class CreateEstimatePaymentDto {
+  @ApiProperty({ description: '견적서 공유 해시' })
+  @IsString()
+  shareHash: string;
+
+  @ApiProperty({ description: 'PayPal 주문 ID' })
+  @IsString()
+  paypalOrderId: string;
+
+  @ApiProperty({ description: 'PayPal 캡처 ID' })
+  @IsString()
+  paypalCaptureId: string;
+
+  @ApiPropertyOptional({ description: '결제자 이메일' })
+  @IsOptional()
+  @IsString()
+  payerEmail?: string;
+}

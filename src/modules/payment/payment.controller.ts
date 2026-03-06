@@ -16,12 +16,14 @@ import {
   ApiBearerAuth,
   ApiParam,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { PaymentService } from './payment.service';
 import { Public } from '../../common/decorators/public.decorator';
 import {
   PaymentDto,
   PaymentQueryDto,
   CreatePaymentDto,
+  CreateEstimatePaymentDto,
   UpdatePaymentStatusDto,
   ProcessRefundDto,
   PaymentStatsDto,
@@ -74,6 +76,47 @@ export class PaymentController {
   @ApiResponse({ status: 200, description: '조회 성공', type: PaymentStatsDto })
   async getStats() {
     return this.paymentService.getStats();
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Post('estimate')
+  @ApiOperation({
+    summary: '견적서 공개 결제 생성',
+    description: 'PayPal 캡처 완료 후 견적서 결제를 기록합니다. 인증 불필요.',
+  })
+  @ApiResponse({ status: 201, description: '결제 기록 성공' })
+  @ApiResponse({ status: 400, description: '잘못된 요청', type: ErrorResponseDto })
+  @ApiResponse({ status: 404, description: '견적서 없음', type: ErrorResponseDto })
+  async createEstimatePayment(@Body() body: CreateEstimatePaymentDto) {
+    return this.paymentService.createEstimatePayment(body);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 15, ttl: 60000 } })
+  @Get('estimate/:shareHash')
+  @ApiOperation({
+    summary: '견적서 결제 상태 조회',
+    description: '공유 해시로 견적서의 결제 상태를 조회합니다. 인증 불필요.',
+  })
+  @ApiParam({ name: 'shareHash', description: '견적서 공유 해시' })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  @ApiResponse({ status: 404, description: '견적서 없음', type: ErrorResponseDto })
+  async getEstimatePaymentStatus(@Param('shareHash') shareHash: string) {
+    return this.paymentService.getPaymentByShareHash(shareHash);
+  }
+
+  @Get('admin/estimate/:estimateId')
+  @ApiOperation({
+    summary: '견적서 결제 상세 조회 (어드민)',
+    description: '견적서 ID로 결제 상세 정보를 조회합니다. 인증 필요.',
+  })
+  @ApiParam({ name: 'estimateId', description: '견적서 ID' })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getPaymentByEstimateId(
+    @Param('estimateId', ParseIntPipe) estimateId: number,
+  ) {
+    return this.paymentService.getPaymentByEstimateId(estimateId);
   }
 
   @Public()

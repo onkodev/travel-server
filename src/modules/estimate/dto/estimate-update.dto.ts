@@ -87,6 +87,16 @@ export class UpdateEstimateDto extends BaseEstimateDto {
   @Type(() => Number)
   totalAmount?: number;
 
+  @ApiPropertyOptional({ description: '결제 요청 금액' })
+  @IsOptional()
+  @Type(() => Number)
+  payableAmount?: number;
+
+  @ApiPropertyOptional({ description: '결제 버튼 표시 여부' })
+  @IsOptional()
+  @IsBoolean()
+  showPaymentButton?: boolean;
+
   @ApiPropertyOptional({
     description:
       '표시 옵션 (place, accommodation, transportation, contents, price)',

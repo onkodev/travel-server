@@ -64,6 +64,8 @@ model Estimate {
   aiMetadata        Json?                  @map("ai_metadata")
   embedding         Unsupported("vector")? @map("embedding")
   dayNotes          Json?                  @map("day_notes")
+  payableAmount     Decimal?               @map("payable_amount") @db.Decimal(12, 2)
+  showPaymentButton Boolean                @default(false) @map("show_payment_button")
 
   @@index([chatSessionId], map: "idx_estimates_chat_session")
   @@index([createdAt(sort: Desc)], map: "idx_estimates_created_at")
