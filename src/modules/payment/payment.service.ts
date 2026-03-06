@@ -23,8 +23,16 @@ const VALID_PAYMENT_STATUSES = [
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
+  private readonly paypalBaseUrl: string;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {
+    const mode = process.env.PAYPAL_MODE || 'sandbox';
+    this.paypalBaseUrl =
+      mode === 'live'
+        ? 'https://api-m.paypal.com'
+        : 'https://api-m.sandbox.paypal.com';
+    this.logger.log(`PayPal mode: ${mode} | API: ${this.paypalBaseUrl}`);
+  }
 
   /** PayPal REST API로 주문 정보를 조회하여 실제 캡처 금액을 검증 */
   private async verifyPayPalOrder(
@@ -42,17 +50,12 @@ export class PaymentService {
       return;
     }
 
-    const baseUrl =
-      process.env.PAYPAL_MODE === 'live'
-        ? 'https://api-m.paypal.com'
-        : 'https://api-m.sandbox.paypal.com';
-
     const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
       'base64',
     );
 
     const response = await fetch(
-      `${baseUrl}/v2/checkout/orders/${paypalOrderId}`,
+      `${this.paypalBaseUrl}/v2/checkout/orders/${paypalOrderId}`,
       {
         method: 'GET',
         headers: {
