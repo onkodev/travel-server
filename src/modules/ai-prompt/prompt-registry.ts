@@ -574,16 +574,16 @@ Respond ONLY with valid JSON:
     variables: ['userQuestion', 'faqQuestion', 'faqGuideline'],
     defaultTemperature: 0,
     defaultMaxOutputTokens: 8,
-    defaultText: `Determine if the FAQ below can answer the user's question.
+    defaultText: `Determine if the FAQ below is about the same topic as the user's question.
 
 User Question: "{{userQuestion}}"
 Matched FAQ: "{{faqQuestion}}"
 FAQ Guideline: {{faqGuideline}}
 
 ## Rules
-- YES: The FAQ directly addresses the user's question topic
-- NO: The FAQ is about a different topic, even if some words overlap
-- Consider the TOPIC and INTENT, not just keyword similarity
+- YES: The FAQ and user question are about the SAME subject area (e.g., both about pickup, both about refunds, both about booking). The FAQ or its guideline could partially or fully help answer the question.
+- NO: The FAQ is about a COMPLETELY DIFFERENT subject (e.g., user asks about Korean politics but FAQ is about tour refunds). The topics have no meaningful connection.
+- When in doubt, answer YES — it is better to provide a related FAQ answer than no answer at all.
 
 Reply ONLY with: YES or NO`,
   },
