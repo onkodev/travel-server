@@ -11,6 +11,7 @@ import {
   calculateSkip,
   createPaginatedResponse,
 } from '../../common/dto/pagination.dto';
+import { NotificationService } from '../notification/notification.service';
 
 const VALID_PAYMENT_STATUSES = [
   'pending',
@@ -25,7 +26,10 @@ export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
   private readonly paypalBaseUrl: string;
 
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private notificationService: NotificationService,
+  ) {
     const mode = process.env.PAYPAL_MODE || 'sandbox';
     this.paypalBaseUrl =
       mode === 'live'
@@ -412,6 +416,18 @@ export class PaymentService {
         paidAt: new Date(),
       },
     });
+
+    // 5. 어드민 결제 완료 알림 (비블로킹)
+    this.notificationService
+      .notifyPaymentCompleted({
+        estimateId: estimate.id,
+        customerName: data.payerEmail,
+        amount: Number(estimate.payableAmount),
+        currency: estimate.currency || 'USD',
+      })
+      .catch((err) =>
+        this.logger.error('결제 완료 알림 전송 실패:', err),
+      );
 
     return convertDecimalFields(payment);
   }
