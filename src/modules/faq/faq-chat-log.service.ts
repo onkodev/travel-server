@@ -187,7 +187,7 @@ export class FaqChatLogService {
         this.prisma.$queryRaw<Array<{ message: string; count: bigint }>>`
         SELECT message, COUNT(*)::bigint as count
         FROM faq_chat_logs
-        WHERE no_match = true
+        WHERE (no_match = true OR response_tier = 'general')
         GROUP BY message
         ORDER BY count DESC
         LIMIT 10
