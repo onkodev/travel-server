@@ -174,6 +174,12 @@ export class FaqController {
     return this.faqService.getStats();
   }
 
+  @Get('tags')
+  @ApiOperation({ summary: 'FAQ 태그 목록 (승인된 FAQ 기준)' })
+  async getAllTags() {
+    return this.faqService.getAllTags();
+  }
+
   @Get('chat-logs')
   @ApiOperation({ summary: 'FAQ 채팅 로그 목록 (관리자)' })
   async getChatLogs(@Query() query: FaqChatLogQueryDto) {

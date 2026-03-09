@@ -424,6 +424,8 @@ Text: ${text}`;
       needsReview,
       approved,
       rejected,
+      withGuideline,
+      withReference,
       categoryCounts,
     ] = await Promise.all([
       this.prisma.faq.count(),
@@ -431,6 +433,8 @@ Text: ${text}`;
       this.prisma.faq.count({ where: { status: 'needs_review' } }),
       this.prisma.faq.count({ where: { status: 'approved' } }),
       this.prisma.faq.count({ where: { status: 'rejected' } }),
+      this.prisma.faq.count({ where: { guideline: { not: null } } }),
+      this.prisma.faq.count({ where: { reference: { not: null } } }),
       this.prisma.faq.groupBy({
         by: ['category'],
         _count: true,
@@ -447,17 +451,37 @@ Text: ${text}`;
       }
     }
 
+    const byStatus: Record<string, number> = {
+      pending,
+      needs_review: needsReview,
+      approved,
+      rejected,
+    };
+
     const result = {
       total,
       pending,
       needsReview,
       approved,
       rejected,
+      byStatus,
+      withGuideline,
+      withReference,
       byCategory,
       uncategorized,
     };
     this.cache.set(cacheKey, result, CACHE_TTL.FAQ_STATS);
     return result;
+  }
+
+  async getAllTags(): Promise<string[]> {
+    const faqs = await this.prisma.faq.findMany({
+      where: { status: 'approved' },
+      select: { tags: true },
+    });
+    const tagSet = new Set<string>();
+    faqs.forEach((f) => f.tags.forEach((t) => tagSet.add(t)));
+    return [...tagSet].sort();
   }
 
   // ============================================================================
