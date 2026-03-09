@@ -28,6 +28,7 @@ export enum PromptKey {
   FAQ_NO_MATCH_RESPONSE = 'faq_no_match_response',
   FAQ_GUIDELINE_ANSWER = 'faq_guideline_answer',
   FAQ_AUTO_ENRICH = 'faq_auto_enrich',
+  FAQ_RELEVANCE_GATE = 'faq_relevance_gate',
 }
 
 export interface PromptDefinition {
@@ -562,5 +563,28 @@ Q: {{question}}
 
 Respond ONLY with valid JSON:
 {"questionKo": "한글 질문", "category": "booking", "tags": ["tag1"]}`,
+  },
+
+  [PromptKey.FAQ_RELEVANCE_GATE]: {
+    key: PromptKey.FAQ_RELEVANCE_GATE,
+    name: 'FAQ 관련성 검증',
+    description:
+      'RAG 회색 지대(0.65~0.85)에서 매칭된 FAQ가 실제로 사용자 질문에 답하는지 바이너리 판정합니다.',
+    category: 'faq',
+    variables: ['userQuestion', 'faqQuestion', 'faqGuideline'],
+    defaultTemperature: 0,
+    defaultMaxOutputTokens: 8,
+    defaultText: `Determine if the FAQ below can answer the user's question.
+
+User Question: "{{userQuestion}}"
+Matched FAQ: "{{faqQuestion}}"
+FAQ Guideline: {{faqGuideline}}
+
+## Rules
+- YES: The FAQ directly addresses the user's question topic
+- NO: The FAQ is about a different topic, even if some words overlap
+- Consider the TOPIC and INTENT, not just keyword similarity
+
+Reply ONLY with: YES or NO`,
   },
 };

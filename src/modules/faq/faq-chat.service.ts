@@ -72,6 +72,42 @@ export class FaqChatService {
   // FAQ Chat (AI) — 하이브리드 응답 전략
   // ============================================================================
 
+  /**
+   * Corrective RAG: 회색 지대(0.65~0.85) FAQ 매칭의 실제 관련성 검증
+   * @returns true면 RAG 진행, false면 general/no_match로 우회
+   */
+  private async verifyFaqRelevance(
+    userQuestion: string,
+    faq: { question: string; guideline?: string | null },
+  ): Promise<boolean> {
+    try {
+      const built = await this.aiPromptService.buildPrompt(
+        PromptKey.FAQ_RELEVANCE_GATE,
+        {
+          userQuestion,
+          faqQuestion: faq.question,
+          faqGuideline: faq.guideline || 'N/A',
+        },
+      );
+
+      const result = await this.geminiCore.callGemini(built.text, {
+        temperature: built.temperature,
+        maxOutputTokens: built.maxOutputTokens,
+        disableThinking: true,
+      });
+
+      const answer = result.trim().toUpperCase();
+      this.logger.debug(
+        `Relevance gate: "${userQuestion.substring(0, 40)}" vs FAQ "${faq.question.substring(0, 40)}" → ${answer}`,
+      );
+      return answer.startsWith('YES');
+    } catch (error) {
+      // 검증 실패 시 기존 동작(RAG) 유지 — 안전한 폴백
+      this.logger.warn('Relevance gate failed, defaulting to RAG:', error);
+      return true;
+    }
+  }
+
   async chatWithFaq(
     message: string,
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
@@ -170,8 +206,22 @@ export class FaqChatService {
       }));
 
     // ── 듀얼 스코어 매트릭스: (intent × FAQ 유사도) 조합으로 분기 결정 ──
-    const hasFaqMatch =
+    let hasFaqMatch =
       topFaq && topSimilarity >= FAQ_SIMILARITY.DIRECT_THRESHOLD;
+
+    // Corrective RAG: 회색 지대(0.65~0.85)에서 관련성 검증
+    if (
+      hasFaqMatch &&
+      topSimilarity < FAQ_SIMILARITY.HIGH_CONFIDENCE
+    ) {
+      const isRelevant = await this.verifyFaqRelevance(message, topFaq!);
+      if (!isRelevant) {
+        hasFaqMatch = false;
+        this.logger.debug(
+          `Relevance gate rejected: "${message.substring(0, 50)}" (sim=${topSimilarity.toFixed(3)})`,
+        );
+      }
+    }
 
     if (intent === 'tour_recommend') {
       // FAQ 가이드라인이 있으면 투어 추천에 정책 컨텍스트로 전달
