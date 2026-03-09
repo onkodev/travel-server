@@ -37,6 +37,8 @@ async function bootstrap() {
               'https://admin.tumakr.com',
               'https://tumakrguide.com',
               'https://www.tumakrguide.com',
+              'https://onedaykorea.com',
+              'https://www.onedaykorea.com',
               process.env.CLIENT_URL,
             ].filter(Boolean);
 
