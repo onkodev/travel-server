@@ -58,6 +58,19 @@ export class FaqQueryDto extends PaginationQueryDto {
   @IsString()
   @MaxLength(200)
   search?: string;
+
+  @ApiPropertyOptional({
+    description: '정렬 컬럼',
+    enum: ['created_at', 'updated_at', 'helpful_count', 'not_helpful_count', 'view_count', 'category'],
+  })
+  @IsOptional()
+  @IsIn(['created_at', 'updated_at', 'helpful_count', 'not_helpful_count', 'view_count', 'category'])
+  sortColumn?: string;
+
+  @ApiPropertyOptional({ description: '정렬 방향', enum: ['asc', 'desc'] })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortOrder?: 'asc' | 'desc';
 }
 
 export class FaqSearchQueryDto {

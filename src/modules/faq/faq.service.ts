@@ -46,8 +46,10 @@ export class FaqService {
     source?: string;
     search?: string;
     category?: string;
+    sortColumn?: string;
+    sortOrder?: 'asc' | 'desc';
   }) {
-    const { page = 1, limit = 20, status, source, search, category } = params;
+    const { page = 1, limit = 20, status, source, search, category, sortColumn, sortOrder = 'desc' } = params;
     const skip = calculateSkip(page, limit);
 
     const where: Prisma.FaqWhereInput = {};
@@ -59,6 +61,21 @@ export class FaqService {
     } else if (category) {
       where.category = category;
     }
+
+    // snake_case → camelCase 매핑
+    const SORT_COLUMN_MAP: Record<string, string> = {
+      created_at: 'createdAt',
+      updated_at: 'updatedAt',
+      helpful_count: 'helpfulCount',
+      not_helpful_count: 'notHelpfulCount',
+      view_count: 'viewCount',
+      category: 'category',
+    };
+
+    const prismaColumn = sortColumn ? SORT_COLUMN_MAP[sortColumn] : undefined;
+    const orderBy: Prisma.FaqOrderByWithRelationInput = prismaColumn
+      ? { [prismaColumn]: sortOrder }
+      : { createdAt: 'desc' };
 
     if (search) {
       const idMatch = search.match(/^#?(\d+)$/);
@@ -78,7 +95,7 @@ export class FaqService {
     const [faqs, total] = await Promise.all([
       this.prisma.faq.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: limit,
       }),

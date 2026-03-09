@@ -79,6 +79,8 @@ export class FaqController {
       source: query.source,
       search: query.search,
       category: query.category,
+      sortColumn: query.sortColumn,
+      sortOrder: query.sortOrder,
     });
   }
 
