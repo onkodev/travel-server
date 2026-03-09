@@ -410,11 +410,11 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
          ),
          faq_scores AS (
            SELECT a.faq_id,
-                  COALESCE(MAX(
+                  COALESCE(LEAST(MAX(
                     CASE WHEN vc.variant IN ('primary', 'primary_ko')
                          THEN vc.similarity * 1.10
                          ELSE vc.similarity END
-                  ), 0) AS boosted_vec_sim,
+                  ), 1.0), 0) AS boosted_vec_sim,
                   COALESCE(MAX(bc.bm25_score), 0) AS max_bm25
            FROM all_faq_ids a
            LEFT JOIN vector_candidates vc ON vc.faq_id = a.faq_id
@@ -457,9 +457,9 @@ Example: ["Can I cancel my booking?", "How do I get a refund?"]`;
          ),
          faq_scores AS (
            SELECT faq_id,
-                  MAX(CASE WHEN variant IN ('primary', 'primary_ko')
+                  LEAST(MAX(CASE WHEN variant IN ('primary', 'primary_ko')
                            THEN similarity * 1.10
-                           ELSE similarity END) AS boosted_sim
+                           ELSE similarity END), 1.0) AS boosted_sim
            FROM candidates
            GROUP BY faq_id
          )
