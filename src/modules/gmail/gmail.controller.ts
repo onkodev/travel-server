@@ -86,17 +86,4 @@ export class GmailController {
     });
   }
 
-  @Get('schedule')
-  @ApiOperation({ summary: '자동 동기화 스케줄 조회' })
-  async getSchedule() {
-    return this.gmailSyncService.getSchedule();
-  }
-
-  @Post('schedule')
-  @ApiOperation({ summary: '자동 동기화 스케줄 설정' })
-  async updateSchedule(
-    @Body() body: { enabled: boolean; intervalHours?: number },
-  ) {
-    return this.gmailSyncService.updateSchedule(body);
-  }
 }

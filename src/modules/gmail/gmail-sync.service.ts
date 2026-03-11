@@ -21,9 +21,6 @@ export class GmailSyncService implements OnModuleInit {
   private readonly logger = new Logger(GmailSyncService.name);
   private isSyncRunning = false;
   private shouldStop = false;
-  private autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
-  // 현재 동기화의 트리거 타입 (히스토리 저장용)
-  private currentSyncType: 'manual' | 'auto' = 'manual';
 
   /** 비표준 날짜 문자열 안전 파싱 (Invalid Date → 현재 시간 fallback) */
   private safeDate(dateStr: string | null | undefined): Date {
@@ -56,9 +53,6 @@ export class GmailSyncService implements OnModuleInit {
     if (updated.count > 0) {
       this.logger.warn(`서버 시작: stale 동기화 상태 ${updated.count}건 리셋`);
     }
-
-    // 자동 동기화 스케줄러 초기화
-    await this.initAutoSyncScheduler();
   }
 
   // ============================================================================
@@ -411,8 +405,8 @@ export class GmailSyncService implements OnModuleInit {
         });
 
         // 히스토리 저장
-        await this.saveHistory(progress, this.currentSyncType, '사용자 요청으로 중지됨');
-        this.currentSyncType = 'manual';
+        await this.saveHistory(progress, '사용자 요청으로 중지됨');
+
         return;
       }
 
@@ -462,8 +456,7 @@ export class GmailSyncService implements OnModuleInit {
         status: 'completed' as const,
         completedAt: new Date().toISOString(),
       };
-      await this.saveHistory(historyProgress, this.currentSyncType);
-      this.currentSyncType = 'manual';
+      await this.saveHistory(historyProgress);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -482,8 +475,7 @@ export class GmailSyncService implements OnModuleInit {
       });
 
       // 에러 히스토리 저장
-      await this.saveHistory(progress, this.currentSyncType, errorMessage);
-      this.currentSyncType = 'manual';
+      await this.saveHistory(progress, errorMessage);
     } finally {
       this.isSyncRunning = false;
     }
@@ -706,13 +698,12 @@ export class GmailSyncService implements OnModuleInit {
    */
   private async saveHistory(
     progress: SyncProgress,
-    type: 'manual' | 'auto',
     error?: string,
   ) {
     try {
       await this.prisma.gmailSyncHistory.create({
         data: {
-          type,
+          type: 'manual',
           fetched: progress.fetched,
           processed: progress.processed,
           extracted: 0,
@@ -755,158 +746,4 @@ export class GmailSyncService implements OnModuleInit {
     };
   }
 
-  // ============================================================================
-  // 자동 동기화 스케줄러
-  // ============================================================================
-
-  /**
-   * 현재 스케줄 설정 조회
-   */
-  async getSchedule() {
-    const state = await this.prisma.gmailSyncState.findFirst();
-    return {
-      enabled: state?.autoSyncEnabled ?? false,
-      intervalHours: state?.autoSyncInterval ?? 24,
-      nextSyncAt: state?.nextAutoSyncAt?.toISOString() ?? null,
-    };
-  }
-
-  /**
-   * 스케줄 설정 변경
-   */
-  async updateSchedule(params: {
-    enabled: boolean;
-    intervalHours?: number;
-  }) {
-    const state = await this.prisma.gmailSyncState.findFirst();
-    if (!state) {
-      return { success: false, message: '동기화 상태가 없습니다' };
-    }
-
-    const intervalHours = params.intervalHours ?? state.autoSyncInterval;
-    const nextSyncAt = params.enabled
-      ? new Date(Date.now() + intervalHours * 60 * 60 * 1000)
-      : null;
-
-    await this.prisma.gmailSyncState.update({
-      where: { id: state.id },
-      data: {
-        autoSyncEnabled: params.enabled,
-        autoSyncInterval: intervalHours,
-        nextAutoSyncAt: nextSyncAt,
-      },
-    });
-
-    // 타이머 재설정
-    if (params.enabled) {
-      this.scheduleNextSync(intervalHours);
-      this.logger.log(
-        `자동 동기화 활성화: ${intervalHours}시간 간격`,
-      );
-    } else {
-      if (this.autoSyncTimer) {
-        clearTimeout(this.autoSyncTimer);
-        this.autoSyncTimer = null;
-      }
-      this.logger.log('자동 동기화 비활성화');
-    }
-
-    return {
-      success: true,
-      enabled: params.enabled,
-      intervalHours,
-      nextSyncAt: nextSyncAt?.toISOString() ?? null,
-    };
-  }
-
-  /**
-   * 서버 시작 시 자동 동기화 스케줄러 초기화
-   */
-  private async initAutoSyncScheduler() {
-    const state = await this.prisma.gmailSyncState.findFirst();
-    if (!state?.autoSyncEnabled) return;
-
-    const intervalHours = state.autoSyncInterval;
-    const intervalMs = intervalHours * 60 * 60 * 1000;
-
-    // nextAutoSyncAt이 미래면 해당 시간까지 대기
-    if (state.nextAutoSyncAt) {
-      const msUntilNext =
-        new Date(state.nextAutoSyncAt).getTime() - Date.now();
-      if (msUntilNext > 0) {
-        this.scheduleNextSync(msUntilNext / (60 * 60 * 1000));
-        this.logger.log(
-          `자동 동기화 복구: ${Math.round(msUntilNext / 60000)}분 후 실행 예정`,
-        );
-        return;
-      }
-    }
-
-    // 마지막 동기화로부터 interval이 실제로 경과했는지 확인
-    if (state.lastSyncAt) {
-      const elapsed = Date.now() - new Date(state.lastSyncAt).getTime();
-      if (elapsed < intervalMs) {
-        const remainMs = intervalMs - elapsed;
-        this.scheduleNextSync(remainMs / (60 * 60 * 1000));
-        this.logger.log(
-          `자동 동기화: 마지막 동기화로부터 ${Math.round(elapsed / 60000)}분 경과, ${Math.round(remainMs / 60000)}분 후 실행 예정`,
-        );
-        return;
-      }
-    }
-
-    // interval 경과 확인 후 즉시 실행
-    this.logger.log('자동 동기화: interval 경과, 즉시 실행');
-    this.runAutoSync(intervalHours);
-  }
-
-  /**
-   * 다음 자동 동기화 타이머 설정
-   */
-  private scheduleNextSync(intervalHours: number) {
-    if (this.autoSyncTimer) {
-      clearTimeout(this.autoSyncTimer);
-    }
-
-    const ms = intervalHours * 60 * 60 * 1000;
-    this.autoSyncTimer = setTimeout(() => {
-      this.runAutoSync(intervalHours);
-    }, ms);
-  }
-
-  /**
-   * 자동 동기화 실행 (타이머 콜백)
-   */
-  private async runAutoSync(intervalHours: number) {
-    if (this.isSyncRunning) {
-      this.logger.warn('자동 동기화: 이미 동기화 진행 중, 다음 주기로 연기');
-      this.scheduleNextSync(intervalHours);
-      return;
-    }
-
-    this.logger.log('자동 동기화 시작');
-    this.currentSyncType = 'auto';
-
-    try {
-      await this.startBatchSync({ maxResults: 0 });
-    } catch (err) {
-      this.logger.error(
-        `자동 동기화 실패: ${err instanceof Error ? err.message : err}`,
-      );
-    }
-
-    // 다음 실행 예약 및 DB 업데이트
-    const nextSyncAt = new Date(
-      Date.now() + intervalHours * 60 * 60 * 1000,
-    );
-    this.scheduleNextSync(intervalHours);
-
-    try {
-      await this.prisma.gmailSyncState.updateMany({
-        data: { nextAutoSyncAt: nextSyncAt },
-      });
-    } catch {
-      // DB 업데이트 실패는 무시
-    }
-  }
 }
