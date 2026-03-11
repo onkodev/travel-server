@@ -33,7 +33,7 @@ export class EmailService {
     });
     this.fromEmail =
       this.configService.get<string>('AWS_SES_FROM_EMAIL') ||
-      'noreply@tumakr.com';
+      'info@onedaykorea.com';
     this.replyToEmail =
       this.configService.get<string>('AWS_SES_REPLY_TO_EMAIL') ||
       'info@onedaykorea.com';
