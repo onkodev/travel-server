@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Sse,
   Body,
   Query,
   HttpCode,
@@ -28,13 +29,17 @@ import {
 import { SkipThrottle } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { ErrorResponseDto } from '../../common/dto';
+import { SseService } from '../sse/sse.service';
 
 @ApiTags('알림')
 @ApiBearerAuth('access-token')
 @SkipThrottle({ default: true, strict: true })
 @Controller('notifications')
 export class NotificationController {
-  constructor(private readonly notificationService: NotificationService) {}
+  constructor(
+    private readonly notificationService: NotificationService,
+    private readonly sseService: SseService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -89,6 +94,19 @@ export class NotificationController {
     const agentId = 1;
     const count = await this.notificationService.getUnreadCount(agentId);
     return { count };
+  }
+
+  @Sse('sse')
+  @SkipThrottle({ default: true, strict: true })
+  @ApiOperation({
+    summary: '알림 실시간 이벤트 스트림 (SSE)',
+    description: '새로운 알림을 실시간으로 수신합니다. 관리자 전용.',
+  })
+  @ApiResponse({ status: 200, description: 'SSE 스트림 연결 성공' })
+  notificationSse(@CurrentUser('role') role: string) {
+    // 기본 관리자 ID
+    const agentId = role === 'admin' ? 1 : 0;
+    return this.sseService.subscribeNotifications(agentId);
   }
 
   @Post('mark-as-read')

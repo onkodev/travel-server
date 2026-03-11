@@ -337,6 +337,8 @@ model ChatbotFlow {
   guestEmail      String?          @map("guest_email")
   guestName       String?          @map("guest_name")
   infoMismatch    Boolean          @default(false) @map("info_mismatch")
+  isLiveChat      Boolean          @default(false) @map("is_live_chat")
+  liveChatAt      DateTime?        @map("live_chat_at") @db.Timestamptz(6)
   messages        ChatbotMessage[]
   visitor         VisitorSession?  @relation(fields: [visitorId], references: [id])
 

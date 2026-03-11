@@ -9,6 +9,7 @@ import {
   ParseIntPipe,
   Query,
   Req,
+  Sse,
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
@@ -67,6 +68,8 @@ import { FaqChatDto } from '../faq/dto/faq-chat.dto';
 import { StepResponseDto, FlowStartResponseDto } from './dto/step-response.dto';
 import { ChatbotFlowDto } from './dto/chatbot-flow.dto';
 import { ErrorResponseDto } from '../../common/dto';
+import { SseService } from '../sse/sse.service';
+import { NotificationService } from '../notification/notification.service';
 
 @ApiTags('챗봇')
 @Controller('chatbot')
@@ -80,6 +83,8 @@ export class ChatbotController {
     private conversationalEstimateService: ConversationalEstimateService,
     private faqChatService: FaqChatService,
     private prisma: PrismaService,
+    private sseService: SseService,
+    private notificationService: NotificationService,
   ) {}
 
   @Post('start')
@@ -759,6 +764,53 @@ export class ChatbotController {
   })
   async getMessages(@Param('sessionId') sessionId: string) {
     return this.chatbotMessageService.getMessages(sessionId);
+  }
+
+  @Sse(':sessionId/sse')
+  @Public()
+  @SkipThrottle({ default: true, strict: true })
+  @ApiOperation({
+    summary: '채팅 실시간 이벤트 스트림 (SSE)',
+    description: '세션의 새 메시지를 실시간으로 수신합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  chatSse(@Param('sessionId') sessionId: string) {
+    return this.sseService.subscribeChatSession(sessionId);
+  }
+
+  @Post(':sessionId/live-chat')
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({
+    summary: '실시간 채팅 모드 활성화',
+    description: '세션을 실시간 채팅 모드로 전환하고 관리자에게 알림을 보냅니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({ status: 200, description: '활성화 성공' })
+  async activateLiveChat(@Param('sessionId') sessionId: string) {
+    const flow = await this.chatbotService.getFlow(sessionId);
+
+    // 이미 라이브챗 활성 상태면 중복 알림 방지
+    if (flow.isLiveChat) {
+      return { success: true, alreadyActive: true };
+    }
+
+    await this.prisma.chatbotFlow.update({
+      where: { sessionId },
+      data: { isLiveChat: true, liveChatAt: new Date() },
+    });
+
+    // 관리자에게 실시간 채팅 요청 알림
+    try {
+      await this.notificationService.notifyLiveChatRequest({
+        sessionId,
+        customerName: flow.customerName || undefined,
+      });
+    } catch {
+      // 알림 실패는 라이브챗 활성화에 영향 없음
+    }
+
+    return { success: true, alreadyActive: false };
   }
 
   @Patch(':sessionId/title')

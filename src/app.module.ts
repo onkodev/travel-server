@@ -34,6 +34,7 @@ import { EmailRagModule } from './modules/email-rag/email-rag.module';
 import { HealthModule } from './modules/health/health.module';
 import { OdkTourListModule } from './modules/odk-tour-list/odk-tour-list.module';
 import { AiPromptModule } from './modules/ai-prompt/ai-prompt.module';
+import { SseModule } from './modules/sse/sse.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { AiPromptModule } from './modules/ai-prompt/ai-prompt.module';
         ];
       },
     }),
+    SseModule,
     PrismaModule,
     SupabaseModule,
     GeoIpModule,

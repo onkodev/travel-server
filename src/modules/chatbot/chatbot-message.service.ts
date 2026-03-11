@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { NotificationService } from '../notification/notification.service';
+import { SseService } from '../sse/sse.service';
 import { ChatbotService } from './chatbot.service';
 import { ESTIMATE_STATUS } from '../estimate/dto';
 
@@ -19,6 +20,7 @@ export class ChatbotMessageService {
     private prisma: PrismaService,
     private supabaseService: SupabaseService,
     private notificationService: NotificationService,
+    private sseService: SseService,
     private chatbotService: ChatbotService,
   ) {}
 
@@ -120,6 +122,9 @@ export class ChatbotMessageService {
 
     await this.processAfterMessageSave(sessionId, [message], flow);
 
+    // SSE: 실시간 메시지 푸시
+    this.sseService.emitChatEvent(sessionId, 'new_message', message);
+
     return message;
   }
 
@@ -161,6 +166,11 @@ export class ChatbotMessageService {
     });
 
     await this.processAfterMessageSave(sessionId, createdMessages, flow);
+
+    // SSE: 실시간 메시지 푸시 (배치)
+    for (const msg of createdMessages) {
+      this.sseService.emitChatEvent(sessionId, 'new_message', msg);
+    }
 
     return { count: createdMessages.length, messages: createdMessages };
   }

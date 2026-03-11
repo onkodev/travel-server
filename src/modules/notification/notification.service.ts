@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SseService } from '../sse/sse.service';
 import {
   NotificationDto,
   NotificationListDto,
@@ -15,6 +16,7 @@ export const NOTIFICATION_TYPES = {
   ESTIMATE_SENT: 'estimate_sent',
   CUSTOMER_MESSAGE: 'customer_message',
   GENERAL_INQUIRY: 'general_inquiry',
+  LIVE_CHAT_REQUEST: 'live_chat_request',
 } as const;
 
 export type NotificationType =
@@ -22,7 +24,10 @@ export type NotificationType =
 
 @Injectable()
 export class NotificationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private sseService: SseService,
+  ) {}
 
   async getNotifications(
     agentId: number,
@@ -143,7 +148,16 @@ export class NotificationService {
       },
     });
 
-    return this.toDto(notification);
+    const dto = this.toDto(notification);
+
+    // SSE: 실시간 알림 푸시
+    this.sseService.emitNotificationEvent(
+      data.recipientAgentId,
+      'new_notification',
+      dto,
+    );
+
+    return dto;
   }
 
   // 새 견적 요청이 들어왔을 때 모든 관리자에게 알림 생성
@@ -287,6 +301,24 @@ export class NotificationService {
       metadata: {
         customerName: data.customerName,
         messagePreview: data.messagePreview,
+      },
+    });
+  }
+
+  // 실시간 채팅 요청 알림
+  async notifyLiveChatRequest(data: {
+    sessionId: string;
+    customerName?: string;
+  }): Promise<void> {
+    const customerDisplay = data.customerName || '고객';
+
+    await this.notifyAdmins({
+      type: NOTIFICATION_TYPES.LIVE_CHAT_REQUEST,
+      title: '실시간 채팅 요청',
+      message: `${customerDisplay}님이 실시간 채팅을 요청했습니다.`,
+      relatedSessionId: data.sessionId,
+      metadata: {
+        customerName: data.customerName,
       },
     });
   }
