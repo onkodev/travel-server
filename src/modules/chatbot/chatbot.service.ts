@@ -649,6 +649,7 @@ export class ChatbotService {
           infoMismatch: true,
           guestName: true,
           guestEmail: true,
+          isLiveChat: true,
           adminTags: true,
           adminMemo: true,
           createdAt: true,
@@ -662,6 +663,12 @@ export class ChatbotService {
               referrerUrl: true,
               landingPage: true,
             },
+          },
+          // 미확인 메시지 계산을 위해 마지막 admin 메시지 이후 user 메시지 포함
+          messages: {
+            select: { id: true, role: true, createdAt: true },
+            orderBy: { createdAt: 'desc' as const },
+            take: 50,
           },
         },
       }),
@@ -685,20 +692,32 @@ export class ChatbotService {
           )
         : new Map<number, string | null>();
 
-    // 플로우에 estimateStatus 추가 + visitor 필드 flatten
-    const flowsWithStatus = flows.map(({ visitor, ...flow }) => ({
-      ...flow,
-      ipAddress: visitor?.ipAddress ?? null,
-      country: visitor?.country ?? null,
-      countryName: visitor?.countryName ?? null,
-      city: visitor?.city ?? null,
-      utmSource: visitor?.utmSource ?? null,
-      referrerUrl: visitor?.referrerUrl ?? null,
-      landingPage: visitor?.landingPage ?? null,
-      estimateStatus: flow.estimateId
-        ? estimateStatusMap.get(flow.estimateId) || null
-        : null,
-    }));
+    // 플로우에 estimateStatus 추가 + visitor 필드 flatten + unreadCount 계산
+    const flowsWithStatus = flows.map(({ visitor, messages, ...flow }) => {
+      // 미확인 메시지 수: 라이브 채팅 세션만 계산 (마지막 admin 메시지 이후 user 메시지)
+      let unreadCount = 0;
+      if (flow.isLiveChat && messages && messages.length > 0) {
+        for (const msg of messages) {
+          if (msg.role === 'admin') break;
+          if (msg.role === 'user') unreadCount++;
+        }
+      }
+
+      return {
+        ...flow,
+        ipAddress: visitor?.ipAddress ?? null,
+        country: visitor?.country ?? null,
+        countryName: visitor?.countryName ?? null,
+        city: visitor?.city ?? null,
+        utmSource: visitor?.utmSource ?? null,
+        referrerUrl: visitor?.referrerUrl ?? null,
+        landingPage: visitor?.landingPage ?? null,
+        estimateStatus: flow.estimateId
+          ? estimateStatusMap.get(flow.estimateId) || null
+          : null,
+        unreadCount,
+      };
+    });
 
     return createPaginatedResponse(flowsWithStatus, total, page, limit);
   }

@@ -813,6 +813,35 @@ export class ChatbotController {
     return { success: true, alreadyActive: false };
   }
 
+  @Post(':sessionId/live-chat/end')
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({
+    summary: '실시간 채팅 종료',
+    description: '실시간 채팅 모드를 비활성화합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({ status: 200, description: '종료 성공' })
+  async endLiveChat(@Param('sessionId') sessionId: string) {
+    const flow = await this.chatbotService.getFlow(sessionId);
+
+    if (!flow.isLiveChat) {
+      return { success: true, alreadyInactive: true };
+    }
+
+    await this.prisma.chatbotFlow.update({
+      where: { sessionId },
+      data: { isLiveChat: false },
+    });
+
+    // SSE로 라이브 채팅 종료 이벤트 발행
+    this.sseService.emitChatEvent(sessionId, 'live_chat_ended', {
+      sessionId,
+    });
+
+    return { success: true, alreadyInactive: false };
+  }
+
   @Patch(':sessionId/title')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
