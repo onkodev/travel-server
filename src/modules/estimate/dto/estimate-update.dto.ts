@@ -62,6 +62,11 @@ export class UpdateEstimateDto extends BaseEstimateDto {
   @Type(() => Number)
   infantsCount?: number;
 
+  @ApiPropertyOptional({ description: 'FOC (Free of Charge) 수' })
+  @IsOptional()
+  @Type(() => Number)
+  focCount?: number;
+
   @ApiPropertyOptional({ description: '시니어 수' })
   @IsOptional()
   @Type(() => Number)

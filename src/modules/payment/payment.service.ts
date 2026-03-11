@@ -547,6 +547,7 @@ export class PaymentService {
               adultsCount: true,
               childrenCount: true,
               infantsCount: true,
+              focCount: true,
             },
           })
         : [];

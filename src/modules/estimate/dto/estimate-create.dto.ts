@@ -64,6 +64,11 @@ export class CreateEstimateDto extends BaseEstimateDto {
   @IsNumber()
   infantsCount?: number;
 
+  @ApiPropertyOptional({ description: 'FOC (Free of Charge) 수' })
+  @IsOptional()
+  @IsNumber()
+  focCount?: number;
+
   @ApiPropertyOptional({
     description: '견적 아이템 목록',
     type: [EstimateItemExtendedDto],
