@@ -480,6 +480,128 @@ export class PaymentService {
     return payment ? convertDecimalFields(payment) : null;
   }
 
+  // 견적 결제 목록 조회 (어드민)
+  async getEstimatePayments(params: {
+    page?: number;
+    limit?: number;
+    paymentStatus?: string;
+    search?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }) {
+    const { page = 1, limit = 10, paymentStatus, search, dateFrom, dateTo } = params;
+    const skip = calculateSkip(page, limit);
+
+    const where: Prisma.PaymentWhereInput = {
+      estimateId: { not: null },
+    };
+
+    if (paymentStatus) {
+      where.status = paymentStatus;
+    }
+
+    if (dateFrom || dateTo) {
+      where.paidAt = {};
+      if (dateFrom) where.paidAt.gte = new Date(dateFrom);
+      if (dateTo) where.paidAt.lte = new Date(dateTo);
+    }
+
+    // search 필터는 견적 테이블 조인 없이 payerEmail로만 검색 (1차)
+    // 견적 정보와 매칭은 조회 후 처리
+    if (search && !isNaN(Number(search))) {
+      where.estimateId = Number(search);
+    } else if (search) {
+      where.payerEmail = { contains: search, mode: 'insensitive' };
+    }
+
+    const [payments, total] = await Promise.all([
+      this.prisma.payment.findMany({
+        where,
+        orderBy: { paidAt: { sort: 'desc', nulls: 'last' } },
+        skip,
+        take: limit,
+      }),
+      this.prisma.payment.count({ where }),
+    ]);
+
+    // 견적 정보 배치 조회
+    const estimateIds = [
+      ...new Set(payments.map((p) => p.estimateId).filter(Boolean)),
+    ] as number[];
+
+    const estimates =
+      estimateIds.length > 0
+        ? await this.prisma.estimate.findMany({
+            where: { id: { in: estimateIds } },
+            select: {
+              id: true,
+              title: true,
+              customerName: true,
+              customerEmail: true,
+              source: true,
+              totalAmount: true,
+              currency: true,
+              startDate: true,
+              endDate: true,
+              travelDays: true,
+              adultsCount: true,
+              childrenCount: true,
+              infantsCount: true,
+            },
+          })
+        : [];
+
+    const estimateMap = new Map(estimates.map((e) => [e.id, e]));
+
+    // search가 고객명/견적제목인 경우 후처리 필터 (payerEmail 매치 안 된 경우)
+    let enriched = payments.map((p) => ({
+      ...convertDecimalFields(p),
+      estimate: p.estimateId
+        ? convertDecimalFields(estimateMap.get(p.estimateId) || null)
+        : null,
+    }));
+
+    // payerEmail 검색이 아닌 경우 견적 정보로 후처리 필터
+    if (search && isNaN(Number(search))) {
+      const lowerSearch = search.toLowerCase();
+      const beforeFilter = enriched.length;
+      enriched = enriched.filter(
+        (p) =>
+          p.payerEmail?.toLowerCase().includes(lowerSearch) ||
+          p.estimate?.customerName?.toLowerCase().includes(lowerSearch) ||
+          p.estimate?.customerEmail?.toLowerCase().includes(lowerSearch) ||
+          p.estimate?.title?.toLowerCase().includes(lowerSearch),
+      );
+      // 후처리 필터로 인한 total 보정
+      const filtered = beforeFilter - enriched.length;
+      return createPaginatedResponse(enriched, total - filtered, page, limit);
+    }
+
+    return createPaginatedResponse(enriched, total, page, limit);
+  }
+
+  // 견적 결제 통계 (어드민)
+  async getEstimatePaymentStats() {
+    const where: Prisma.PaymentWhereInput = { estimateId: { not: null } };
+
+    const [total, completed, pending, totalRevenue] = await Promise.all([
+      this.prisma.payment.count({ where }),
+      this.prisma.payment.count({ where: { ...where, status: 'completed' } }),
+      this.prisma.payment.count({ where: { ...where, status: 'pending' } }),
+      this.prisma.payment.aggregate({
+        where: { ...where, status: 'completed' },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    return {
+      total,
+      completed,
+      pending,
+      totalRevenue: Number(totalRevenue._sum.amount || 0),
+    };
+  }
+
   // 결제 삭제
   async deletePayment(id: number) {
     return this.prisma.payment.delete({

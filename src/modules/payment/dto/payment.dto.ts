@@ -174,6 +174,28 @@ export class PaymentStatsDto {
   pending: number;
 }
 
+export class EstimatePaymentQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ description: '결제 상태 필터' })
+  @IsOptional()
+  @IsString()
+  paymentStatus?: string;
+
+  @ApiPropertyOptional({ description: '검색 (고객명, 이메일, 견적 제목)' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ description: '시작일 필터' })
+  @IsOptional()
+  @IsString()
+  dateFrom?: string;
+
+  @ApiPropertyOptional({ description: '종료일 필터' })
+  @IsOptional()
+  @IsString()
+  dateTo?: string;
+}
+
 export class CreateEstimatePaymentDto {
   @ApiProperty({ description: '견적서 공유 해시' })
   @IsString()

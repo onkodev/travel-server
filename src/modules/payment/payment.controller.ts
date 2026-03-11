@@ -24,6 +24,7 @@ import {
   PaymentQueryDto,
   CreatePaymentDto,
   CreateEstimatePaymentDto,
+  EstimatePaymentQueryDto,
   UpdatePaymentStatusDto,
   ProcessRefundDto,
   PaymentStatsDto,
@@ -104,6 +105,33 @@ export class PaymentController {
   @ApiResponse({ status: 404, description: '견적서 없음', type: ErrorResponseDto })
   async getEstimatePaymentStatus(@Param('shareHash') shareHash: string) {
     return this.paymentService.getPaymentByShareHash(shareHash);
+  }
+
+  @Get('admin/estimates')
+  @ApiOperation({
+    summary: '견적 결제 목록 조회 (어드민)',
+    description: '견적 결제 내역을 페이지네이션으로 조회합니다. 견적 정보 포함.',
+  })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getEstimatePayments(@Query() query: EstimatePaymentQueryDto) {
+    return this.paymentService.getEstimatePayments({
+      page: query.page,
+      limit: query.limit,
+      paymentStatus: query.paymentStatus,
+      search: query.search,
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    });
+  }
+
+  @Get('admin/estimates/stats')
+  @ApiOperation({
+    summary: '견적 결제 통계 (어드민)',
+    description: '견적 결제 건수, 완료 건수, 총 매출 등의 통계를 조회합니다.',
+  })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  async getEstimatePaymentStats() {
+    return this.paymentService.getEstimatePaymentStats();
   }
 
   @Get('admin/estimate/:estimateId')
