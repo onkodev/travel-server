@@ -120,6 +120,14 @@ export class SseService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * 어드민 전체 브로드캐스트 (세션 상태 변경 등)
+   * 현재 모든 어드민이 agentId=1 공유. 향후 멀티 어드민 시 여기서 전체 순회.
+   */
+  emitAdminBroadcast(type: string, data: unknown): void {
+    this.emitNotificationEvent(1, type, data);
+  }
+
   onModuleDestroy() {
     for (const [, subjects] of this.chatSubscribers) {
       for (const subject of subjects) {

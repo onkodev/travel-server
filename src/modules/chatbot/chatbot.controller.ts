@@ -368,6 +368,8 @@ export class ChatbotController {
       needsPickup: flow.needsPickup,
       needsGuide: flow.needsGuide,
       additionalNotes: flow.additionalNotes,
+      // 라이브 채팅
+      isLiveChat: flow.isLiveChat,
       // 견적 관련
       estimateId: flow.estimateId,
       estimateStatus: flow.estimateStatus,
@@ -810,6 +812,12 @@ export class ChatbotController {
       // 알림 실패는 라이브챗 활성화에 영향 없음
     }
 
+    // 어드민 SSE: 라이브 채팅 활성화 이벤트 (목록 실시간 갱신)
+    this.sseService.emitAdminBroadcast('live_chat_activated', {
+      sessionId,
+      customerName: flow.customerName || null,
+    });
+
     return { success: true, alreadyActive: false };
   }
 
@@ -841,8 +849,13 @@ export class ChatbotController {
       messageType: 'text',
     });
 
-    // SSE로 라이브 채팅 종료 이벤트 발행
+    // SSE로 라이브 채팅 종료 이벤트 발행 (위젯 클라이언트용)
     this.sseService.emitChatEvent(sessionId, 'live_chat_ended', {
+      sessionId,
+    });
+
+    // 어드민 SSE: 라이브 채팅 종료 이벤트 (목록 실시간 갱신)
+    this.sseService.emitAdminBroadcast('live_chat_ended_admin', {
       sessionId,
     });
 
