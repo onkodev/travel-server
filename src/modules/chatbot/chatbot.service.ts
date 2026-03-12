@@ -650,6 +650,7 @@ export class ChatbotService {
           guestName: true,
           guestEmail: true,
           isLiveChat: true,
+          lastAdminReadAt: true,
           adminTags: true,
           adminMemo: true,
           createdAt: true,
@@ -694,11 +695,14 @@ export class ChatbotService {
 
     // 플로우에 estimateStatus 추가 + visitor 필드 flatten + unreadCount 계산
     const flowsWithStatus = flows.map(({ visitor, messages, ...flow }) => {
-      // 미확인 메시지 수: 라이브 채팅 세션만 계산 (마지막 admin 메시지 이후 user 메시지)
+      // 미확인 메시지 수: 라이브 채팅 세션만 계산
+      // lastAdminReadAt 이후 + 마지막 admin 메시지 이후의 user 메시지
       let unreadCount = 0;
       if (flow.isLiveChat && messages && messages.length > 0) {
         for (const msg of messages) {
           if (msg.role === 'admin') break;
+          // lastAdminReadAt 이후 메시지만 카운트
+          if (flow.lastAdminReadAt && new Date(msg.createdAt) <= new Date(flow.lastAdminReadAt)) break;
           if (msg.role === 'user') unreadCount++;
         }
       }

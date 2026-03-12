@@ -862,6 +862,23 @@ export class ChatbotController {
     return { success: true, alreadyInactive: false };
   }
 
+  @Patch(':sessionId/mark-read')
+  @Public()
+  @SkipThrottle({ default: true, strict: true })
+  @ApiOperation({
+    summary: '세션 읽음 처리',
+    description: '어드민이 채팅 세션의 메시지를 확인했음을 기록합니다.',
+  })
+  @ApiParam({ name: 'sessionId', description: '세션 ID' })
+  @ApiResponse({ status: 200, description: '읽음 처리 성공' })
+  async markSessionRead(@Param('sessionId') sessionId: string) {
+    await this.prisma.chatbotFlow.update({
+      where: { sessionId },
+      data: { lastAdminReadAt: new Date() },
+    });
+    return { success: true };
+  }
+
   @Patch(':sessionId/title')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard)
