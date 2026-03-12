@@ -834,6 +834,13 @@ export class ChatbotController {
       data: { isLiveChat: false },
     });
 
+    // 종료 메시지를 DB에 저장 + SSE new_message 자동 발행
+    await this.chatbotMessageService.saveMessage(sessionId, {
+      role: 'bot',
+      content: 'The live chat session has ended. Thank you for chatting with us!',
+      messageType: 'text',
+    });
+
     // SSE로 라이브 채팅 종료 이벤트 발행
     this.sseService.emitChatEvent(sessionId, 'live_chat_ended', {
       sessionId,
