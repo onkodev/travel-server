@@ -25,6 +25,11 @@ export class TourItineraryItemDto {
   @IsString()
   time?: string;
 
+  @ApiPropertyOptional({ description: '제목' })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
   @ApiPropertyOptional({ description: '장소명' })
   @IsOptional()
   @IsString()
@@ -136,6 +141,11 @@ export class CreateTourDto {
   @IsString()
   title: string;
 
+  @ApiPropertyOptional({ description: '부제목' })
+  @IsOptional()
+  @IsString()
+  subtitle?: string;
+
   @ApiPropertyOptional({ description: '투어 설명' })
   @IsOptional()
   @IsString()
@@ -146,6 +156,11 @@ export class CreateTourDto {
   @IsString()
   thumbnailUrl?: string;
 
+  @ApiPropertyOptional({ description: '이미지 URL 목록', type: [String] })
+  @IsOptional()
+  @IsArray()
+  imageUrls?: string[];
+
   @ApiProperty({ description: '소요 시간 (분)' })
   @IsNumber()
   durationMinutes: number;
@@ -154,10 +169,35 @@ export class CreateTourDto {
   @IsNumber()
   price: number;
 
-  @ApiPropertyOptional({ description: '통화', default: 'KRW' })
+  @ApiPropertyOptional({ description: '통화', default: 'USD' })
   @IsOptional()
   @IsString()
   currency?: string;
+
+  @ApiPropertyOptional({ description: '미팅 포인트' })
+  @IsOptional()
+  @IsString()
+  meetingPoint?: string;
+
+  @ApiPropertyOptional({ description: '위도' })
+  @IsOptional()
+  @IsNumber()
+  lat?: number;
+
+  @ApiPropertyOptional({ description: '경도' })
+  @IsOptional()
+  @IsNumber()
+  lng?: number;
+
+  @ApiPropertyOptional({ description: '포함 항목', type: [String] })
+  @IsOptional()
+  @IsArray()
+  includedItems?: string[];
+
+  @ApiPropertyOptional({ description: '불포함 항목', type: [String] })
+  @IsOptional()
+  @IsArray()
+  excludedItems?: string[];
 
   @ApiPropertyOptional({ description: '카테고리' })
   @IsOptional()
@@ -168,6 +208,46 @@ export class CreateTourDto {
   @IsOptional()
   @IsArray()
   tags?: string[];
+
+  @ApiPropertyOptional({ description: '참고사항', type: [String] })
+  @IsOptional()
+  @IsArray()
+  notes?: string[];
+
+  @ApiPropertyOptional({
+    description: '일정 목록',
+    type: [TourItineraryItemDto],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TourItineraryItemDto)
+  itinerary?: TourItineraryItemDto[];
+
+  @ApiPropertyOptional({ description: '최소 인원' })
+  @IsOptional()
+  @IsNumber()
+  minParticipants?: number;
+
+  @ApiPropertyOptional({ description: '최대 인원' })
+  @IsOptional()
+  @IsNumber()
+  maxParticipants?: number;
+
+  @ApiPropertyOptional({ description: '예약 마감 시간 (시간 전)' })
+  @IsOptional()
+  @IsNumber()
+  bookingCutoffHours?: number;
+
+  @ApiPropertyOptional({ description: '차단된 날짜 목록', type: [String] })
+  @IsOptional()
+  @IsArray()
+  blockedDates?: string[];
+
+  @ApiPropertyOptional({ description: '차단된 요일 목록', type: [Number] })
+  @IsOptional()
+  @IsArray()
+  blockedWeekdays?: number[];
 
   @ApiPropertyOptional({
     description: '상태',
@@ -255,10 +335,10 @@ export class UpdateTourDto {
   @IsArray()
   tags?: string[];
 
-  @ApiPropertyOptional({ description: '참고사항' })
+  @ApiPropertyOptional({ description: '참고사항', type: [String] })
   @IsOptional()
-  @IsString()
-  notes?: string;
+  @IsArray()
+  notes?: string[];
 
   @ApiPropertyOptional({
     description: '일정 목록',

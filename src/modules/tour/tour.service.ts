@@ -147,7 +147,7 @@ export class TourService {
     let query = supabase
       .from('tours')
       .select(
-        'id, title, thumbnail_url, status, category, price, currency, view_count, review_count, average_rating, created_at, updated_at',
+        'id, title, thumbnail_url, status, category, price, currency, duration_minutes, tags, min_participants, max_participants, view_count, review_count, average_rating, created_at, updated_at',
         { count: 'exact' },
       );
 
@@ -246,12 +246,11 @@ export class TourService {
       'included_items',
       'excluded_items',
       'tags',
+      'notes',
       'itinerary',
       'blocked_dates',
       'blocked_weekdays',
       'highlights',
-      'meeting_point',
-      'notes', // 혹시 배열일 수 있으므로 추가
     ]);
 
     // 먼저 snake_case로 변환
@@ -263,19 +262,16 @@ export class TourService {
       if (value === undefined) continue;
 
       if (arrayColumns.has(key)) {
-        // 배열 컬럼: 빈 배열/빈 문자열/null → 업데이트 제외
+        // 배열 컬럼: null/빈 문자열 → 빈 배열로 설정, 빈 배열 허용 (데이터 클리어용)
         if (value === '' || value === null) {
-          continue;
+          sanitizedData[key] = [];
         } else if (Array.isArray(value)) {
-          if (value.length === 0) {
-            continue; // 빈 배열도 제외
-          }
           sanitizedData[key] = value;
         } else {
           sanitizedData[key] = value;
         }
       } else {
-        // 빈 문자열은 null로 변환 (또는 제외)
+        // 빈 문자열은 null로 변환
         if (value === '') {
           sanitizedData[key] = null;
         } else {
