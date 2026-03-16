@@ -621,11 +621,19 @@ export class ChatbotService {
     }
 
     // 정렬 로직
-    const SORT_WHITELIST = ['createdAt', 'updatedAt', 'customerName', 'currentStep', 'countryName'];
-    let orderBy: Record<string, 'asc' | 'desc'> = { updatedAt: 'desc' };
-    if (sortColumn && SORT_WHITELIST.includes(sortColumn)) {
+    // ChatbotFlow 직접 필드 vs 관계 테이블(visitor) 필드 구분
+    const DIRECT_SORT_COLUMNS = ['createdAt', 'updatedAt', 'customerName', 'currentStep', 'isCompleted'];
+    const RELATION_SORT_COLUMNS: Record<string, (dir: 'asc' | 'desc') => object> = {
+      countryName: (dir) => ({ visitor: { countryName: dir } }),
+    };
+    let orderBy: object = { updatedAt: 'desc' };
+    if (sortColumn) {
       const dir = sortDirection === 'asc' ? 'asc' : 'desc';
-      orderBy = { [sortColumn]: dir };
+      if (DIRECT_SORT_COLUMNS.includes(sortColumn)) {
+        orderBy = { [sortColumn]: dir };
+      } else if (RELATION_SORT_COLUMNS[sortColumn]) {
+        orderBy = RELATION_SORT_COLUMNS[sortColumn](dir);
+      }
     }
 
     const [flows, total] = await Promise.all([
