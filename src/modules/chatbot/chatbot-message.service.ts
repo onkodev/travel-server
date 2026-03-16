@@ -67,50 +67,60 @@ export class ChatbotMessageService {
     }
 
     // 사용자 메시지가 있을 때 관리자 알림 발송
-    // 카카오톡 메커니즘: 어드민이 채팅 페이지를 보고 있으면 알림 생성 억제
-    if (firstUserMsg && !this.sseService.hasActiveChatPageViewers()) {
-      // 라이브 채팅 세션: user 메시지 시 항상 관리자 알림
-      let notified = false;
-      if (flow.isLiveChat) {
-        try {
-          await this.notificationService.notifyCustomerMessage({
-            sessionId,
-            customerName: flow.customerName || undefined,
-            messagePreview: firstUserMsg.content,
-          });
-          notified = true;
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          this.logger.error(
-            `Failed to send live chat notification: ${errorMessage}`,
-          );
-        }
-      }
+    if (firstUserMsg) {
+      // 카카오톡 메커니즘: 어드민이 채팅 페이지를 보고 있으면 알림 생성 억제
+      const adminViewing = this.sseService.hasActiveChatPageViewers();
 
-      // 견적이 전송된 상태에서 고객 메시지 알림 (라이브 채팅에서 이미 알림한 경우 스킵)
-      if (!notified && flow.estimateId) {
-        const estimate = await this.prisma.estimate.findUnique({
-          where: { id: flow.estimateId },
-          select: { statusAi: true, customerName: true },
-        });
-
-        if (estimate?.statusAi === 'sent') {
+      if (!adminViewing) {
+        // 라이브 채팅 세션: user 메시지 시 항상 관리자 알림
+        let notified = false;
+        if (flow.isLiveChat) {
           try {
             await this.notificationService.notifyCustomerMessage({
               sessionId,
-              customerName:
-                estimate.customerName || flow.customerName || undefined,
+              customerName: flow.customerName || undefined,
               messagePreview: firstUserMsg.content,
             });
+            notified = true;
           } catch (error) {
             const errorMessage =
               error instanceof Error ? error.message : String(error);
             this.logger.error(
-              `Failed to send customer message notification: ${errorMessage}`,
+              `Failed to send live chat notification: ${errorMessage}`,
             );
           }
         }
+
+        // 견적이 전송된 상태에서 고객 메시지 알림 (라이브 채팅에서 이미 알림한 경우 스킵)
+        if (!notified && flow.estimateId) {
+          const estimate = await this.prisma.estimate.findUnique({
+            where: { id: flow.estimateId },
+            select: { statusAi: true, customerName: true },
+          });
+
+          if (estimate?.statusAi === 'sent') {
+            try {
+              await this.notificationService.notifyCustomerMessage({
+                sessionId,
+                customerName:
+                  estimate.customerName || flow.customerName || undefined,
+                messagePreview: firstUserMsg.content,
+              });
+            } catch (error) {
+              const errorMessage =
+                error instanceof Error ? error.message : String(error);
+              this.logger.error(
+                `Failed to send customer message notification: ${errorMessage}`,
+              );
+            }
+          }
+        }
+      } else {
+        // 알림은 억제하되, 채팅 목록 실시간 갱신을 위해 브로드캐스트 이벤트 발행
+        this.sseService.emitAdminBroadcast('chat_message_received', {
+          sessionId,
+          customerName: flow.customerName || null,
+        });
       }
     }
 

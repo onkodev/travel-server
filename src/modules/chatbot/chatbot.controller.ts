@@ -250,9 +250,7 @@ export class ChatbotController {
   }
 
   @Post('admin/presence')
-  @ApiBearerAuth('access-token')
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Public()
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
     summary: '어드민 채팅 페이지 presence heartbeat',
