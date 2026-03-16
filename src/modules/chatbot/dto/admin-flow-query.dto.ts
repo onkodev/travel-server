@@ -68,7 +68,7 @@ export class AdminFlowQueryDto {
   @ApiPropertyOptional({ description: '정렬 컬럼' })
   @IsOptional()
   @IsString()
-  @IsIn(['createdAt', 'updatedAt', 'currentStep', 'isCompleted'])
+  @IsIn(['createdAt', 'updatedAt', 'currentStep', 'isCompleted', 'customerName', 'countryName'])
   sortColumn?: string;
 
   @ApiPropertyOptional({ description: '정렬 방향', enum: ['asc', 'desc'] })
