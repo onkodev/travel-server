@@ -704,6 +704,11 @@ export class EstimateService {
 
   // 견적 삭제
   async deleteEstimate(id: number) {
+    // 연결된 chatbot_flow의 estimateId를 null로 리셋
+    await this.prisma.chatbotFlow.updateMany({
+      where: { estimateId: id },
+      data: { estimateId: null },
+    });
     const result = await this.prisma.estimate.delete({
       where: { id },
     });
@@ -1012,6 +1017,11 @@ export class EstimateService {
   // RAG 품질 통계
   // 일괄 삭제
   async bulkDelete(ids: number[]) {
+    // 연결된 chatbot_flow의 estimateId를 null로 리셋
+    await this.prisma.chatbotFlow.updateMany({
+      where: { estimateId: { in: ids } },
+      data: { estimateId: null },
+    });
     const result = await this.prisma.estimate.deleteMany({
       where: { id: { in: ids } },
     });
