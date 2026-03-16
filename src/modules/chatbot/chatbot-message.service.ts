@@ -67,7 +67,8 @@ export class ChatbotMessageService {
     }
 
     // 사용자 메시지가 있을 때 관리자 알림 발송
-    if (firstUserMsg) {
+    // 카카오톡 메커니즘: 어드민이 채팅 페이지를 보고 있으면 알림 생성 억제
+    if (firstUserMsg && !this.sseService.hasActiveChatPageViewers()) {
       // 라이브 채팅 세션: user 메시지 시 항상 관리자 알림
       let notified = false;
       if (flow.isLiveChat) {

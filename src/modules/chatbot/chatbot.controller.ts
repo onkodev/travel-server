@@ -249,6 +249,35 @@ export class ChatbotController {
     });
   }
 
+  @Post('admin/presence')
+  @ApiBearerAuth('access-token')
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @SkipThrottle({ default: true, strict: true })
+  @ApiOperation({
+    summary: '어드민 채팅 페이지 presence heartbeat',
+    description:
+      '어드민이 채팅 페이지를 보고 있음을 알립니다. 30초 간격으로 호출하며, 60초 내 heartbeat 없으면 자동 만료됩니다.',
+  })
+  @ApiResponse({ status: 200, description: 'presence 갱신 성공' })
+  touchPresence() {
+    this.sseService.touchChatPagePresence();
+    return { success: true };
+  }
+
+  @Post('admin/presence/leave')
+  @Public()
+  @SkipThrottle({ default: true, strict: true })
+  @ApiOperation({
+    summary: '어드민 채팅 페이지 presence 해제',
+    description: '어드민이 채팅 페이지를 벗어남을 알립니다. sendBeacon 호환을 위해 Public + POST.',
+  })
+  @ApiResponse({ status: 200, description: 'presence 해제 성공' })
+  clearPresence() {
+    this.sseService.clearChatPagePresence();
+    return { success: true };
+  }
+
   @Patch('admin/flow/:sessionId/meta')
   @ApiBearerAuth('access-token')
   @UseGuards(AuthGuard, RolesGuard)
