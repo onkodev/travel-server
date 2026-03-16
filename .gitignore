@@ -6,3 +6,6 @@ dist
 
 /generated/prisma
 deploy.tar.gz
+
+# deploy log
+DEPLOY_LOG.md
