@@ -64,7 +64,10 @@ export class ChatbotMessageService {
           data: { title },
         });
       }
+    }
 
+    // 사용자 메시지가 있을 때 관리자 알림 발송
+    if (firstUserMsg) {
       // 라이브 채팅 세션: user 메시지 시 항상 관리자 알림
       let notified = false;
       if (flow.isLiveChat) {
