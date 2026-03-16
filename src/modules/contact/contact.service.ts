@@ -73,7 +73,8 @@ export class ContactService {
   }
 
   async getContacts(query: ContactQueryDto): Promise<ContactListDto> {
-    const { page = 1, limit = 20, status, search } = query;
+    const { page = 1, limit = 20, status, search, sortColumn, sortDirection } =
+      query;
     const skip = calculateSkip(page, limit);
 
     const where: any = {};
@@ -90,10 +91,18 @@ export class ContactService {
       }
     }
 
+    // 정렬: 화이트리스트 검증 후 동적 정렬
+    const allowedSortColumns = ['name', 'status', 'createdAt'];
+    let orderBy: any = { createdAt: 'desc' };
+    if (sortColumn && allowedSortColumns.includes(sortColumn)) {
+      const direction = sortDirection === 'asc' ? 'asc' : 'desc';
+      orderBy = { [sortColumn]: direction };
+    }
+
     const [contacts, total] = await Promise.all([
       this.prisma.contact.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: limit,
       }),

@@ -145,6 +145,30 @@ export class ContactQueryDto {
   @IsString()
   @IsOptional()
   search?: string;
+
+  @ApiPropertyOptional({
+    description: '정렬 컬럼',
+    example: 'createdAt',
+    enum: ['name', 'status', 'createdAt'],
+  })
+  @IsString()
+  @IsIn(['name', 'status', 'createdAt'], {
+    message: '정렬 가능한 컬럼: name, status, createdAt',
+  })
+  @IsOptional()
+  sortColumn?: string;
+
+  @ApiPropertyOptional({
+    description: '정렬 방향',
+    example: 'desc',
+    enum: ['asc', 'desc'],
+  })
+  @IsString()
+  @IsIn(['asc', 'desc'], {
+    message: '정렬 방향은 asc 또는 desc만 가능합니다',
+  })
+  @IsOptional()
+  sortDirection?: string;
 }
 
 /**
