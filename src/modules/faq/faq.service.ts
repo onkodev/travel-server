@@ -70,6 +70,7 @@ export class FaqService {
       not_helpful_count: 'notHelpfulCount',
       view_count: 'viewCount',
       category: 'category',
+      question_ko: 'questionKo',
     };
 
     const prismaColumn = sortColumn ? SORT_COLUMN_MAP[sortColumn] : undefined;

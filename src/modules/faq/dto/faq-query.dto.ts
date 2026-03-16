@@ -61,10 +61,10 @@ export class FaqQueryDto extends PaginationQueryDto {
 
   @ApiPropertyOptional({
     description: '정렬 컬럼',
-    enum: ['created_at', 'updated_at', 'helpful_count', 'not_helpful_count', 'view_count', 'category'],
+    enum: ['created_at', 'updated_at', 'helpful_count', 'not_helpful_count', 'view_count', 'category', 'question_ko'],
   })
   @IsOptional()
-  @IsIn(['created_at', 'updated_at', 'helpful_count', 'not_helpful_count', 'view_count', 'category'])
+  @IsIn(['created_at', 'updated_at', 'helpful_count', 'not_helpful_count', 'view_count', 'category', 'question_ko'])
   sortColumn?: string;
 
   @ApiPropertyOptional({ description: '정렬 방향', enum: ['asc', 'desc'] })
