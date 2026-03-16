@@ -77,22 +77,33 @@ export class AuthGuard implements CanActivate {
   }
 
   /**
-   * Authorization 헤더 또는 쿠키에서 토큰 추출
-   * - 우선순위: Authorization 헤더 > access_token 쿠키
-   * - EventSource(SSE)는 커스텀 헤더를 보낼 수 없어 쿠키 폴백 필요
+   * 토큰 추출 (우선순위: Authorization 헤더 > 쿠키 > query parameter)
+   *
+   * EventSource(SSE)는 커스텀 헤더를 보낼 수 없고,
+   * cross-origin에서는 SameSite=Lax 쿠키도 전송되지 않으므로
+   * query parameter ?token= 폴백이 SSE/WebSocket 인증의 표준 패턴.
    */
   private extractToken(request: any): string | null {
+    // 1. Authorization: Bearer 헤더 (일반 API 호출)
     const authHeader = request.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       return authHeader.split(' ')[1];
     }
 
-    // 쿠키에서 access_token 추출 (SSE, sendBeacon 등 헤더 설정 불가 요청용)
-    const cookies = request.cookies || this.parseCookieHeader(request.headers.cookie);
-    return cookies?.access_token || null;
+    // 2. 쿠키 (same-origin 요청)
+    const cookies =
+      request.cookies || this.parseCookieHeader(request.headers.cookie);
+    if (cookies?.access_token) return cookies.access_token;
+
+    // 3. Query parameter (SSE EventSource — cross-origin 인증용)
+    if (request.query?.token) return request.query.token as string;
+
+    return null;
   }
 
-  private parseCookieHeader(cookieHeader?: string): Record<string, string> | null {
+  private parseCookieHeader(
+    cookieHeader?: string,
+  ): Record<string, string> | null {
     if (!cookieHeader) return null;
     const cookies: Record<string, string> = {};
     for (const pair of cookieHeader.split(';')) {
