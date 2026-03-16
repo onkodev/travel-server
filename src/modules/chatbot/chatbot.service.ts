@@ -621,8 +621,8 @@ export class ChatbotService {
     }
 
     // 정렬 로직
-    const SORT_WHITELIST = ['createdAt', 'customerName', 'currentStep'];
-    let orderBy: Record<string, 'asc' | 'desc'> = { createdAt: 'desc' };
+    const SORT_WHITELIST = ['createdAt', 'updatedAt', 'customerName', 'currentStep', 'countryName'];
+    let orderBy: Record<string, 'asc' | 'desc'> = { updatedAt: 'desc' };
     if (sortColumn && SORT_WHITELIST.includes(sortColumn)) {
       const dir = sortDirection === 'asc' ? 'asc' : 'desc';
       orderBy = { [sortColumn]: dir };
@@ -654,6 +654,7 @@ export class ChatbotService {
           adminTags: true,
           adminMemo: true,
           createdAt: true,
+          updatedAt: true,
           visitor: {
             select: {
               ipAddress: true,
@@ -721,6 +722,14 @@ export class ChatbotService {
           : null,
         unreadCount,
       };
+    });
+
+    // 미확인 메시지가 있는 세션을 상단에 정렬 (updatedAt 내림차순 유지)
+    flowsWithStatus.sort((a, b) => {
+      const aUnread = a.unreadCount > 0 ? 1 : 0;
+      const bUnread = b.unreadCount > 0 ? 1 : 0;
+      if (aUnread !== bUnread) return bUnread - aUnread; // unread 먼저
+      return 0; // 같은 그룹 내에서는 DB 쿼리 순서 유지
     });
 
     return createPaginatedResponse(flowsWithStatus, total, page, limit);

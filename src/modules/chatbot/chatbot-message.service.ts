@@ -41,6 +41,7 @@ export class ChatbotMessageService {
       estimateId: number | null;
       customerName: string | null;
       title: string | null;
+      isLiveChat: boolean;
     },
   ) {
     const firstUserMsg = savedMessages.find((m) => m.role === 'user');
@@ -64,8 +65,27 @@ export class ChatbotMessageService {
         });
       }
 
-      // 고객이 메시지를 보냈고, 견적이 전송된 상태라면 관리자에게 알림
-      if (flow.estimateId) {
+      // 라이브 채팅 세션: user 메시지 시 항상 관리자 알림
+      let notified = false;
+      if (flow.isLiveChat) {
+        try {
+          await this.notificationService.notifyCustomerMessage({
+            sessionId,
+            customerName: flow.customerName || undefined,
+            messagePreview: firstUserMsg.content,
+          });
+          notified = true;
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          this.logger.error(
+            `Failed to send live chat notification: ${errorMessage}`,
+          );
+        }
+      }
+
+      // 견적이 전송된 상태에서 고객 메시지 알림 (라이브 채팅에서 이미 알림한 경우 스킵)
+      if (!notified && flow.estimateId) {
         const estimate = await this.prisma.estimate.findUnique({
           where: { id: flow.estimateId },
           select: { statusAi: true, customerName: true },
