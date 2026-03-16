@@ -27,13 +27,12 @@ export class AuthGuard implements CanActivate {
     ]);
 
     const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers.authorization;
+    const token = this.extractToken(request);
 
     // Public 라우트: 토큰이 있으면 사용자 정보 추출 시도 (실패해도 허용)
     if (isPublic) {
-      if (authHeader && authHeader.startsWith('Bearer ')) {
+      if (token) {
         try {
-          const token = authHeader.split(' ')[1];
           const user = await this.supabaseService.getUserFromToken(token);
           if (user) {
             const profile = await this.supabaseService.getUserProfile(user.id);
@@ -52,11 +51,9 @@ export class AuthGuard implements CanActivate {
       return true;
     }
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
       throw new UnauthorizedException('인증 토큰이 필요합니다');
     }
-
-    const token = authHeader.split(' ')[1];
     const user = await this.supabaseService.getUserFromToken(token);
 
     if (!user) {
@@ -77,5 +74,31 @@ export class AuthGuard implements CanActivate {
     } as AuthenticatedUser;
 
     return true;
+  }
+
+  /**
+   * Authorization 헤더 또는 쿠키에서 토큰 추출
+   * - 우선순위: Authorization 헤더 > access_token 쿠키
+   * - EventSource(SSE)는 커스텀 헤더를 보낼 수 없어 쿠키 폴백 필요
+   */
+  private extractToken(request: any): string | null {
+    const authHeader = request.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      return authHeader.split(' ')[1];
+    }
+
+    // 쿠키에서 access_token 추출 (SSE, sendBeacon 등 헤더 설정 불가 요청용)
+    const cookies = request.cookies || this.parseCookieHeader(request.headers.cookie);
+    return cookies?.access_token || null;
+  }
+
+  private parseCookieHeader(cookieHeader?: string): Record<string, string> | null {
+    if (!cookieHeader) return null;
+    const cookies: Record<string, string> = {};
+    for (const pair of cookieHeader.split(';')) {
+      const [key, ...rest] = pair.trim().split('=');
+      if (key) cookies[key] = rest.join('=');
+    }
+    return cookies;
   }
 }
