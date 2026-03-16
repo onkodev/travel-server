@@ -18,6 +18,7 @@ export interface WcOrderData {
     total: string;
   }>;
   shippingPickupLocation?: string;
+  source: 'onedaykorea' | 'tumakr';
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -108,6 +109,7 @@ export class WooCommerceService {
         total: item.total,
       })),
       shippingPickupLocation: pickupMeta?.value || undefined,
+      source: 'onedaykorea',
     };
   }
 
@@ -115,8 +117,9 @@ export class WooCommerceService {
    * 주문 데이터를 챗봇 컨텍스트용 문자열로 변환
    */
   formatOrderForContext(order: WcOrderData): string {
+    const sourceLabel = order.source === 'tumakr' ? 'Tumakr Quotation' : 'OneDayKorea';
     const lines = [
-      `Order #${order.orderId}`,
+      `[${sourceLabel}] Order #${order.orderId}`,
       `Status: ${order.statusLabel}`,
       `Total: $${order.total} ${order.currency}`,
       `Payment: ${order.paymentMethod} (${order.paymentStatus})`,

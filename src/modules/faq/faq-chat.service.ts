@@ -812,7 +812,7 @@ ${faqGuideline}
   }
 
   /**
-   * 주문 조회 처리: 메시지에서 주문번호/이메일 추출 → WC API 조회
+   * 주문 조회 처리: 메시지에서 주문번호/이메일 추출 → WC API + Tumakr Payment 조회
    */
   private async handleOrderInquiry(
     message: string,
@@ -831,8 +831,15 @@ ${faqGuideline}
       if (order) orders = [order];
     }
 
-    if (orders.length === 0 && emailMatch) {
-      orders = await this.wooCommerceService.getOrdersByEmail(emailMatch[1]);
+    if (emailMatch) {
+      // WC + Tumakr Payment 병렬 조회
+      const [wcOrders, tumakrOrders] = await Promise.all([
+        orders.length === 0
+          ? this.wooCommerceService.getOrdersByEmail(emailMatch[1])
+          : Promise.resolve([]),
+        this.getTumakrPaymentsByEmail(emailMatch[1]),
+      ]);
+      orders = [...orders, ...wcOrders, ...tumakrOrders];
     }
 
     if (orders.length === 0) return null;
@@ -842,9 +849,11 @@ ${faqGuideline}
       .map(o => this.wooCommerceService.formatOrderForContext(o))
       .join('\n---\n');
 
-    const systemPrompt = `You are a helpful customer service assistant for OneDayKorea, a tour company in Korea.
+    const systemPrompt = `You are a helpful customer service assistant for OneDayKorea/Tumakr, a tour company in Korea.
 The customer is asking about their order. Below is the order information from our system.
+Orders may come from two sources: "OneDayKorea" (our main booking site) and "Tumakr" (custom quotation payments).
 Provide a friendly, clear summary of the order status and details.
+If there are orders from both sources, present them clearly grouped by source.
 Answer in the same language the customer used.
 Do NOT reveal sensitive information like IP addresses or full payment details.
 Keep your response concise but informative.
@@ -893,6 +902,105 @@ ${orderContext}
     } catch (err) {
       this.logger.error('주문 조회 채팅 로그 저장 실패:', err);
       return undefined;
+    }
+  }
+
+  /**
+   * Tumakr 견적 결제 내역을 이메일로 조회
+   */
+  private async getTumakrPaymentsByEmail(email: string): Promise<WcOrderData[]> {
+    try {
+      // 1. payerEmail로 Payment 조회
+      const payments = await this.prisma.payment.findMany({
+        where: {
+          status: { in: ['completed', 'pending', 'refunded'] },
+          payerEmail: { equals: email, mode: 'insensitive' },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+
+      // 2. customerEmail로 Estimate 조회 후 관련 Payment 추가 조회
+      const estimates = await this.prisma.estimate.findMany({
+        where: {
+          customerEmail: { equals: email, mode: 'insensitive' },
+        },
+        select: { id: true, title: true, customerName: true, customerEmail: true, items: true },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+
+      const existingPaymentEstimateIds = new Set(
+        payments.filter((p) => p.estimateId).map((p) => p.estimateId!),
+      );
+      const estimateIds = estimates.map((e) => e.id);
+
+      // payerEmail이 아닌 estimateId로 연결된 Payment도 조회
+      const additionalPayments = estimateIds.length > 0
+        ? await this.prisma.payment.findMany({
+            where: {
+              estimateId: { in: estimateIds },
+              id: { notIn: payments.map((p) => p.id) },
+              status: { in: ['completed', 'pending', 'refunded'] },
+            },
+          })
+        : [];
+
+      const allPayments = [...payments, ...additionalPayments];
+
+      // Estimate 정보 맵
+      const estimateMap = new Map(estimates.map((e) => [e.id, e]));
+
+      // estimateId가 있는 Payment 중 아직 estimate 정보 없는 것도 조회
+      const missingEstimateIds = allPayments
+        .filter((p) => p.estimateId && !estimateMap.has(p.estimateId))
+        .map((p) => p.estimateId!);
+
+      if (missingEstimateIds.length > 0) {
+        const missingEstimates = await this.prisma.estimate.findMany({
+          where: { id: { in: missingEstimateIds } },
+          select: { id: true, title: true, customerName: true, customerEmail: true, items: true },
+        });
+        for (const e of missingEstimates) {
+          estimateMap.set(e.id, e);
+        }
+      }
+
+      const TUMAKR_STATUS_LABELS: Record<string, string> = {
+        pending: 'Pending Payment',
+        completed: 'Completed',
+        failed: 'Failed',
+        refunded: 'Refunded',
+        cancelled: 'Cancelled',
+      };
+
+      return allPayments.map((p) => {
+        const estimate = p.estimateId ? estimateMap.get(p.estimateId) : null;
+        const items = estimate?.items as Array<{ name?: string; nameEng?: string; category?: string; quantity?: number; subtotal?: number }> || [];
+
+        return {
+          orderId: p.estimateId || p.id,
+          status: p.status,
+          statusLabel: TUMAKR_STATUS_LABELS[p.status] || p.status,
+          total: p.amount.toString(),
+          currency: p.currency || 'USD',
+          dateCreated: p.createdAt.toISOString(),
+          datePaid: p.paidAt?.toISOString() || null,
+          paymentMethod: p.paymentMethod === 'paypal' ? 'PayPal' : p.paymentMethod,
+          paymentStatus: p.paidAt ? 'Paid' : 'Unpaid',
+          customerName: estimate?.customerName || '',
+          customerEmail: p.payerEmail || estimate?.customerEmail || '',
+          items: items.slice(0, 10).map((item) => ({
+            name: item.nameEng || item.name || item.category || 'Tour Item',
+            quantity: item.quantity || 1,
+            total: item.subtotal?.toString() || '0',
+          })),
+          source: 'tumakr' as const,
+        };
+      });
+    } catch (error) {
+      this.logger.error(`Tumakr payment lookup error (email: ${email}):`, error);
+      return [];
     }
   }
 }
