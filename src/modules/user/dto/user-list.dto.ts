@@ -26,10 +26,10 @@ export class UserListQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
     description: '정렬 컬럼',
     example: 'createdAt',
-    enum: ['name', 'email', 'createdAt', 'lastLoginAt'],
+    enum: ['name', 'email', 'role', 'is_active', 'email_verified', 'phone', 'last_login_at', 'created_at', 'updated_at'],
   })
   @IsOptional()
-  @IsString()
+  @IsIn(['name', 'email', 'role', 'is_active', 'email_verified', 'phone', 'last_login_at', 'created_at', 'updated_at'])
   sortColumn?: string;
 
   @ApiPropertyOptional({

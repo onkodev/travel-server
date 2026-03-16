@@ -81,7 +81,8 @@ export class UserService {
     }
 
     // 정렬
-    const sortColumn = params.sortColumn || 'created_at';
+    const SORT_WHITELIST = ['name', 'email', 'role', 'is_active', 'email_verified', 'phone', 'last_login_at', 'created_at', 'updated_at'];
+    const sortColumn = SORT_WHITELIST.includes(params.sortColumn || '') ? params.sortColumn! : 'created_at';
     const ascending = params.sortDirection === 'asc';
     query = query.order(sortColumn, { ascending });
 
