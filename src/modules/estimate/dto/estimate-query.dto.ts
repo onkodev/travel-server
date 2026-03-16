@@ -182,11 +182,11 @@ export class EstimateListQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
     description: '정렬 필드',
     example: 'createdAt',
-    enum: ['title', 'schedule', 'duration', 'pax', 'amount', 'status', 'createdAt', 'updatedAt'],
+    enum: ['title', 'schedule', 'duration', 'pax', 'amount', 'status', 'createdAt', 'updatedAt', 'source'],
   })
   @IsOptional()
-  @IsIn(['title', 'schedule', 'duration', 'pax', 'amount', 'status', 'createdAt', 'updatedAt'])
-  sortBy?: 'title' | 'schedule' | 'duration' | 'pax' | 'amount' | 'status' | 'createdAt' | 'updatedAt';
+  @IsIn(['title', 'schedule', 'duration', 'pax', 'amount', 'status', 'createdAt', 'updatedAt', 'source'])
+  sortBy?: 'title' | 'schedule' | 'duration' | 'pax' | 'amount' | 'status' | 'createdAt' | 'updatedAt' | 'source';
 
   @ApiPropertyOptional({
     description: '정렬 순서',

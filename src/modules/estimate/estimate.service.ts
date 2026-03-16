@@ -91,7 +91,7 @@ export class EstimateService {
     amountMax?: number;
     durationMin?: number;
     durationMax?: number;
-    sortBy?: 'title' | 'schedule' | 'duration' | 'pax' | 'amount' | 'status' | 'createdAt' | 'updatedAt';
+    sortBy?: 'title' | 'schedule' | 'duration' | 'pax' | 'amount' | 'status' | 'createdAt' | 'updatedAt' | 'source';
     sortOrder?: 'asc' | 'desc';
   }) {
     const {
@@ -265,6 +265,9 @@ export class EstimateService {
           break;
         case 'updatedAt':
           sortConfig = { updatedAt: dir };
+          break;
+        case 'source':
+          sortConfig = { source: dir };
           break;
       }
 
