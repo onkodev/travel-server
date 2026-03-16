@@ -249,31 +249,16 @@ export class ChatbotController {
     });
   }
 
-  @Post('admin/presence')
-  @Public()
+  @Sse('admin/chat-page-sse')
   @SkipThrottle({ default: true, strict: true })
   @ApiOperation({
-    summary: '어드민 채팅 페이지 presence heartbeat',
+    summary: '어드민 채팅 페이지 presence SSE',
     description:
-      '어드민이 채팅 페이지를 보고 있음을 알립니다. 30초 간격으로 호출하며, 60초 내 heartbeat 없으면 자동 만료됩니다.',
+      'SSE 연결 자체가 presence 역할. 연결되면 "보고 있음", 끊기면 "떠남". 실시간 채팅 이벤트도 수신합니다.',
   })
-  @ApiResponse({ status: 200, description: 'presence 갱신 성공' })
-  touchPresence() {
-    this.sseService.touchChatPagePresence();
-    return { success: true };
-  }
-
-  @Post('admin/presence/leave')
-  @Public()
-  @SkipThrottle({ default: true, strict: true })
-  @ApiOperation({
-    summary: '어드민 채팅 페이지 presence 해제',
-    description: '어드민이 채팅 페이지를 벗어남을 알립니다. sendBeacon 호환을 위해 Public + POST.',
-  })
-  @ApiResponse({ status: 200, description: 'presence 해제 성공' })
-  clearPresence() {
-    this.sseService.clearChatPagePresence();
-    return { success: true };
+  @ApiResponse({ status: 200, description: 'SSE 스트림 연결 성공' })
+  chatPageSse() {
+    return this.sseService.subscribeChatPagePresence();
   }
 
   @Patch('admin/flow/:sessionId/meta')

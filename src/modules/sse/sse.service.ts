@@ -11,7 +11,7 @@ export interface SseEvent {
  * SSE 스트림 관리 서비스
  * - 채팅 세션별 실시간 메시지 푸시
  * - 어드민 알림 실시간 푸시
- * - 어드민 채팅 페이지 presence 추적 (알림 억제용, REST heartbeat 방식)
+ * - 어드민 채팅 페이지 presence 추적 (SSE 연결 기반 — 연결 = 보고 있음)
  * - 30초 heartbeat로 연결 유지
  */
 @Injectable()
@@ -23,10 +23,9 @@ export class SseService implements OnModuleDestroy {
   // agentId → Set<Subject>
   private notificationSubscribers = new Map<number, Set<Subject<SseEvent>>>();
 
-  // 어드민 채팅 페이지 presence (카카오톡 메커니즘)
-  // REST heartbeat 타임스탬프 기반 — 60초 내 heartbeat 없으면 자동 만료
-  private static readonly PRESENCE_TTL_MS = 60_000;
-  private chatPagePresenceAt: number | null = null;
+  // 어드민 채팅 페이지 presence (SSE 연결 기반)
+  // 연결 = 보고 있음, 연결 해제 = 떠남 (즉시 감지)
+  private chatPageViewers = new Set<Subject<SseEvent>>();
 
   /**
    * 채팅 세션 SSE 구독
@@ -128,46 +127,65 @@ export class SseService implements OnModuleDestroy {
 
   /**
    * 어드민 전체 브로드캐스트 (세션 상태 변경 등)
-   * 현재 모든 어드민이 agentId=1 공유. 향후 멀티 어드민 시 여기서 전체 순회.
+   * 알림 SSE + 채팅 페이지 SSE 양쪽에 동시 발행
    */
   emitAdminBroadcast(type: string, data: unknown): void {
     this.emitNotificationEvent(1, type, data);
+    this.emitChatPageEvent(type, data);
   }
 
   /**
-   * 어드민 채팅 페이지 presence heartbeat (REST 호출)
-   * 프론트에서 30초 간격으로 호출 + 페이지 진입 시 즉시 호출
+   * 어드민 채팅 페이지 SSE 구독
+   * 연결 자체가 presence 역할 — 연결되어 있으면 "보고 있음"
    */
-  touchChatPagePresence(): void {
-    this.chatPagePresenceAt = Date.now();
-    this.logger.log('Chat page presence touched');
+  subscribeChatPagePresence(): Observable<MessageEvent> {
+    const subject = new Subject<SseEvent>();
+    this.chatPageViewers.add(subject);
+
+    this.logger.log(
+      `Chat page viewer connected (total: ${this.chatPageViewers.size})`,
+    );
+
+    const heartbeat$ = interval(30_000).pipe(
+      map(() => ({ data: { type: 'heartbeat' } }) as MessageEvent),
+    );
+
+    const events$ = subject.asObservable().pipe(
+      map((evt) => ({ data: evt }) as MessageEvent),
+    );
+
+    return merge(heartbeat$, events$).pipe(
+      finalize(() => {
+        this.chatPageViewers.delete(subject);
+        this.logger.log(
+          `Chat page viewer disconnected (total: ${this.chatPageViewers.size})`,
+        );
+      }),
+    );
   }
 
   /**
-   * 어드민 채팅 페이지 presence 해제 (페이지 이탈 시 호출)
+   * 채팅 페이지 SSE 이벤트 발행
    */
-  clearChatPagePresence(): void {
-    this.chatPagePresenceAt = null;
-    this.logger.log('Chat page presence cleared');
+  emitChatPageEvent(type: string, data: unknown): void {
+    if (this.chatPageViewers.size > 0) {
+      const event: SseEvent = { type, data };
+      for (const subject of this.chatPageViewers) {
+        subject.next(event);
+      }
+    }
   }
 
   /**
    * 어드민이 채팅 페이지를 보고 있는지 확인
-   * 60초 내 heartbeat이 있었으면 true
+   * SSE 연결이 하나라도 있으면 true
    */
   hasActiveChatPageViewers(): boolean {
-    if (this.chatPagePresenceAt === null) {
-      this.logger.log('Chat page presence check: NO (null)');
-      return false;
-    }
-    const elapsed = Date.now() - this.chatPagePresenceAt;
-    if (elapsed > SseService.PRESENCE_TTL_MS) {
-      this.chatPagePresenceAt = null;
-      this.logger.log(`Chat page presence check: NO (expired, ${elapsed}ms)`);
-      return false;
-    }
-    this.logger.log(`Chat page presence check: YES (${elapsed}ms ago)`);
-    return true;
+    const hasViewers = this.chatPageViewers.size > 0;
+    this.logger.log(
+      `Chat page presence check: ${hasViewers ? 'YES' : 'NO'} (${this.chatPageViewers.size} viewers)`,
+    );
+    return hasViewers;
   }
 
   onModuleDestroy() {
@@ -185,6 +203,9 @@ export class SseService implements OnModuleDestroy {
     }
     this.notificationSubscribers.clear();
 
-    this.chatPagePresenceAt = null;
+    for (const subject of this.chatPageViewers) {
+      subject.complete();
+    }
+    this.chatPageViewers.clear();
   }
 }
