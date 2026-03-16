@@ -5,6 +5,7 @@ import { GeminiCoreService } from '../ai/core/gemini-core.service';
 import { AiPromptService } from '../ai-prompt/ai-prompt.service';
 import { PromptKey } from '../ai-prompt/prompt-registry';
 import { FaqEmbeddingService } from './faq-embedding.service';
+import { WooCommerceService, WcOrderData } from '../woocommerce/woocommerce.service';
 import { FAQ_SIMILARITY, toGeminiHistory } from './faq.constants';
 import { MemoryCache, formatUrlsAsMarkdown, stripMarkdownLinks } from '../../common/utils';
 
@@ -46,6 +47,18 @@ const INTENT_REFERENCES: Record<string, string[]> = {
     'What is Gyeongju known for?',
     'Tell me about Korean culture and traditions',
   ],
+  order_inquiry: [
+    'I want to check my order',
+    'What is my order status?',
+    'Can I check my booking status?',
+    'Order number 12345',
+    'I made a payment but need to check',
+    'Where is my reservation?',
+    'Check my booking',
+    'I booked a tour and want to confirm',
+    'Can you look up my order?',
+    'Payment confirmation',
+  ],
 };
 
 @Injectable()
@@ -66,6 +79,7 @@ export class FaqChatService {
     private geminiCore: GeminiCoreService,
     private aiPromptService: AiPromptService,
     private faqEmbeddingService: FaqEmbeddingService,
+    private wooCommerceService: WooCommerceService,
   ) {}
 
   // ============================================================================
@@ -116,7 +130,7 @@ export class FaqChatService {
     answer: string;
     sources?: Array<{ question: string; id: number }>;
     noMatch: boolean;
-    responseTier: 'direct' | 'rag' | 'general' | 'tour_recommend' | 'no_match';
+    responseTier: 'direct' | 'rag' | 'general' | 'tour_recommend' | 'no_match' | 'order_inquiry';
     suggestedQuestions?: Array<{ id: number; question: string }>;
     tourRecommendations?: Array<{
       id: number;
@@ -131,6 +145,7 @@ export class FaqChatService {
       reviewCount: number | null;
     }>;
     chatLogId?: number;
+    orderData?: WcOrderData | WcOrderData[];
   }> {
     // 1. 임베딩 1회 생성 → FAQ 검색 + 투어 검색 + 의도 분류에 재사용
     const queryEmbedding =
@@ -162,6 +177,31 @@ export class FaqChatService {
       );
     }
 
+    // ── 주문 조회 인텐트: 임베딩 기반 분류 + 패턴 매칭 보강 ──
+    let orderData: WcOrderData | WcOrderData[] | undefined;
+    const isOrderInquiry = intent === 'order_inquiry' || this.detectOrderPattern(message);
+
+    if (isOrderInquiry) {
+      const result = await this.handleOrderInquiry(message, history);
+      if (result) {
+        return {
+          answer: result.answer,
+          noMatch: false,
+          responseTier: 'order_inquiry',
+          chatLogId: await this.saveOrderChatLog(message, result.answer, meta),
+          orderData: result.orderData,
+        };
+      }
+      // 주문번호/이메일 추출 실패 시 되묻기
+      const askMessage = "Could you please provide your **order number** or the **email address** you used when booking? I'll look up your order right away!";
+      return {
+        answer: askMessage,
+        noMatch: false,
+        responseTier: 'order_inquiry',
+        chatLogId: await this.saveOrderChatLog(message, askMessage, meta),
+      };
+    }
+
     // 2. 하이브리드 분기
     let answer: string;
     let responseTier:
@@ -169,7 +209,8 @@ export class FaqChatService {
       | 'rag'
       | 'general'
       | 'tour_recommend'
-      | 'no_match';
+      | 'no_match'
+      | 'order_inquiry';
     let suggestedQuestions: Array<{ id: number; question: string }> | undefined;
     let tourRecommendations:
       | Array<{
@@ -377,6 +418,7 @@ export class FaqChatService {
       suggestedQuestions,
       tourRecommendations,
       chatLogId,
+      orderData: undefined,
     };
   }
 
@@ -409,7 +451,7 @@ export class FaqChatService {
   private async classifyIntent(
     message: string,
     queryEmbedding: number[] | null,
-  ): Promise<'company' | 'tour_recommend' | 'travel'> {
+  ): Promise<'company' | 'tour_recommend' | 'travel' | 'order_inquiry'> {
     if (!queryEmbedding) return 'travel';
 
     try {
@@ -434,6 +476,7 @@ export class FaqChatService {
 
       if (bestIntent === 'company') return 'company';
       if (bestIntent === 'tour_recommend') return 'tour_recommend';
+      if (bestIntent === 'order_inquiry') return 'order_inquiry';
       return 'travel';
     } catch (error) {
       this.logger.error(
@@ -749,5 +792,107 @@ ${faqGuideline}
     }
 
     return { success: true };
+  }
+
+  /**
+   * 메시지에서 주문번호 또는 이메일 패턴을 감지
+   */
+  private detectOrderPattern(message: string): boolean {
+    // 주문번호 패턴 (4-6자리 숫자 or # 접두사)
+    if (/(?:#|order\s*#?\s*|주문\s*번호?\s*#?\s*)?\b\d{4,6}\b/i.test(message)) {
+      // 단순 숫자만 있는 경우 맥락도 확인
+      const hasOrderContext = /order|booking|check|confirm|status|주문|예약|확인|결제/i.test(message);
+      if (hasOrderContext) return true;
+    }
+    // 이메일 + 주문 맥락
+    if (/[\w.-]+@[\w.-]+\.\w+/.test(message) && /order|booking|check|confirm|주문|예약|확인/i.test(message)) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 주문 조회 처리: 메시지에서 주문번호/이메일 추출 → WC API 조회
+   */
+  private async handleOrderInquiry(
+    message: string,
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  ): Promise<{ answer: string; orderData: WcOrderData | WcOrderData[] } | null> {
+    // 1. 주문번호 추출 (4-6자리 숫자)
+    const orderNumMatch = message.match(/\b(\d{4,6})\b/);
+    // 2. 이메일 추출
+    const emailMatch = message.match(/([\w.-]+@[\w.-]+\.\w+)/);
+
+    let orders: WcOrderData[] = [];
+
+    if (orderNumMatch) {
+      const orderId = parseInt(orderNumMatch[1], 10);
+      const order = await this.wooCommerceService.getOrderById(orderId);
+      if (order) orders = [order];
+    }
+
+    if (orders.length === 0 && emailMatch) {
+      orders = await this.wooCommerceService.getOrdersByEmail(emailMatch[1]);
+    }
+
+    if (orders.length === 0) return null;
+
+    // Gemini로 자연어 답변 생성
+    const orderContext = orders
+      .map(o => this.wooCommerceService.formatOrderForContext(o))
+      .join('\n---\n');
+
+    const systemPrompt = `You are a helpful customer service assistant for OneDayKorea, a tour company in Korea.
+The customer is asking about their order. Below is the order information from our system.
+Provide a friendly, clear summary of the order status and details.
+Answer in the same language the customer used.
+Do NOT reveal sensitive information like IP addresses or full payment details.
+Keep your response concise but informative.
+
+=== Order Information ===
+${orderContext}
+=== End Order Information ===`;
+
+    const answer = await this.geminiCore.callGemini(message, {
+      temperature: 0.3,
+      maxOutputTokens: 500,
+      systemPrompt,
+      history: toGeminiHistory(history),
+      disableThinking: true,
+    });
+
+    return {
+      answer,
+      orderData: orders.length === 1 ? orders[0] : orders,
+    };
+  }
+
+  /**
+   * 주문 조회 채팅 로그 저장
+   */
+  private async saveOrderChatLog(
+    message: string,
+    answer: string,
+    meta?: { ipAddress?: string; visitorId?: string },
+  ): Promise<number | undefined> {
+    try {
+      const log = await this.prisma.faqChatLog.create({
+        data: {
+          message,
+          answer,
+          matchedFaqIds: [],
+          matchedSimilarities: [],
+          topSimilarity: null,
+          noMatch: false,
+          responseTier: 'order_inquiry',
+          visitorId: meta?.visitorId || null,
+        },
+        select: { id: true },
+      });
+      return log.id;
+    } catch (err) {
+      this.logger.error('주문 조회 채팅 로그 저장 실패:', err);
+      return undefined;
+    }
   }
 }

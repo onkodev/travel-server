@@ -8,9 +8,10 @@ import { FaqCategorizeService } from './faq-categorize.service';
 import { FaqChatLogService } from './faq-chat-log.service';
 import { AiModule } from '../ai/ai.module';
 import { AiPromptModule } from '../ai-prompt/ai-prompt.module';
+import { WooCommerceModule } from '../woocommerce/woocommerce.module';
 
 @Module({
-  imports: [AiModule, AiPromptModule],
+  imports: [AiModule, AiPromptModule, WooCommerceModule],
   controllers: [FaqController],
   providers: [
     FaqService,
