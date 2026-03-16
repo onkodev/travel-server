@@ -899,10 +899,24 @@ export class ChatbotController {
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '읽음 처리 성공' })
   async markSessionRead(@Param('sessionId') sessionId: string) {
+    // 1. 세션 읽음 처리
     await this.prisma.chatbotFlow.update({
       where: { sessionId },
       data: { lastAdminReadAt: new Date() },
     });
+
+    // 2. 해당 세션과 연결된 미확인 알림도 자동 읽음 처리
+    await this.prisma.notification.updateMany({
+      where: {
+        relatedSessionId: sessionId,
+        isRead: false,
+      },
+      data: {
+        isRead: true,
+        readAt: new Date(),
+      },
+    });
+
     return { success: true };
   }
 

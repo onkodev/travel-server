@@ -140,7 +140,7 @@ export class SseService implements OnModuleDestroy {
    */
   touchChatPagePresence(): void {
     this.chatPagePresenceAt = Date.now();
-    this.logger.debug('Chat page presence touched');
+    this.logger.log('Chat page presence touched');
   }
 
   /**
@@ -148,7 +148,7 @@ export class SseService implements OnModuleDestroy {
    */
   clearChatPagePresence(): void {
     this.chatPagePresenceAt = null;
-    this.logger.debug('Chat page presence cleared');
+    this.logger.log('Chat page presence cleared');
   }
 
   /**
@@ -156,13 +156,17 @@ export class SseService implements OnModuleDestroy {
    * 60초 내 heartbeat이 있었으면 true
    */
   hasActiveChatPageViewers(): boolean {
-    if (this.chatPagePresenceAt === null) return false;
-    const elapsed = Date.now() - this.chatPagePresenceAt;
-    if (elapsed > SseService.PRESENCE_TTL_MS) {
-      // 자동 만료
-      this.chatPagePresenceAt = null;
+    if (this.chatPagePresenceAt === null) {
+      this.logger.log('Chat page presence check: NO (null)');
       return false;
     }
+    const elapsed = Date.now() - this.chatPagePresenceAt;
+    if (elapsed > SseService.PRESENCE_TTL_MS) {
+      this.chatPagePresenceAt = null;
+      this.logger.log(`Chat page presence check: NO (expired, ${elapsed}ms)`);
+      return false;
+    }
+    this.logger.log(`Chat page presence check: YES (${elapsed}ms ago)`);
     return true;
   }
 
