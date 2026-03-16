@@ -622,7 +622,7 @@ export class ChatbotService {
 
     // 정렬 로직
     // ChatbotFlow 직접 필드 vs 관계 테이블(visitor) 필드 구분
-    const DIRECT_SORT_COLUMNS = ['createdAt', 'updatedAt', 'customerName', 'currentStep', 'isCompleted'];
+    const DIRECT_SORT_COLUMNS = ['createdAt', 'updatedAt', 'customerName', 'currentStep', 'isCompleted', 'tourType', 'estimateId', 'adminMemo'];
     const RELATION_SORT_COLUMNS: Record<string, (dir: 'asc' | 'desc') => object> = {
       countryName: (dir) => ({ visitor: { countryName: dir } }),
     };
