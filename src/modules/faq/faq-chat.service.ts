@@ -208,6 +208,18 @@ export class FaqChatService {
       };
     }
 
+    // ── 주문 조회 후속 질문: history에 주문 데이터가 있으면 컨텍스트 유지 ──
+    const orderContextText = this.extractOrderContextFromHistory(history);
+    if (orderContextText && this.isOrderRelatedFollowUp(message, intent)) {
+      const result = await this.handleOrderFollowUp(message, history!, orderContextText);
+      return {
+        answer: formatUrlsAsMarkdown(stripMarkdownLinks(result.answer)),
+        noMatch: false,
+        responseTier: 'order_inquiry',
+        chatLogId: await this.saveOrderChatLog(message, result.answer, meta),
+      };
+    }
+
     // 2. 하이브리드 분기
     let answer: string;
     let responseTier:
@@ -1230,5 +1242,102 @@ ${orderContext}
       this.logger.error(`Tumakr payment lookup error (email: ${email}):`, error);
       return [];
     }
+  }
+
+  /**
+   * assistant 메시지가 주문/견적 조회 결과인지 패턴 매칭으로 판별
+   */
+  private looksLikeOrderResponse(content: string): boolean {
+    // Order/Estimate/Quotation 번호 패턴
+    if (/(?:Order|Estimate|Quotation)\s*#\d+/i.test(content)) {
+      // + Status/Total/Payment/Items 조합 확인
+      if (/Status[:\s]/i.test(content) &&
+          (/Total[:\s]/i.test(content) || /Payment[:\s]/i.test(content) || /Items?[:\s]/i.test(content))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 최근 6개 메시지(3왕복) 내에서 가장 최근의 주문 조회 assistant 응답 텍스트를 반환
+   */
+  private extractOrderContextFromHistory(
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  ): string | null {
+    if (!history || history.length < 2) return null;
+
+    const recentMessages = history.slice(-6);
+    for (let i = recentMessages.length - 1; i >= 0; i--) {
+      if (recentMessages[i].role === 'assistant' && this.looksLikeOrderResponse(recentMessages[i].content)) {
+        return recentMessages[i].content;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 주문 컨텍스트가 있는 상태에서 현재 메시지가 주문 관련 후속 질문인지 판별.
+   * 기본적으로 true (주문 컨텍스트 우선), 명확히 다른 주제인 경우에만 false.
+   */
+  private isOrderRelatedFollowUp(
+    message: string,
+    intent: string,
+  ): boolean {
+    // 예외 1: 새로운 투어 추천 요청
+    if (intent === 'tour_recommend') return false;
+
+    // 예외 2: 명시적 주제 전환 신호
+    const topicChangeSignals = [
+      /다른\s*질문/,
+      /another\s*question/i,
+      /by\s*the\s*way/i,
+      /그건\s*그렇고/,
+      /그나저나/,
+      /별개로/,
+      /다른\s*건데/,
+      /참고로/,
+      /btw/i,
+      /completely\s*different/i,
+      /unrelated/i,
+    ];
+    if (topicChangeSignals.some((pattern) => pattern.test(message))) return false;
+
+    // 그 외 모든 경우: 주문 컨텍스트 우선
+    return true;
+  }
+
+  /**
+   * 주문 조회 후속 질문 처리: 이전 주문 데이터 컨텍스트 + Gemini 1회 호출
+   */
+  private async handleOrderFollowUp(
+    message: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }>,
+    orderContext: string,
+  ): Promise<{ answer: string }> {
+    const systemPrompt = `You are a helpful customer service assistant for OneDayKorea/Tumakr, a tour company in Korea.
+The customer previously asked about their order/quotation, and below is the order information that was shown to them.
+Now they are asking a follow-up question about this order.
+
+Instructions:
+- If the answer can be found in the order data below, answer based on that data.
+- If the question is general (e.g., refund policy, cancellation) and the order data doesn't contain the answer, use your general knowledge about tour services to answer helpfully.
+- If you truly cannot answer, suggest contacting customer service.
+- Answer in the same language the customer used.
+- Keep your response concise but helpful.
+
+=== Previous Order Information ===
+${orderContext}
+=== End Order Information ===`;
+
+    const answer = await this.geminiCore.callGemini(message, {
+      temperature: 0.3,
+      maxOutputTokens: 500,
+      systemPrompt,
+      history: toGeminiHistory(history),
+      disableThinking: true,
+    });
+
+    return { answer };
   }
 }
