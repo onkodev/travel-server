@@ -987,10 +987,66 @@ ${orderContext}
     try {
       const estimate = await this.prisma.estimate.findUnique({
         where: { id: estimateId },
-        select: { id: true, title: true, customerName: true, customerEmail: true, items: true },
+        select: {
+          id: true,
+          title: true,
+          customerName: true,
+          customerEmail: true,
+          items: true,
+          totalAmount: true,
+          displayOptions: true,
+          currency: true,
+          manualAdjustment: true,
+          createdAt: true,
+        },
       });
 
       if (!estimate) return [];
+
+      // displayOptions — 견적링크에서 고객에게 표시하는 항목과 동일하게 필터링
+      const displayOptions = (estimate.displayOptions as Record<string, boolean>) || {};
+      const showPrice = displayOptions.price !== false;
+
+      // 아이템 필터링: 견적링크 displayOptions에 따라 카테고리별 표시 여부 결정
+      type EstimateItemJson = {
+        name?: string; nameEng?: string; itemName?: string;
+        overrideName?: string; category?: string; quantity?: number;
+        subtotal?: number; isOptional?: boolean;
+        itemInfo?: { nameEng?: string; nameKor?: string };
+      };
+      const allItems = (estimate.items as EstimateItemJson[]) || [];
+      const filteredItems = allItems.filter((item) => {
+        switch (item.category) {
+          case 'place': return displayOptions.place !== false;
+          case 'accommodation': return displayOptions.accommodation !== false;
+          case 'transportation': return displayOptions.transportation !== false;
+          case 'contents': return displayOptions.contents !== false;
+          case 'service': return displayOptions.service !== false;
+          case 'restaurant': return displayOptions.restaurant !== false;
+          default: return true;
+        }
+      });
+
+      // 아이템 이름: 견적링크와 동일한 우선순위
+      const getItemName = (item: EstimateItemJson) =>
+        item.overrideName || item.itemInfo?.nameEng || item.nameEng || item.name || item.itemName || item.category || 'Tour Item';
+
+      // 총액 계산: DB에 저장된 totalAmount 사용, 없으면 아이템 합산
+      const storedTotal = Number(estimate.totalAmount) || 0;
+      const calculatedTotal = storedTotal > 0
+        ? storedTotal
+        : filteredItems.reduce((sum, item) => sum + (item.isOptional ? 0 : (item.subtotal || 0)), 0)
+          + Number(estimate.manualAdjustment || 0);
+
+      const currency = estimate.currency || 'USD';
+
+      // 아이템 매핑: 가격 표시 여부에 따라 처리
+      const mapItems = (items: EstimateItemJson[]) =>
+        items.slice(0, 10).map((item) => ({
+          name: getItemName(item),
+          quantity: item.quantity || 1,
+          total: showPrice ? (item.subtotal?.toString() || '0') : '',
+        }));
 
       // 해당 견적의 Payment 조회
       const payments = await this.prisma.payment.findMany({
@@ -1011,50 +1067,38 @@ ${orderContext}
 
       if (payments.length === 0) {
         // Payment이 없어도 견적 정보는 반환
-        const items = estimate.items as Array<{ name?: string; nameEng?: string; category?: string; quantity?: number; subtotal?: number }> || [];
         return [{
           orderId: estimate.id,
           status: 'pending',
           statusLabel: 'Quotation (No Payment)',
-          total: '0',
-          currency: 'USD',
-          dateCreated: new Date().toISOString(),
+          total: showPrice ? calculatedTotal.toString() : '',
+          currency,
+          dateCreated: estimate.createdAt?.toISOString() || new Date().toISOString(),
           datePaid: null,
           paymentMethod: 'N/A',
           paymentStatus: 'Unpaid',
           customerName: estimate.customerName || '',
           customerEmail: estimate.customerEmail || '',
-          items: items.slice(0, 10).map((item) => ({
-            name: item.nameEng || item.name || item.category || 'Tour Item',
-            quantity: item.quantity || 1,
-            total: item.subtotal?.toString() || '0',
-          })),
+          items: mapItems(filteredItems),
           source: 'tumakr' as const,
         }];
       }
 
-      return payments.map((p) => {
-        const items = estimate.items as Array<{ name?: string; nameEng?: string; category?: string; quantity?: number; subtotal?: number }> || [];
-        return {
-          orderId: estimate.id,
-          status: p.status,
-          statusLabel: TUMAKR_STATUS_LABELS[p.status] || p.status,
-          total: p.amount.toString(),
-          currency: p.currency || 'USD',
-          dateCreated: p.createdAt.toISOString(),
-          datePaid: p.paidAt?.toISOString() || null,
-          paymentMethod: p.paymentMethod === 'paypal' ? 'PayPal' : p.paymentMethod,
-          paymentStatus: p.paidAt ? 'Paid' : 'Unpaid',
-          customerName: estimate.customerName || '',
-          customerEmail: p.payerEmail || estimate.customerEmail || '',
-          items: items.slice(0, 10).map((item) => ({
-            name: item.nameEng || item.name || item.category || 'Tour Item',
-            quantity: item.quantity || 1,
-            total: item.subtotal?.toString() || '0',
-          })),
-          source: 'tumakr' as const,
-        };
-      });
+      return payments.map((p) => ({
+        orderId: estimate.id,
+        status: p.status,
+        statusLabel: TUMAKR_STATUS_LABELS[p.status] || p.status,
+        total: p.amount.toString(),
+        currency: p.currency || currency,
+        dateCreated: p.createdAt.toISOString(),
+        datePaid: p.paidAt?.toISOString() || null,
+        paymentMethod: p.paymentMethod === 'paypal' ? 'PayPal' : p.paymentMethod,
+        paymentStatus: p.paidAt ? 'Paid' : 'Unpaid',
+        customerName: estimate.customerName || '',
+        customerEmail: p.payerEmail || estimate.customerEmail || '',
+        items: mapItems(filteredItems),
+        source: 'tumakr' as const,
+      }));
     } catch (error) {
       this.logger.error(`Estimate payment lookup error (estimateId: ${estimateId}):`, error);
       return [];
@@ -1081,7 +1125,10 @@ ${orderContext}
         where: {
           customerEmail: { equals: email, mode: 'insensitive' },
         },
-        select: { id: true, title: true, customerName: true, customerEmail: true, items: true },
+        select: {
+          id: true, title: true, customerName: true, customerEmail: true,
+          items: true, displayOptions: true, currency: true,
+        },
         orderBy: { createdAt: 'desc' },
         take: 5,
       });
@@ -1115,7 +1162,10 @@ ${orderContext}
       if (missingEstimateIds.length > 0) {
         const missingEstimates = await this.prisma.estimate.findMany({
           where: { id: { in: missingEstimateIds } },
-          select: { id: true, title: true, customerName: true, customerEmail: true, items: true },
+          select: {
+            id: true, title: true, customerName: true, customerEmail: true,
+            items: true, displayOptions: true, currency: true,
+          },
         });
         for (const e of missingEstimates) {
           estimateMap.set(e.id, e);
@@ -1130,26 +1180,48 @@ ${orderContext}
         cancelled: 'Cancelled',
       };
 
+      type EstimateItemJson = {
+        name?: string; nameEng?: string; itemName?: string;
+        overrideName?: string; category?: string; quantity?: number;
+        subtotal?: number; isOptional?: boolean;
+        itemInfo?: { nameEng?: string; nameKor?: string };
+      };
+      const getItemName = (item: EstimateItemJson) =>
+        item.overrideName || item.itemInfo?.nameEng || item.nameEng || item.name || item.itemName || item.category || 'Tour Item';
+
       return allPayments.map((p) => {
         const estimate = p.estimateId ? estimateMap.get(p.estimateId) : null;
-        const items = estimate?.items as Array<{ name?: string; nameEng?: string; category?: string; quantity?: number; subtotal?: number }> || [];
+        const displayOpts = (estimate as any)?.displayOptions as Record<string, boolean> || {};
+        const showPrice = displayOpts.price !== false;
+        const allItems = (estimate?.items as EstimateItemJson[]) || [];
+        const filteredItems = allItems.filter((item) => {
+          switch (item.category) {
+            case 'place': return displayOpts.place !== false;
+            case 'accommodation': return displayOpts.accommodation !== false;
+            case 'transportation': return displayOpts.transportation !== false;
+            case 'contents': return displayOpts.contents !== false;
+            case 'service': return displayOpts.service !== false;
+            case 'restaurant': return displayOpts.restaurant !== false;
+            default: return true;
+          }
+        });
 
         return {
           orderId: p.estimateId || p.id,
           status: p.status,
           statusLabel: TUMAKR_STATUS_LABELS[p.status] || p.status,
           total: p.amount.toString(),
-          currency: p.currency || 'USD',
+          currency: p.currency || (estimate as any)?.currency || 'USD',
           dateCreated: p.createdAt.toISOString(),
           datePaid: p.paidAt?.toISOString() || null,
           paymentMethod: p.paymentMethod === 'paypal' ? 'PayPal' : p.paymentMethod,
           paymentStatus: p.paidAt ? 'Paid' : 'Unpaid',
           customerName: estimate?.customerName || '',
           customerEmail: p.payerEmail || estimate?.customerEmail || '',
-          items: items.slice(0, 10).map((item) => ({
-            name: item.nameEng || item.name || item.category || 'Tour Item',
+          items: filteredItems.slice(0, 10).map((item) => ({
+            name: getItemName(item),
             quantity: item.quantity || 1,
-            total: item.subtotal?.toString() || '0',
+            total: showPrice ? (item.subtotal?.toString() || '0') : '',
           })),
           source: 'tumakr' as const,
         };

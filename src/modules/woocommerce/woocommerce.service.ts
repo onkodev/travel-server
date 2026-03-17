@@ -118,16 +118,20 @@ export class WooCommerceService {
    */
   formatOrderForContext(order: WcOrderData): string {
     const sourceLabel = order.source === 'tumakr' ? 'Tumakr Quotation' : 'OneDayKorea';
+    const hasPrice = order.total !== '' && order.total !== '0';
     const lines = [
       `[${sourceLabel}] Order #${order.orderId}`,
       `Status: ${order.statusLabel}`,
-      `Total: $${order.total} ${order.currency}`,
+      hasPrice ? `Total: $${order.total} ${order.currency}` : null,
       `Payment: ${order.paymentMethod} (${order.paymentStatus})`,
       `Date: ${order.dateCreated}`,
       order.datePaid ? `Paid: ${order.datePaid}` : null,
       `Customer: ${order.customerName}`,
       `Items:`,
-      ...order.items.map(i => `  - ${i.name} x${i.quantity} ($${i.total})`),
+      ...order.items.map(i => {
+        const priceStr = i.total && i.total !== '0' ? ` ($${i.total})` : '';
+        return `  - ${i.name} x${i.quantity}${priceStr}`;
+      }),
       order.shippingPickupLocation ? `Pickup: ${order.shippingPickupLocation}` : null,
     ];
     return lines.filter(Boolean).join('\n');
