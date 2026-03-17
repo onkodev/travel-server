@@ -177,9 +177,10 @@ export class FaqChatService {
       );
     }
 
-    // ── 주문 조회 인텐트: 임베딩 기반 분류 + 패턴 매칭 보강 ──
+    // ── 주문 조회 인텐트: 임베딩 기반 분류 + 패턴 매칭 + 대화 이력 보강 ──
     let orderData: WcOrderData | WcOrderData[] | undefined;
-    const isOrderInquiry = intent === 'order_inquiry' || this.detectOrderPattern(message);
+    const isOrderFollowUp = this.isOrderInquiryFollowUp(message, history);
+    const isOrderInquiry = intent === 'order_inquiry' || this.detectOrderPattern(message) || isOrderFollowUp;
 
     if (isOrderInquiry) {
       const result = await this.handleOrderInquiry(message, history);
@@ -812,16 +813,65 @@ ${faqGuideline}
   }
 
   /**
+   * 대화 이력에서 이전 봇 응답이 주문 조회 되묻기였는지 확인
+   * → "29450" 같은 단순 숫자/이메일도 주문 조회로 자동 연결
+   */
+  private isOrderInquiryFollowUp(
+    message: string,
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  ): boolean {
+    if (!history || history.length < 2) return false;
+
+    // 현재 메시지에 주문번호(4-6자리) 또는 이메일이 포함되어야 함
+    const hasOrderNum = /\b\d{4,6}\b/.test(message);
+    const hasEmail = /[\w.-]+@[\w.-]+\.\w+/.test(message);
+    if (!hasOrderNum && !hasEmail) return false;
+
+    // 직전 assistant 메시지가 주문번호/이메일을 요청하는 내용인지 확인
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].role === 'assistant') {
+        const content = history[i].content.toLowerCase();
+        if (
+          content.includes('order number') ||
+          content.includes('email') ||
+          content.includes('주문번호') ||
+          content.includes('주문 번호') ||
+          content.includes('look up your order')
+        ) {
+          return true;
+        }
+        break; // 직전 assistant 메시지만 확인
+      }
+    }
+    return false;
+  }
+
+  /**
    * 주문 조회 처리: 메시지에서 주문번호/이메일 추출 → WC API + Tumakr Payment 조회
    */
   private async handleOrderInquiry(
     message: string,
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
   ): Promise<{ answer: string; orderData: WcOrderData | WcOrderData[] } | null> {
-    // 1. 주문번호 추출 (4-6자리 숫자)
-    const orderNumMatch = message.match(/\b(\d{4,6})\b/);
-    // 2. 이메일 추출
-    const emailMatch = message.match(/([\w.-]+@[\w.-]+\.\w+)/);
+    // 1. 주문번호 추출 (4-6자리 숫자) — 현재 메시지 우선, 없으면 이력에서 추출
+    let orderNumMatch = message.match(/\b(\d{4,6})\b/);
+    // 2. 이메일 추출 — 현재 메시지 우선, 없으면 이력에서 추출
+    let emailMatch = message.match(/([\w.-]+@[\w.-]+\.\w+)/);
+
+    // 현재 메시지에서 못 찾으면 대화 이력의 user 메시지에서도 추출 시도
+    if (!orderNumMatch && !emailMatch && history?.length) {
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].role !== 'user') continue;
+        const prevMsg = history[i].content;
+        if (!orderNumMatch) {
+          orderNumMatch = prevMsg.match(/\b(\d{4,6})\b/);
+        }
+        if (!emailMatch) {
+          emailMatch = prevMsg.match(/([\w.-]+@[\w.-]+\.\w+)/);
+        }
+        if (orderNumMatch || emailMatch) break;
+      }
+    }
 
     let orders: WcOrderData[] = [];
 
