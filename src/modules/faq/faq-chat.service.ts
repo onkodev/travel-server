@@ -152,6 +152,41 @@ export class FaqChatService {
     chatLogId?: number;
     orderData?: WcOrderData | WcOrderData[];
   }> {
+    // ── Fast-path: 명확한 주문/견적 조회 패턴은 임베딩/인텐트 분류 스킵 ──
+    if (this.detectOrderPattern(message) || this.isOrderInquiryFollowUp(message, history)) {
+      this.logger.debug(`Order fast-path triggered for: "${message.substring(0, 50)}"`);
+      const result = await this.handleOrderInquiry(message, history);
+      if (result) {
+        return {
+          answer: formatUrlsAsMarkdown(stripMarkdownLinks(result.answer)),
+          noMatch: false,
+          responseTier: 'order_inquiry',
+          chatLogId: await this.saveOrderChatLog(message, result.answer, meta),
+          orderData: result.orderData,
+        };
+      }
+      const askMessage = "Could you please provide your **order number** or the **email address** you used when booking? I'll look up your order right away!";
+      return {
+        answer: askMessage,
+        noMatch: false,
+        responseTier: 'order_inquiry',
+        chatLogId: await this.saveOrderChatLog(message, askMessage, meta),
+      };
+    }
+
+    // ── Fast-path: 주문 조회 후속 질문 (임베딩 불필요) ──
+    const orderContextText = this.extractOrderContextFromHistory(history);
+    if (orderContextText && this.isOrderRelatedFollowUp(message)) {
+      this.logger.debug(`Order follow-up fast-path triggered for: "${message.substring(0, 50)}"`);
+      const result = await this.handleOrderFollowUp(message, history!, orderContextText);
+      return {
+        answer: formatUrlsAsMarkdown(stripMarkdownLinks(result.answer)),
+        noMatch: false,
+        responseTier: 'order_inquiry',
+        chatLogId: await this.saveOrderChatLog(message, result.answer, meta),
+      };
+    }
+
     // 1. 임베딩 1회 생성 → FAQ 검색 + 투어 검색 + 의도 분류에 재사용
     const queryEmbedding =
       await this.embeddingService.generateEmbedding(message);
@@ -182,41 +217,24 @@ export class FaqChatService {
       );
     }
 
-    // ── 주문 조회 인텐트: 임베딩 기반 분류 + 패턴 매칭 + 대화 이력 보강 ──
-    let orderData: WcOrderData | WcOrderData[] | undefined;
-    const isOrderFollowUp = this.isOrderInquiryFollowUp(message, history);
-    const isOrderInquiry = intent === 'order_inquiry' || this.detectOrderPattern(message) || isOrderFollowUp;
-
-    if (isOrderInquiry) {
+    // ── 주문 조회 인텐트 폴백: 패턴 매칭에 안 걸렸지만 임베딩 분류가 order_inquiry인 경우 ──
+    if (intent === 'order_inquiry') {
       const result = await this.handleOrderInquiry(message, history);
       if (result) {
         return {
-          answer: result.answer,
+          answer: formatUrlsAsMarkdown(stripMarkdownLinks(result.answer)),
           noMatch: false,
           responseTier: 'order_inquiry',
           chatLogId: await this.saveOrderChatLog(message, result.answer, meta),
           orderData: result.orderData,
         };
       }
-      // 주문번호/이메일 추출 실패 시 되묻기
       const askMessage = "Could you please provide your **order number** or the **email address** you used when booking? I'll look up your order right away!";
       return {
         answer: askMessage,
         noMatch: false,
         responseTier: 'order_inquiry',
         chatLogId: await this.saveOrderChatLog(message, askMessage, meta),
-      };
-    }
-
-    // ── 주문 조회 후속 질문: history에 주문 데이터가 있으면 컨텍스트 유지 ──
-    const orderContextText = this.extractOrderContextFromHistory(history);
-    if (orderContextText && this.isOrderRelatedFollowUp(message, intent)) {
-      const result = await this.handleOrderFollowUp(message, history!, orderContextText);
-      return {
-        answer: formatUrlsAsMarkdown(stripMarkdownLinks(result.answer)),
-        noMatch: false,
-        responseTier: 'order_inquiry',
-        chatLogId: await this.saveOrderChatLog(message, result.answer, meta),
       };
     }
 
@@ -1282,9 +1300,9 @@ ${orderContext}
    */
   private isOrderRelatedFollowUp(
     message: string,
-    intent: string,
+    intent?: string,
   ): boolean {
-    // 예외 1: 새로운 투어 추천 요청
+    // 예외 1: 새로운 투어 추천 요청 (인텐트가 제공된 경우에만)
     if (intent === 'tour_recommend') return false;
 
     // 예외 2: 명시적 주제 전환 신호
