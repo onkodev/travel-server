@@ -87,6 +87,7 @@ export class ContactService {
           { name: { contains: trimmed, mode: 'insensitive' } },
           { email: { contains: trimmed, mode: 'insensitive' } },
           { message: { contains: trimmed, mode: 'insensitive' } },
+          { reply: { contains: trimmed, mode: 'insensitive' } },
         ];
       }
     }

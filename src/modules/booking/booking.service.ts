@@ -73,9 +73,13 @@ export class BookingService {
     if (sanitized) {
       where.OR = [
         { confirmationCode: { contains: sanitized, mode: 'insensitive' } },
+        { tourTitle: { contains: sanitized, mode: 'insensitive' } },
         { customerEmail: { contains: sanitized, mode: 'insensitive' } },
         { customerFirstName: { contains: sanitized, mode: 'insensitive' } },
         { customerLastName: { contains: sanitized, mode: 'insensitive' } },
+        { customerPhone: { contains: sanitized, mode: 'insensitive' } },
+        { specialRequests: { contains: sanitized, mode: 'insensitive' } },
+        { adminMemo: { contains: sanitized, mode: 'insensitive' } },
       ];
     }
 

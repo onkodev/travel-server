@@ -90,4 +90,10 @@ export class AdminFlowQueryDto {
   )
   @IsBoolean()
   hasEstimate?: boolean;
+
+  @ApiPropertyOptional({ description: '통합 검색 (고객명, 이메일, 전화번호, 게스트명, 메모, 태그)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  search?: string;
 }

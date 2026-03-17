@@ -104,7 +104,7 @@ export class TourService {
     const sanitized = sanitizeSupabaseSearch(search);
     if (sanitized) {
       query = query.or(
-        `title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`,
+        `title.ilike.%${sanitized}%,subtitle.ilike.%${sanitized}%,description.ilike.%${sanitized}%,meeting_point.ilike.%${sanitized}%`,
       );
     }
 
@@ -158,7 +158,7 @@ export class TourService {
     const sanitized = sanitizeSupabaseSearch(search);
     if (sanitized) {
       query = query.or(
-        `title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`,
+        `title.ilike.%${sanitized}%,subtitle.ilike.%${sanitized}%,description.ilike.%${sanitized}%,meeting_point.ilike.%${sanitized}%`,
       );
     }
 

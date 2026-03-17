@@ -58,6 +58,11 @@ export class ReviewQueryDto extends PaginationQueryDto {
   @Transform(({ value }) => value === 'true')
   @IsBoolean()
   isVisible?: boolean;
+
+  @ApiPropertyOptional({ description: '검색 키워드 (작성자명, 내용)' })
+  @IsOptional()
+  @IsString()
+  keyword?: string;
 }
 
 export class CreateReviewDto {

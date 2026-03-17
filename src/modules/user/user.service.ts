@@ -72,7 +72,7 @@ export class UserService {
     // 키워드 검색
     const keyword = sanitizeSearch(params.keyword);
     if (keyword) {
-      query = query.or(`name.ilike.%${keyword}%,email.ilike.%${keyword}%`);
+      query = query.or(`name.ilike.%${keyword}%,email.ilike.%${keyword}%,phone.ilike.%${keyword}%`);
     }
 
     // 활성 상태 필터

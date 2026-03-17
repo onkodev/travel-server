@@ -88,7 +88,9 @@ export class FaqService {
           { questionKo: { contains: search, mode: 'insensitive' } },
           { guideline: { contains: search, mode: 'insensitive' } },
           { reference: { contains: search, mode: 'insensitive' } },
+          { category: { contains: search, mode: 'insensitive' } },
           { tags: { has: search.toLowerCase() } },
+          { alternativeQuestions: { hasSome: [search] } },
         ];
       }
     }

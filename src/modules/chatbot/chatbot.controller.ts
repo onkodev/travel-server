@@ -161,6 +161,7 @@ export class ChatbotController {
       sortDirection: query.sortDirection,
       estimateStatus: query.estimateStatus || undefined,
       hasEstimate: query.hasEstimate,
+      search: query.search,
     });
   }
 

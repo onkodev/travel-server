@@ -160,12 +160,13 @@ export class EstimateService {
       }
     }
 
-    // 통합 검색 (제목, 고객명, 내부메모, 코멘트 — customerEmail 제외)
+    // 통합 검색 (제목, 고객명, 이메일, 내부메모, 코멘트)
     const sanitized = sanitizeSearch(search);
     if (sanitized) {
       where.OR = [
         { title: { contains: sanitized, mode: 'insensitive' } },
         { customerName: { contains: sanitized, mode: 'insensitive' } },
+        { customerEmail: { contains: sanitized, mode: 'insensitive' } },
         { internalMemo: { contains: sanitized, mode: 'insensitive' } },
         { comment: { contains: sanitized, mode: 'insensitive' } },
       ];

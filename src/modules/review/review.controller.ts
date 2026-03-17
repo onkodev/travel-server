@@ -58,6 +58,7 @@ export class ReviewController {
       limit: query.limit,
       tourId: query.tourId,
       isVisible: query.isVisible,
+      keyword: query.keyword,
     });
   }
 

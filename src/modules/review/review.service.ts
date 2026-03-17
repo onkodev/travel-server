@@ -17,8 +17,9 @@ export class ReviewService {
     limit?: number;
     tourId?: number;
     isVisible?: boolean;
+    keyword?: string;
   }) {
-    const { page = 1, limit = 20, tourId, isVisible } = params;
+    const { page = 1, limit = 20, tourId, isVisible, keyword } = params;
     const skip = calculateSkip(page, limit);
 
     const where: Prisma.ReviewWhereInput = {};
@@ -29,6 +30,16 @@ export class ReviewService {
 
     if (isVisible !== undefined) {
       where.isVisible = isVisible;
+    }
+
+    if (keyword) {
+      const trimmed = keyword.trim();
+      if (trimmed) {
+        where.OR = [
+          { reviewerName: { contains: trimmed, mode: 'insensitive' } },
+          { content: { contains: trimmed, mode: 'insensitive' } },
+        ];
+      }
     }
 
     const [reviews, total] = await Promise.all([

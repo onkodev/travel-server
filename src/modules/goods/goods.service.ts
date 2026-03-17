@@ -45,6 +45,7 @@ export class GoodsService {
         { name: { contains: search, mode: 'insensitive' } },
         { nameKor: { contains: search, mode: 'insensitive' } },
         { description: { contains: search, mode: 'insensitive' } },
+        { tags: { hasSome: [search] } },
       ];
     }
 
@@ -97,6 +98,7 @@ export class GoodsService {
         { name: { contains: search, mode: 'insensitive' } },
         { nameKor: { contains: search, mode: 'insensitive' } },
         { description: { contains: search, mode: 'insensitive' } },
+        { tags: { hasSome: [search] } },
       ];
     }
 

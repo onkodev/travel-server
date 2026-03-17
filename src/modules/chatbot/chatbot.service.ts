@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
-import { isValidUUID, formatDateISO } from '../../common/utils';
+import { isValidUUID, formatDateISO, sanitizeSearch } from '../../common/utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ESTIMATE_STATUS } from '../estimate/dto';
 import { ChatbotStepResponseService } from './chatbot-step-response.service';
@@ -565,6 +565,7 @@ export class ChatbotService {
     sortDirection?: string;
     estimateStatus?: string;
     hasEstimate?: boolean;
+    search?: string;
   }) {
     const {
       page = 1,
@@ -577,6 +578,7 @@ export class ChatbotService {
       sortDirection,
       estimateStatus,
       hasEstimate,
+      search,
     } = params;
     const skip = calculateSkip(page, limit);
 
@@ -618,6 +620,21 @@ export class ChatbotService {
       where.estimateId = { not: null };
     } else if (hasEstimate === false) {
       where.estimateId = null;
+    }
+
+    // 통합 검색
+    const sanitized = sanitizeSearch(search);
+    if (sanitized) {
+      where.OR = [
+        { customerName: { contains: sanitized, mode: 'insensitive' } },
+        { customerEmail: { contains: sanitized, mode: 'insensitive' } },
+        { customerPhone: { contains: sanitized, mode: 'insensitive' } },
+        { guestName: { contains: sanitized, mode: 'insensitive' } },
+        { guestEmail: { contains: sanitized, mode: 'insensitive' } },
+        { adminMemo: { contains: sanitized, mode: 'insensitive' } },
+        { additionalNotes: { contains: sanitized, mode: 'insensitive' } },
+        { adminTags: { hasSome: [sanitized] } },
+      ];
     }
 
     // 정렬 로직
