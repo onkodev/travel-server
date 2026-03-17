@@ -58,6 +58,11 @@ const INTENT_REFERENCES: Record<string, string[]> = {
     'I booked a tour and want to confirm',
     'Can you look up my order?',
     'Payment confirmation',
+    'Check my estimate',
+    'I want to see my quotation',
+    'Estimate number 123',
+    'Check estimate status',
+    'What is the status of my quotation?',
   ],
 };
 
@@ -802,11 +807,19 @@ ${faqGuideline}
     // 주문번호 패턴 (4-6자리 숫자 or # 접두사)
     if (/(?:#|order\s*#?\s*|주문\s*번호?\s*#?\s*)?\b\d{4,6}\b/i.test(message)) {
       // 단순 숫자만 있는 경우 맥락도 확인
-      const hasOrderContext = /order|booking|check|confirm|status|주문|예약|확인|결제/i.test(message);
+      const hasOrderContext = /order|booking|check|confirm|status|주문|예약|확인|결제|estimate|quotation|견적/i.test(message);
       if (hasOrderContext) return true;
     }
+    // estimate/quotation/견적 패턴 (estimate #123, quotation 123, 견적 123)
+    if (/(?:estimate|quotation|견적)\s*#?\s*\d+/i.test(message)) {
+      return true;
+    }
+    // estimate/quotation/견적 키워드 + 숫자 조합
+    if (/estimate|quotation|견적/i.test(message) && /\d+/.test(message)) {
+      return true;
+    }
     // 이메일 + 주문 맥락
-    if (/[\w.-]+@[\w.-]+\.\w+/.test(message) && /order|booking|check|confirm|주문|예약|확인/i.test(message)) {
+    if (/[\w.-]+@[\w.-]+\.\w+/.test(message) && /order|booking|check|confirm|주문|예약|확인|estimate|quotation|견적/i.test(message)) {
       return true;
     }
     return false;
@@ -875,7 +888,19 @@ ${faqGuideline}
 
     let orders: WcOrderData[] = [];
 
-    if (orderNumMatch) {
+    // estimate/quotation 키워드가 있으면 estimateId로 직접 조회
+    const isEstimateQuery = /estimate|quotation|견적/i.test(message) ||
+      (history?.some(h => /estimate|quotation|견적/i.test(h.content)) ?? false);
+
+    if (isEstimateQuery && orderNumMatch) {
+      const estimateId = parseInt(orderNumMatch[1], 10);
+      const estimateOrders = await this.getEstimatePaymentInfo(estimateId);
+      if (estimateOrders.length > 0) {
+        orders = estimateOrders;
+      }
+    }
+
+    if (orders.length === 0 && orderNumMatch) {
       const orderId = parseInt(orderNumMatch[1], 10);
       const order = await this.wooCommerceService.getOrderById(orderId);
       if (order) orders = [order];
@@ -952,6 +977,87 @@ ${orderContext}
     } catch (err) {
       this.logger.error('주문 조회 채팅 로그 저장 실패:', err);
       return undefined;
+    }
+  }
+
+  /**
+   * 견적 ID로 직접 결제/견적 정보 조회
+   */
+  private async getEstimatePaymentInfo(estimateId: number): Promise<WcOrderData[]> {
+    try {
+      const estimate = await this.prisma.estimate.findUnique({
+        where: { id: estimateId },
+        select: { id: true, title: true, customerName: true, customerEmail: true, items: true },
+      });
+
+      if (!estimate) return [];
+
+      // 해당 견적의 Payment 조회
+      const payments = await this.prisma.payment.findMany({
+        where: {
+          estimateId: estimateId,
+          status: { in: ['completed', 'pending', 'refunded'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const TUMAKR_STATUS_LABELS: Record<string, string> = {
+        pending: 'Pending Payment',
+        completed: 'Completed',
+        failed: 'Failed',
+        refunded: 'Refunded',
+        cancelled: 'Cancelled',
+      };
+
+      if (payments.length === 0) {
+        // Payment이 없어도 견적 정보는 반환
+        const items = estimate.items as Array<{ name?: string; nameEng?: string; category?: string; quantity?: number; subtotal?: number }> || [];
+        return [{
+          orderId: estimate.id,
+          status: 'pending',
+          statusLabel: 'Quotation (No Payment)',
+          total: '0',
+          currency: 'USD',
+          dateCreated: new Date().toISOString(),
+          datePaid: null,
+          paymentMethod: 'N/A',
+          paymentStatus: 'Unpaid',
+          customerName: estimate.customerName || '',
+          customerEmail: estimate.customerEmail || '',
+          items: items.slice(0, 10).map((item) => ({
+            name: item.nameEng || item.name || item.category || 'Tour Item',
+            quantity: item.quantity || 1,
+            total: item.subtotal?.toString() || '0',
+          })),
+          source: 'tumakr' as const,
+        }];
+      }
+
+      return payments.map((p) => {
+        const items = estimate.items as Array<{ name?: string; nameEng?: string; category?: string; quantity?: number; subtotal?: number }> || [];
+        return {
+          orderId: estimate.id,
+          status: p.status,
+          statusLabel: TUMAKR_STATUS_LABELS[p.status] || p.status,
+          total: p.amount.toString(),
+          currency: p.currency || 'USD',
+          dateCreated: p.createdAt.toISOString(),
+          datePaid: p.paidAt?.toISOString() || null,
+          paymentMethod: p.paymentMethod === 'paypal' ? 'PayPal' : p.paymentMethod,
+          paymentStatus: p.paidAt ? 'Paid' : 'Unpaid',
+          customerName: estimate.customerName || '',
+          customerEmail: p.payerEmail || estimate.customerEmail || '',
+          items: items.slice(0, 10).map((item) => ({
+            name: item.nameEng || item.name || item.category || 'Tour Item',
+            quantity: item.quantity || 1,
+            total: item.subtotal?.toString() || '0',
+          })),
+          source: 'tumakr' as const,
+        };
+      });
+    } catch (error) {
+      this.logger.error(`Estimate payment lookup error (estimateId: ${estimateId}):`, error);
+      return [];
     }
   }
 
