@@ -803,6 +803,20 @@ export class ChatbotController {
   @ApiParam({ name: 'sessionId', description: '세션 ID' })
   @ApiResponse({ status: 200, description: '활성화 성공' })
   async activateLiveChat(@Param('sessionId') sessionId: string) {
+    // 서울시간(KST) 기준 운영시간 체크: 10:00 ~ 19:00
+    const seoulNow = new Date(
+      new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }),
+    );
+    const hour = seoulNow.getHours();
+    if (hour < 10 || hour >= 19) {
+      return {
+        success: false,
+        reason: 'outside_operating_hours',
+        message:
+          'Live chat is available from 10:00 AM to 7:00 PM (KST). Please try again during operating hours.',
+      };
+    }
+
     const flow = await this.chatbotService.getFlow(sessionId);
 
     // 이미 라이브챗 활성 상태면 중복 알림 방지
